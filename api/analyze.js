@@ -1,7 +1,10 @@
 import OpenAI from 'openai';
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 
-export const config = { api: { bodyParser: { sizeLimit: '4mb' } } };
+// Vercel Serverless Config
+export const config = { 
+    api: { bodyParser: { sizeLimit: '4mb' } } 
+};
 
 const githubAi = new OpenAI({
     baseURL: "https://models.inference.ai.azure.com",
@@ -9,16 +12,16 @@ const githubAi = new OpenAI({
 });
 
 // ==========================================
-// THE PROMPTS (Deep Clinical Extraction)
+// 1. THE PROMPTS (Deep Clinical Extraction)
 // ==========================================
 const EXTRACTOR_PROMPT = `You are a Surgical Data Extraction Agent analyzing a FULL-TEXT clinical trial. 
 Extract detailed PICO data, baseline demographics, secondary outcomes, and adverse events. 
 Identify the primary endpoint and extract its statistical significance (p-values, HRs, CIs).
-If there is a survival or time-to-event analysis (Kaplan-Meier), extract the cumulative incidence or survival percentages at multiple specific time intervals for both arms.
+If there is a survival or time-to-event analysis (Kaplan-Meier), extract the cumulative incidence or survival percentages at multiple specific time intervals (e.g., 0, 30, 60, 90 days) for all arms.
 Assess methodological limitations and Risk of Bias.`;
 
 const ADJUDICATOR_PROMPT = `You are the Chief of Surgery and an EBM expert.
-Synthesize the Extractor reports against the Source Text. 
+Compare the two provided extraction reports. Resolve discrepancies and create a single, unified synthesis.
 You MUST output STRICTLY in this JSON schema:
 {
   "metadata": { "trial_identification": "String", "study_design": "String" },
@@ -29,7 +32,7 @@ You MUST output STRICTLY in this JSON schema:
       "intervention": "String", 
       "control": "String", 
       "primary_outcome": "String",
-      "secondary_outcomes": ["String", "String"]
+      "secondary_outcomes": ["String"]
     },
     "baseline_characteristics": "String",
     "critical_appraisal": { "grade_certainty": "String", "risk_of_bias": "String", "limitations": "String" },
@@ -53,28 +56,30 @@ You MUST output STRICTLY in this JSON schema:
   }
 }
 
-CRITICAL INSTRUCTIONS FOR KAPLAN-MEIER CURVES:
-If recommending 'stepped-line', the 'data_points' array MUST contain multiple time-series steps. For example, x: '0 months', y: 100; x: '12 months', y: 85; x: '24 months', y: 70. Ensure the 'x' values are identical across all arms to align the chart axes.`;
+CRITICAL INSTRUCTIONS FOR KAPLAN-MEIER:
+1. Use 'stepped-line' for survival/time-to-event data.
+2. Provide 4-5 data points (e.g., '0d', '30d', '60d', '90d') to form a proper curve.
+3. Ensure y-values are numeric (e.g., 0.95 for 95%).
+4. If data is missing for a timepoint, estimate based on the trend or mark as null.`;
 
 // ==========================================
-// ROUTERS (Europe PMC, URL, and PDF)
+// 2. DATA FETCHING ROUTERS
 // ==========================================
 async function fetchTrialData(query, isPmid = false) {
     const searchQuery = isPmid ? `ext_id:${query}` : query;
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(searchQuery)}&resultType=core&format=json`;
     const response = await fetch(url);
-    if (!response.ok) throw new Error("Failed to fetch data from Europe PMC.");
+    if (!response.ok) throw new Error("Europe PMC unreachable.");
     const data = await response.json();
-    if (!data.resultList || !data.resultList.result || data.resultList.result.length === 0) return "Error: No trial data found.";
+    if (!data.resultList?.result?.length) return "Error: No trial found.";
     const article = data.resultList.result[0];
-    const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : "No abstract available.";
-    return `TITLE: ${article.title || "Unknown"}\n\nABSTRACT:\n${abstract}`;
+    const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : "No abstract.";
+    return `TITLE: ${article.title}\n\nABSTRACT: ${abstract}`;
 }
 
 async function fetchFromUrl(targetUrl) {
-    const jinaUrl = `https://r.jina.ai/${targetUrl}`;
-    const response = await fetch(jinaUrl);
-    if (!response.ok) throw new Error("Failed to extract text from URL.");
+    const response = await fetch(`https://r.jina.ai/${targetUrl}`);
+    if (!response.ok) throw new Error("URL extraction failed.");
     return await response.text();
 }
 
@@ -85,7 +90,7 @@ async function extractTextFromPDF(base64Data) {
 }
 
 // ==========================================
-// MAIN API HANDLER
+// 3. MAIN HANDLER
 // ==========================================
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', true);
@@ -99,40 +104,39 @@ export default async function handler(req, res) {
     try {
         const { inputPayload, isPdf } = req.body;
         let textToAnalyze = "";
-        let dataSource = "Raw Text";
+        let dataSource = "";
 
         if (isPdf) {
-            dataSource = "Uploaded Full-Text PDF";
+            dataSource = "Full-Text PDF";
             textToAnalyze = await extractTextFromPDF(inputPayload);
         } else {
-            const inputTrimmed = inputPayload.trim();
-            if (/^\d{7,8}$/.test(inputTrimmed)) {
-                dataSource = `EuropePMC (PMID: ${inputTrimmed})`;
-                textToAnalyze = await fetchTrialData(inputTrimmed, true);
-            } else if (inputTrimmed.startsWith('http://') || inputTrimmed.startsWith('https://')) {
-                dataSource = `Web Extraction (${inputTrimmed})`;
-                textToAnalyze = await fetchFromUrl(inputTrimmed);
-            } else if (inputTrimmed.length < 150) {
-                dataSource = `EuropePMC Search (${inputTrimmed})`;
-                textToAnalyze = await fetchTrialData(inputTrimmed, false);
+            const trimmed = inputPayload.trim();
+            if (/^\d{7,8}$/.test(trimmed)) {
+                dataSource = `PMID: ${trimmed}`;
+                textToAnalyze = await fetchTrialData(trimmed, true);
+            } else if (trimmed.startsWith('http')) {
+                dataSource = `URL: ${trimmed}`;
+                textToAnalyze = await fetchFromUrl(trimmed);
+            } else if (trimmed.length < 150) {
+                dataSource = `Search: ${trimmed}`;
+                textToAnalyze = await fetchTrialData(trimmed, false);
             } else {
-                dataSource = "Pasted Raw Text";
-                textToAnalyze = inputTrimmed;
+                dataSource = "Pasted Text";
+                textToAnalyze = trimmed;
             }
         }
 
-        // Free tier limitation (methods, results, tables)
-        if (textToAnalyze.length > 25000) textToAnalyze = textToAnalyze.substring(0, 25000);
-
+        // Truncate to stay within 8k token limit (Source + Prompts + Response)
+        if (textToAnalyze.length > 18000) textToAnalyze = textToAnalyze.substring(0, 18000);
         const sourceContext = `[SOURCE: ${dataSource}]\n\n${textToAnalyze}`;
 
-        const [extractorAResult, extractorBResult] = await Promise.all([
+        // NODE 1 & 2: Parallel Extraction
+        const [reportA, reportB] = await Promise.all([
             githubAi.chat.completions.create({
                 model: "gpt-4o-mini",
                 messages: [{ role: "system", content: EXTRACTOR_PROMPT }, { role: "user", content: sourceContext }],
                 temperature: 0.1
             }).then(res => res.choices[0].message.content),
-
             githubAi.chat.completions.create({
                 model: "gpt-4o-mini",
                 messages: [{ role: "system", content: EXTRACTOR_PROMPT }, { role: "user", content: sourceContext }],
@@ -140,14 +144,12 @@ export default async function handler(req, res) {
             }).then(res => res.choices[0].message.content)
         ]);
 
-        const adjudicationPrompt = `
-        SOURCE TEXT:\n${sourceContext}\n\n
-        ---
-        EXTRACTOR A:\n${extractorAResult}\n\n
-        ---
-        EXTRACTOR B:\n${extractorBResult}\n\n
-        ---
-        Adjudicate and output the final JSON payload.`;
+        // NODE 3: Adjudication (Smart Truncation: No source text passed here to save tokens)
+        const adjudicationPrompt = `Compare these two reports and generate the final unified JSON.
+        
+        REPORT A: ${reportA}
+        
+        REPORT B: ${reportB}`;
 
         const finalResponse = await githubAi.chat.completions.create({
             model: "gpt-4o",
@@ -156,11 +158,10 @@ export default async function handler(req, res) {
             temperature: 0.0
         });
 
-        const jsonResult = JSON.parse(finalResponse.choices[0].message.content);
-        return res.status(200).json(jsonResult);
+        return res.status(200).json(JSON.parse(finalResponse.choices[0].message.content));
 
     } catch (error) {
-        console.error("Outcomelogic API Error:", error);
-        return res.status(500).json({ error: "Failed to process the text.", details: error.message });
+        console.error("API Error:", error);
+        return res.status(500).json({ error: "Processing failed.", details: error.message });
     }
 }
