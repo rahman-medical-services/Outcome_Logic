@@ -43,21 +43,35 @@ You MUST return your final synthesis strictly as a JSON object matching this exa
 }`;
 
 // ==========================================
-// 3. THE PRE-FLIGHT ROUTER (PUBMED)
+// 3. THE PRE-FLIGHT ROUTER (EUROPE PMC)
 // ==========================================
 async function fetchPubMedAbstract(pmid) {
-    // We added &tool and &email to comply with US Govt API rules and bypass the block
-    const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmid}&retmode=text&rettype=abstract&tool=outcomelogic&email=admin@rahmanmedical.co.uk`;
+    // Bypassing US NCBI and using Europe PMC's modern JSON API
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=ext_id:${pmid}&resultType=core&format=json`;
     
     const response = await fetch(url);
-    if (!response.ok) throw new Error("Failed to fetch abstract from PubMed.");
+    if (!response.ok) throw new Error("Failed to fetch abstract from Europe PMC.");
     
-    const text = await response.text();
+    const data = await response.json();
     
-    // Diagnostic log: This prints the first 100 characters of the paper in your Vercel Logs!
-    console.log(`PubMed successfully fetched PMID ${pmid}:`, text.substring(0, 100) + "..."); 
+    // Safety check if the PMID doesn't exist
+    if (!data.resultList || !data.resultList.result || data.resultList.result.length === 0) {
+        return "Error: No trial data found for this PMID.";
+    }
     
-    return text;
+    const article = data.resultList.result[0];
+    const title = article.title || "Unknown Title";
+    const abstract = article.abstractText || "No abstract text available.";
+    
+    // Strip out any HTML tags (like <b> or <i>) so the AI gets pure text
+    const cleanAbstract = abstract.replace(/<[^>]*>?/gm, '');
+    
+    const extractedText = `TITLE: ${title}\n\nABSTRACT:\n${cleanAbstract}`;
+    
+    // Diagnostic log in Vercel
+    console.log(`SUCCESSFULLY FETCHED PMID ${pmid}:`, extractedText.substring(0, 100) + "...");
+    
+    return extractedText;
 }
 // ==========================================
 // 4. THE MAIN API HANDLER
