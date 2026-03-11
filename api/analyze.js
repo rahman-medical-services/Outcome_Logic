@@ -46,12 +46,19 @@ You MUST return your final synthesis strictly as a JSON object matching this exa
 // 3. THE PRE-FLIGHT ROUTER (PUBMED)
 // ==========================================
 async function fetchPubMedAbstract(pmid) {
-    const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmid}&retmode=text&rettype=abstract`;
+    // We added &tool and &email to comply with US Govt API rules and bypass the block
+    const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmid}&retmode=text&rettype=abstract&tool=outcomelogic&email=admin@rahmanmedical.co.uk`;
+    
     const response = await fetch(url);
     if (!response.ok) throw new Error("Failed to fetch abstract from PubMed.");
-    return await response.text();
+    
+    const text = await response.text();
+    
+    // Diagnostic log: This prints the first 100 characters of the paper in your Vercel Logs!
+    console.log(`PubMed successfully fetched PMID ${pmid}:`, text.substring(0, 100) + "..."); 
+    
+    return text;
 }
-
 // ==========================================
 // 4. THE MAIN API HANDLER
 // ==========================================
