@@ -78,7 +78,7 @@ export default async function handler(req, res) {
 
         const sourceContext = `[SOURCE: ${dataSource}]\n\n${textToAnalyze}`;
 
-        // ---------------------------------------------------------
+    // ---------------------------------------------------------
         // NODE 1 & 2: PARALLEL EXTRACTION (The "Registrars")
         // ---------------------------------------------------------
         const [extractorAResult, extractorBResult] = await Promise.all([
@@ -92,14 +92,14 @@ export default async function handler(req, res) {
                 temperature: 0.1
             }).then(res => res.choices[0].message.content),
 
-            // Extractor B: Llama 3.1 70B
+            // Extractor B: GPT-4o-mini (Acting as second independent reviewer)
             githubAi.chat.completions.create({
-                model: "Meta-Llama-3.1-70B-Instruct",
+                model: "gpt-4o-mini",
                 messages: [
                     { role: "system", content: EXTRACTOR_PROMPT },
                     { role: "user", content: sourceContext }
                 ],
-                temperature: 0.1
+                temperature: 0.2 // Slightly higher temperature for independent variance
             }).then(res => res.choices[0].message.content)
         ]);
 
