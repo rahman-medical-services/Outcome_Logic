@@ -119,7 +119,9 @@ export default async function handler(req, res) {
         }
 
         // Safeguard: Truncate text if it somehow exceeds 100k characters (unlikely for 1 paper)
-        if (textToAnalyze.length > 100000) textToAnalyze = textToAnalyze.substring(0, 100000);
+       // MVP Safeguard: Microsoft's free tier caps at 8000 tokens (~25,000 characters). 
+// This captures the Methods & Results while chopping off the References.
+if (textToAnalyze.length > 25000) textToAnalyze = textToAnalyze.substring(0, 25000);
 
         const sourceContext = `[SOURCE: ${dataSource}]\n\n${textToAnalyze}`;
 
