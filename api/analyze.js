@@ -43,41 +43,38 @@ You MUST return your final synthesis strictly as a JSON object matching this exa
 }`;
 
 // ==========================================
-// 3. THE PRE-FLIGHT ROUTER (EUROPE PMC)
+// 3. THE UNIVERSAL PRE-FLIGHT ROUTER
 // ==========================================
-async function fetchPubMedAbstract(pmid) {
-    // Bypassing US NCBI and using Europe PMC's modern JSON API
-    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=ext_id:${pmid}&resultType=core&format=json`;
+async function fetchTrialData(query, isPmid = false) {
+    // If it's a PMID, search by ID. Otherwise, do a general keyword/acronym search.
+    const searchQuery = isPmid ? `ext_id:${query}` : query;
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(searchQuery)}&resultType=core&format=json`;
     
     const response = await fetch(url);
-    if (!response.ok) throw new Error("Failed to fetch abstract from Europe PMC.");
-    
+    if (!response.ok) throw new Error("Failed to fetch data from Europe PMC.");
     const data = await response.json();
     
-    // Safety check if the PMID doesn't exist
     if (!data.resultList || !data.resultList.result || data.resultList.result.length === 0) {
-        return "Error: No trial data found for this PMID.";
+        return "Error: No trial data found.";
     }
     
+    // Grab the most relevant top result
     const article = data.resultList.result[0];
-    const title = article.title || "Unknown Title";
-    const abstract = article.abstractText || "No abstract text available.";
-    
-    // Strip out any HTML tags (like <b> or <i>) so the AI gets pure text
-    const cleanAbstract = abstract.replace(/<[^>]*>?/gm, '');
-    
-    const extractedText = `TITLE: ${title}\n\nABSTRACT:\n${cleanAbstract}`;
-    
-    // Diagnostic log in Vercel
-    console.log(`SUCCESSFULLY FETCHED PMID ${pmid}:`, extractedText.substring(0, 100) + "...");
-    
-    return extractedText;
+    const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : "No abstract available.";
+    return `TITLE: ${article.title || "Unknown"}\n\nABSTRACT:\n${abstract}`;
 }
+
+async function fetchFromUrl(targetUrl) {
+    const jinaUrl = `https://r.jina.ai/${targetUrl}`;
+    const response = await fetch(jinaUrl);
+    if (!response.ok) throw new Error("Failed to extract text from URL.");
+    return await response.text();
+}
+
 // ==========================================
 // 4. THE MAIN API HANDLER
 // ==========================================
 export default async function handler(req, res) {
-    // CORS configuration for Squarespace
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
@@ -90,14 +87,31 @@ export default async function handler(req, res) {
         const { inputPayload } = req.body;
         let textToAnalyze = inputPayload;
         let dataSource = "Raw Text";
+        const inputTrimmed = inputPayload.trim();
 
-        // Route: If the input is just 7-8 digits, fetch from PubMed
-        if (/^\d{7,8}$/.test(inputPayload.trim())) {
-            dataSource = `PubMed Abstract (PMID: ${inputPayload.trim()})`;
-            textToAnalyze = await fetchPubMedAbstract(inputPayload.trim());
+        // THE UNIVERSAL ROUTING LOGIC
+        if (/^\d{7,8}$/.test(inputTrimmed)) {
+            // 1. It's a PMID
+            dataSource = `EuropePMC (PMID: ${inputTrimmed})`;
+            textToAnalyze = await fetchTrialData(inputTrimmed, true);
+        } else if (inputTrimmed.startsWith('http://') || inputTrimmed.startsWith('https://')) {
+            // 2. It's a URL
+            dataSource = `Web Extraction (${inputTrimmed})`;
+            textToAnalyze = await fetchFromUrl(inputTrimmed);
+        } else if (inputTrimmed.length < 150) {
+            // 3. It's a short string (Acronym or Title Search)
+            dataSource = `EuropePMC Search (${inputTrimmed})`;
+            textToAnalyze = await fetchTrialData(inputTrimmed, false);
+        } else {
+            // 4. It's long pasted text
+            dataSource = "Pasted Raw Text";
+            textToAnalyze = inputTrimmed;
         }
 
         const sourceContext = `[SOURCE: ${dataSource}]\n\n${textToAnalyze}`;
+
+        // ... (Keep the rest of your NODE 1, 2, and 3 AI code exactly the same below here)
+
 
     // ---------------------------------------------------------
         // NODE 1 & 2: PARALLEL EXTRACTION (The "Registrars")
