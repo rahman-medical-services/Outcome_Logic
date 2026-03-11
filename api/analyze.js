@@ -1,11 +1,8 @@
-import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 
 // ==========================================
-// 1. INITIALIZE THE AI CLIENTS
+// 1. INITIALIZE THE GITHUB MODELS CLIENT
 // ==========================================
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 const githubAi = new OpenAI({
     baseURL: "https://models.inference.ai.azure.com",
     apiKey: process.env.GITHUB_TOKEN
@@ -84,15 +81,18 @@ export default async function handler(req, res) {
         // ---------------------------------------------------------
         // NODE 1 & 2: PARALLEL EXTRACTION (The "Registrars")
         // ---------------------------------------------------------
-        const [geminiResult, llamaResult] = await Promise.all([
-            // Extractor A: Gemini Flash
-            gemini.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: `${EXTRACTOR_PROMPT}\n\n${sourceContext}`,
-                config: { temperature: 0.1 }
-            }).then(res => res.text()),
+        const [extractorAResult, extractorBResult] = await Promise.all([
+            // Extractor A: GPT-4o-mini
+            githubAi.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "system", content: EXTRACTOR_PROMPT },
+                    { role: "user", content: sourceContext }
+                ],
+                temperature: 0.1
+            }).then(res => res.choices[0].message.content),
 
-            // Extractor B: Llama 3.1 70B via GitHub Models
+            // Extractor B: Llama 3.1 70B
             githubAi.chat.completions.create({
                 model: "Meta-Llama-3.1-70B-Instruct",
                 messages: [
@@ -109,9 +109,9 @@ export default async function handler(req, res) {
         const adjudicationPrompt = `
         SOURCE TEXT:\n${sourceContext}\n\n
         ---
-        EXTRACTOR A (Gemini) FOUND:\n${geminiResult}\n\n
+        EXTRACTOR A (GPT-4o-mini) FOUND:\n${extractorAResult}\n\n
         ---
-        EXTRACTOR B (Llama) FOUND:\n${llamaResult}\n\n
+        EXTRACTOR B (Llama 3.1) FOUND:\n${extractorBResult}\n\n
         ---
         Perform your adjudication and output the final JSON payload.`;
 
@@ -121,11 +121,10 @@ export default async function handler(req, res) {
                 { role: "system", content: ADJUDICATOR_PROMPT },
                 { role: "user", content: adjudicationPrompt }
             ],
-            response_format: { type: "json_object" }, // Forces strict JSON out of GPT-4o
+            response_format: { type: "json_object" }, 
             temperature: 0.0
         });
 
-        // Parse and return the mathematically verified JSON to your website
         const jsonResult = JSON.parse(finalResponse.choices[0].message.content);
         return res.status(200).json(jsonResult);
 
