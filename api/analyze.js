@@ -75,12 +75,16 @@ async function extractTextFromPDF(base64Data) {
 // ==========================================
 // 4. THE MAIN API HANDLER
 // ==========================================
-export default async function handler(req, res) {
-    // Note: Vercel allows up to 4.5MB payloads, plenty for a medical PDF
-    export const config = { api: { bodyParser: { sizeLimit: '4mb' } } };
 
+// The config MUST sit outside the function
+export const config = { 
+    api: { bodyParser: { sizeLimit: '4mb' } } 
+};
+
+export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
+// ... (keep the rest of the code exactly the same)
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
