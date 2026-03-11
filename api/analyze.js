@@ -85,9 +85,9 @@ export default async function handler(req, res) {
         // NODE 1 & 2: PARALLEL EXTRACTION (The "Registrars")
         // ---------------------------------------------------------
         const [geminiResult, llamaResult] = await Promise.all([
-            // Extractor A: Gemini 3.1 Pro
+            // Extractor A: Gemini Flash
             gemini.models.generateContent({
-                model: 'gemini-2.5-pro',
+                model: 'gemini-2.5-flash',
                 contents: `${EXTRACTOR_PROMPT}\n\n${sourceContext}`,
                 config: { temperature: 0.1 }
             }).then(res => res.text()),
