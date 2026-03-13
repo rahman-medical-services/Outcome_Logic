@@ -24,8 +24,6 @@ const ratelimit = new Ratelimit({
 // ==========================================
 // CONSTANTS
 // ==========================================
-const ALLOWED_ORIGIN = 'https://www.rahmanmedical.co.uk';
-
 // Max characters fed into the adjudicator from each extractor report.
 const EXTRACTOR_OUTPUT_CAP = 8000;
 
@@ -82,6 +80,11 @@ You MUST output STRICTLY in this JSON schema:
   }
 }
 
+CRITICAL INSTRUCTIONS FOR CONCISENESS:
+- Be ruthless with word count. Use extremely concise, bullet-like phrasing.
+- Maximum 1-2 short sentences for 'already_known', 'what_this_adds', and 'baseline_characteristics'.
+- Limit 'secondary_outcomes' to only the 2 or 3 most clinically significant findings.
+
 CRITICAL INSTRUCTIONS FOR KAPLAN-MEIER:
 1. Use 'stepped-line' for survival/time-to-event data.
 2. Provide 4-5 data points (e.g., '0d', '30d', '60d', '90d') to form a proper curve.
@@ -125,7 +128,7 @@ function capExtractorOutput(text, maxChars = EXTRACTOR_OUTPUT_CAP) {
 // MAIN HANDLER
 // ==========================================
 export default async function handler(req, res) {
-// --- SECURITY LAYER 1: Strict CORS ---
+    // --- SECURITY LAYER 1: Open CORS (Browser fix) ---
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
@@ -206,7 +209,7 @@ export default async function handler(req, res) {
         const reportA = capExtractorOutput(resultA.response.text());
         const reportB = capExtractorOutput(resultB.response.text());
 
-        // --- NODE 3: Adjudication ---
+        // --- NODE 3: Adjudication (Using Flash to bypass Pro's high traffic limits) ---
         const adjudicator = genAI.getGenerativeModel({
             model: 'gemini-2.5-flash',
             systemInstruction: ADJUDICATOR_PROMPT,
@@ -228,4 +231,4 @@ export default async function handler(req, res) {
         }
         return res.status(500).json({ error: 'Processing failed.', details: error.message });
     }
-}   
+}
