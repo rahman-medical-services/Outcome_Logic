@@ -93,37 +93,42 @@ CRITICAL INSTRUCTIONS FOR KAPLAN-MEIER:
 // ==========================================
 // DATA FETCHING ROUTERS
 // ==========================================
-// ==========================================
-// DATA FETCHING ROUTERS
-// ==========================================
 async function fetchTrialData(query, isPmid = false) {
     const searchQuery = isPmid ? `ext_id:${query}` : query;
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(searchQuery)}&resultType=core&format=json`;
     const response = await fetch(url);
     if (!response.ok) throw new Error('Europe PMC unreachable.');
     const data = await response.json();
-    if (!data.resultList?.result?.length) return 'Error: No trial found.';
+    if (!data.resultList?.result?.length) throw new Error('Error: No trial found.');
     
     const article = data.resultList.result[0];
+    let finalSource = `Abstract Only (PMID: ${article.pmid || article.id})`;
+    let finalText = '';
 
-    // THE UPGRADE: If it has a PMCID, it is Open Access. Fetch the entire paper natively.
+    // If it's Open Access, bypass NCBI and scrape Europe PMC's reader instead
     if (article.pmcid) {
         try {
-            // Route the PMC URL through our Jina web scraper to get clean markdown
-            const pmcUrl = `https://www.ncbi.nlm.nih.gov/pmc/articles/${article.pmcid}/`;
+            const pmcUrl = `https://europepmc.org/article/PMC/${article.pmcid}`;
             const fullTextResponse = await fetch(`https://r.jina.ai/${pmcUrl}`);
+            
             if (fullTextResponse.ok) {
                 const fullText = await fullTextResponse.text();
-                return `TITLE: ${article.title}\n\n[FULL TEXT EXTRACTED VIA PMC]\n${fullText}`;
+                // Ensure we didn't just scrape a bot-blocker page (full texts are usually > 2000 chars)
+                if (!fullText.includes('Access Denied') && fullText.length > 2000) {
+                    finalSource = `Free Full Text Scraped (PMC: ${article.pmcid})`;
+                    finalText = `TITLE: ${article.title}\n\n[FULL TEXT]\n${fullText}`;
+                    return { text: finalText, source: finalSource };
+                }
             }
         } catch (error) {
             console.error("Full text scrape failed, falling back to abstract.", error);
         }
     }
 
-    // FALLBACK: If it's paywalled (no PMCID) or the scrape fails, grab the abstract.
+    // Fallback if paywalled or scrape fails
     const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : 'No abstract available.';
-    return `TITLE: ${article.title}\n\n[ABSTRACT ONLY - PAYWALLED]\n${abstract}`;
+    finalText = `TITLE: ${article.title}\n\n[ABSTRACT ONLY]\n${abstract}`;
+    return { text: finalText, source: finalSource };
 }
 
 async function fetchFromUrl(targetUrl) {
@@ -192,14 +197,16 @@ export default async function handler(req, res) {
         } else {
             const trimmed = inputPayload.trim();
             if (/^\d{7,8}$/.test(trimmed)) {
-                dataSource = `PMID: ${trimmed}`;
-                textToAnalyze = await fetchTrialData(trimmed, true);
+                const fetched = await fetchTrialData(trimmed, true);
+                textToAnalyze = fetched.text;
+                dataSource = fetched.source;
             } else if (trimmed.startsWith('http')) {
                 dataSource = `URL: ${trimmed}`;
                 textToAnalyze = await fetchFromUrl(trimmed);
             } else if (trimmed.length < 150) {
-                dataSource = `Search: ${trimmed}`;
-                textToAnalyze = await fetchTrialData(trimmed, false);
+                const fetched = await fetchTrialData(trimmed, false);
+                textToAnalyze = fetched.text;
+                dataSource = fetched.source;
             } else {
                 dataSource = 'Pasted Text';
                 textToAnalyze = trimmed;
