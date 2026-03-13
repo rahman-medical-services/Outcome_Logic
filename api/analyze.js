@@ -208,7 +208,7 @@ export default async function handler(req, res) {
 
         // --- NODE 3: Adjudication ---
         const adjudicator = genAI.getGenerativeModel({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-2.5-flash',
             systemInstruction: ADJUDICATOR_PROMPT,
             generationConfig: { responseMimeType: 'application/json', temperature: 0.0 }
         });
