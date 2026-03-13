@@ -93,6 +93,9 @@ CRITICAL INSTRUCTIONS FOR KAPLAN-MEIER:
 // ==========================================
 // DATA FETCHING ROUTERS
 // ==========================================
+// ==========================================
+// DATA FETCHING ROUTERS
+// ==========================================
 async function fetchTrialData(query, isPmid = false) {
     const searchQuery = isPmid ? `ext_id:${query}` : query;
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(searchQuery)}&resultType=core&format=json`;
@@ -100,9 +103,27 @@ async function fetchTrialData(query, isPmid = false) {
     if (!response.ok) throw new Error('Europe PMC unreachable.');
     const data = await response.json();
     if (!data.resultList?.result?.length) return 'Error: No trial found.';
+    
     const article = data.resultList.result[0];
+
+    // THE UPGRADE: If it has a PMCID, it is Open Access. Fetch the entire paper natively.
+    if (article.pmcid) {
+        try {
+            // Route the PMC URL through our Jina web scraper to get clean markdown
+            const pmcUrl = `https://www.ncbi.nlm.nih.gov/pmc/articles/${article.pmcid}/`;
+            const fullTextResponse = await fetch(`https://r.jina.ai/${pmcUrl}`);
+            if (fullTextResponse.ok) {
+                const fullText = await fullTextResponse.text();
+                return `TITLE: ${article.title}\n\n[FULL TEXT EXTRACTED VIA PMC]\n${fullText}`;
+            }
+        } catch (error) {
+            console.error("Full text scrape failed, falling back to abstract.", error);
+        }
+    }
+
+    // FALLBACK: If it's paywalled (no PMCID) or the scrape fails, grab the abstract.
     const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : 'No abstract available.';
-    return `TITLE: ${article.title}\n\nABSTRACT: ${abstract}`;
+    return `TITLE: ${article.title}\n\n[ABSTRACT ONLY - PAYWALLED]\n${abstract}`;
 }
 
 async function fetchFromUrl(targetUrl) {
