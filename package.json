@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "openai": "latest",
+    "@google/generative-ai": "latest",
+    "@upstash/ratelimit": "latest",
+    "@upstash/redis": "latest",
     "pdf-parse": "^1.1.1"
   }
 }
