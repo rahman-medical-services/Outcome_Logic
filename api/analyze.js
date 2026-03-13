@@ -125,9 +125,9 @@ function capExtractorOutput(text, maxChars = EXTRACTOR_OUTPUT_CAP) {
 // MAIN HANDLER
 // ==========================================
 export default async function handler(req, res) {
-    // --- SECURITY LAYER 1: Strict CORS ---
+// --- SECURITY LAYER 1: Strict CORS ---
     res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-token');
 
