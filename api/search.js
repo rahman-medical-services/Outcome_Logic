@@ -1,7 +1,6 @@
 // api/search.js
-// v6: PubMed Entrez backend (esearch + esummary) — better named trial resolution
+// v7: PubMed Entrez backend — fully hardened against esummary type inconsistencies
 
-// NCBI courtesy parameters — required by terms of use (no API key needed at this usage level)
 const NCBI_TOOL  = 'rahmanmedical-trial-visualiser';
 const NCBI_EMAIL = 'saqib@rahmanmedical.co.uk';
 const NCBI_BASE  = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
@@ -27,7 +26,13 @@ export default async function handler(req, res) {
     // -----------------------------------------------------------------------
     // STAGE 1: Classify query
     // -----------------------------------------------------------------------
-    const { clinicalQuery, designIntent, trialAcronym, queryMode, isAmbiguousAcronym } = classifyQuery(query);
+    const {
+      clinicalQuery,
+      designIntent,
+      trialAcronym,
+      queryMode,
+      isAmbiguousAcronym
+    } = classifyQuery(query);
 
     // -----------------------------------------------------------------------
     // STAGE 2: Gemini PICO enrichment (skipped for named_trial mode)
@@ -37,7 +42,7 @@ export default async function handler(req, res) {
       try {
         enriched = await enrichQueryWithGemini(clinicalQuery);
       } catch (e) {
-        console.warn('Gemini enrichment failed:', e.message);
+        console.warn('Gemini enrichment failed, using fallback:', e.message);
       }
     }
 
@@ -45,57 +50,59 @@ export default async function handler(req, res) {
 
     // -----------------------------------------------------------------------
     // STAGE 3: Build PubMed query string
-    // PubMed supports field tags: [ti] [tiab] [mh] [pt] [tw]
     // -----------------------------------------------------------------------
-    const pubmed_query = buildPubmedQuery(clinicalQuery, enriched, finalDesign, trialAcronym, queryMode, isAmbiguousAcronym);
+    const pubmed_query = buildPubmedQuery(
+      clinicalQuery, enriched, finalDesign,
+      trialAcronym, queryMode, isAmbiguousAcronym
+    );
 
     // -----------------------------------------------------------------------
-    // STAGE 4a: esearch — get ranked PMIDs from PubMed
-    // usehistory=y caches results server-side; retmax=40 for named trials
+    // STAGE 4a: esearch — get PMIDs from PubMed
     // -----------------------------------------------------------------------
-    const retmax   = queryMode === 'named_trial' ? 40 : 25;
-    const esearchUrl = `${NCBI_BASE}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(pubmed_query)}&retmax=${retmax}&retmode=json&usehistory=y&tool=${NCBI_TOOL}&email=${NCBI_EMAIL}`;
+    const retmax     = queryMode === 'named_trial' ? 40 : 25;
+    const esearchUrl = `${NCBI_BASE}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(pubmed_query)}&retmax=${retmax}&retmode=json&usehistory=y&tool=${encodeURIComponent(NCBI_TOOL)}&email=${encodeURIComponent(NCBI_EMAIL)}`;
 
     const esearchRes = await fetch(esearchUrl);
-    if (!esearchRes.ok) throw new Error('PubMed esearch failed.');
+    if (!esearchRes.ok) throw new Error(`PubMed esearch failed: ${esearchRes.status}`);
     const esearchData = await esearchRes.json();
 
     const pmids = esearchData?.esearchresult?.idlist || [];
     if (pmids.length === 0) {
-      return res.status(200).json({ results: [], query_used: pubmed_query });
+      return res.status(200).json({ results: [], query_used: pubmed_query, query_mode: queryMode });
     }
 
     // -----------------------------------------------------------------------
     // STAGE 4b: esummary — fetch metadata for all PMIDs in one call
-    // esummary returns a clean JSON document summary (title, authors, journal,
-    // pub date, pub types, DOI, PMC ID) without needing to parse XML
     // -----------------------------------------------------------------------
-    const esummaryUrl = `${NCBI_BASE}/esummary.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=json&tool=${NCBI_TOOL}&email=${NCBI_EMAIL}`;
+    const esummaryUrl = `${NCBI_BASE}/esummary.fcgi?db=pubmed&id=${pmids.join(',')}&retmode=json&tool=${encodeURIComponent(NCBI_TOOL)}&email=${encodeURIComponent(NCBI_EMAIL)}`;
 
     const esummaryRes = await fetch(esummaryUrl);
-    if (!esummaryRes.ok) throw new Error('PubMed esummary failed.');
+    if (!esummaryRes.ok) throw new Error(`PubMed esummary failed: ${esummaryRes.status}`);
     const esummaryData = await esummaryRes.json();
 
     const docs = esummaryData?.result;
-    if (!docs) return res.status(200).json({ results: [], query_used: pubmed_query });
+    if (!docs) {
+      return res.status(200).json({ results: [], query_used: pubmed_query, query_mode: queryMode });
+    }
 
-    // Build result array from the summary docs (skip the 'uids' key)
+    // Build result array — skip the 'uids' metadata key and any error records
     const results = pmids
       .filter(id => docs[id] && !docs[id].error)
       .map(id => docs[id]);
 
     if (results.length === 0) {
-      return res.status(200).json({ results: [], query_used: pubmed_query });
+      return res.status(200).json({ results: [], query_used: pubmed_query, query_mode: queryMode });
     }
 
     // -----------------------------------------------------------------------
-    // STAGE 5: Re-rank
+    // STAGE 5: Re-rank by clinical relevance
     // -----------------------------------------------------------------------
     const queryTerms = extractTerms(clinicalQuery);
     const ranked     = rankResults(results, queryTerms, finalDesign, trialAcronym, queryMode);
 
     // -----------------------------------------------------------------------
     // STAGE 6: Primary paper confidence check
+    // If no result in top 10 scored as a primary paper, warn the UI
     // -----------------------------------------------------------------------
     const top10        = ranked.slice(0, 10);
     const primaryFound = queryMode === 'named_trial'
@@ -107,19 +114,20 @@ export default async function handler(req, res) {
     // -----------------------------------------------------------------------
     const formattedResults = top10.map(doc => {
       const pmid           = doc.uid;
-      const hasFreeFullText = !!doc.pmcid;  // PMC ID present = free full text
+      const hasFreeFullText = !!doc.pmcid;
 
       return {
         id:                 pmid,
-        title:              doc.title?.replace(/\.$/, '') || 'Untitled',
+        title:              cleanTitle(doc.title),
         authors:            formatAuthors(doc),
-        journal:            doc.fulljournalname || doc.source || 'Unknown Journal',
+        journal:            resolveJournal(doc),
         year:               extractYear(doc),
-        abstract:           null,   // esummary doesn't include abstract; fetch separately if needed
         doi:                extractDoi(doc),
         pmcid:              doc.pmcid || null,
         pubmed_url:         `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
-        pmc_url:            doc.pmcid ? `https://www.ncbi.nlm.nih.gov/pmc/articles/${doc.pmcid}/` : null,
+        pmc_url:            doc.pmcid
+                              ? `https://www.ncbi.nlm.nih.gov/pmc/articles/${doc.pmcid}/`
+                              : null,
         pub_type:           normalisePubType(doc),
         has_free_full_text: hasFreeFullText,
         _score:             doc._score,
@@ -141,8 +149,11 @@ export default async function handler(req, res) {
 
 
 // =============================================================================
-// STAGE 1: QUERY CLASSIFIER (unchanged from v5)
+// STAGE 1: QUERY CLASSIFIER
 // =============================================================================
+
+// Trial acronyms that are also common English words — require clinical context
+// as a hard AND constraint to avoid noise
 const AMBIGUOUS_ACRONYMS = new Set([
   'CROSS', 'MAGIC', 'CHARM', 'HOPE', 'CARE', 'GRACE', 'STAR', 'IMPACT',
   'SIGNAL', 'ADVANCE', 'ACCORD', 'FIELD', 'CARDS', 'CORONA', 'MERIT',
@@ -150,12 +161,14 @@ const AMBIGUOUS_ACRONYMS = new Set([
   'LIMIT', 'PILOT', 'PRIME', 'PROVEN', 'TARGET', 'CHEST'
 ]);
 
+// Caps words that are NOT trial acronyms
 const EXCLUDED_CAPS = new Set([
   'RCT','OR','AND','NOT','VS','CT','MRI','IV','UK','US','EU','ICU',
   'BMI','HR','CI','SD','IQR','DNA','RNA','PCR','HIV','HPV',
   'TNF','CRP','ECG','EEG','PET','GI','GU','UTI','DVT','PE','MI'
 ]);
 
+// Design-intent words that should not be mistaken for trial names
 const DESIGN_WORDS = new Set([
   'cross','crossover','randomised','randomized','controlled','pilot',
   'pragmatic','open','blind','blinded','double','single','phase'
@@ -164,55 +177,68 @@ const DESIGN_WORDS = new Set([
 function classifyQuery(rawQuery) {
   const trimmed = rawQuery.trim();
 
+  // Pattern A: ALL-CAPS word adjacent to "trial"
   const adjacentCapsPattern = /\b([A-Z]{3,8})\s+trial\b|\btrial\s+([A-Z]{3,8})\b/;
   const adjacentCapsMatch   = trimmed.match(adjacentCapsPattern);
 
+  // Pattern B: standalone ALL-CAPS word (3–8 chars) not in exclusion list
   const capsPattern = /\b([A-Z]{3,8})\b/g;
   let capsMatch = null, m;
   while ((m = capsPattern.exec(trimmed)) !== null) {
     if (!EXCLUDED_CAPS.has(m[1])) { capsMatch = m[1]; break; }
   }
 
+  // Pattern C: mixed-case word before "trial" that isn't a design word
   const beforeTrialPattern = /\b(\w{3,8})\s+trial\b/i;
   const beforeTrialMatch   = trimmed.match(beforeTrialPattern);
   const beforeTrialWord    = beforeTrialMatch?.[1];
   const isDesignWord       = beforeTrialWord && DESIGN_WORDS.has(beforeTrialWord.toLowerCase());
 
   let trialAcronym = null;
-  if (adjacentCapsMatch)                          trialAcronym = (adjacentCapsMatch[1] || adjacentCapsMatch[2]).toUpperCase();
-  else if (capsMatch)                             trialAcronym = capsMatch.toUpperCase();
-  else if (beforeTrialMatch && !isDesignWord)     trialAcronym = beforeTrialMatch[1].toUpperCase();
+  if (adjacentCapsMatch)
+    trialAcronym = (adjacentCapsMatch[1] || adjacentCapsMatch[2]).toUpperCase();
+  else if (capsMatch)
+    trialAcronym = capsMatch.toUpperCase();
+  else if (beforeTrialMatch && !isDesignWord)
+    trialAcronym = beforeTrialMatch[1].toUpperCase();
 
   const isAmbiguousAcronym = trialAcronym ? AMBIGUOUS_ACRONYMS.has(trialAcronym) : false;
 
+  // Design intent detection (only when no named trial found)
   const designPatterns = [
-    { pattern: /\b(crossover|cross[\s-]over)\b/gi,                                      design: 'crossover' },
-    { pattern: /\b(rct|randomis[e]?d[\s-]controlled|randomiz[e]?d[\s-]controlled)\b/gi, design: 'rct' },
-    { pattern: /\b(randomis[e]?d|randomiz[e]?d)\b/gi,                                   design: 'rct' },
-    { pattern: /\b(systematic[\s-]review)\b/gi,                                          design: 'systematic_review' },
-    { pattern: /\b(meta[\s-]analysis)\b/gi,                                              design: 'meta_analysis' },
-    { pattern: /\b(cohort)\b/gi,                                                         design: 'cohort' },
-    { pattern: /\b(observational)\b/gi,                                                  design: 'observational' },
-    { pattern: /\b(trial|trials)\b/gi,                                                   design: 'trial' },
+    { pattern: /\b(crossover|cross[\s-]over)\b/gi,                                       design: 'crossover'        },
+    { pattern: /\b(rct|randomis[e]?d[\s-]controlled|randomiz[e]?d[\s-]controlled)\b/gi,  design: 'rct'              },
+    { pattern: /\b(randomis[e]?d|randomiz[e]?d)\b/gi,                                    design: 'rct'              },
+    { pattern: /\b(systematic[\s-]review)\b/gi,                                           design: 'systematic_review'},
+    { pattern: /\b(meta[\s-]analysis)\b/gi,                                               design: 'meta_analysis'    },
+    { pattern: /\b(cohort)\b/gi,                                                          design: 'cohort'           },
+    { pattern: /\b(observational)\b/gi,                                                   design: 'observational'    },
+    { pattern: /\b(trial|trials)\b/gi,                                                    design: 'trial'            },
   ];
 
-  let designIntent = null;
+  let designIntent     = null;
   let cleanedForDesign = trimmed;
+
   if (!trialAcronym) {
     for (const { pattern, design } of designPatterns) {
       if (pattern.test(trimmed)) {
-        designIntent = design;
+        designIntent     = design;
         cleanedForDesign = trimmed.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
         break;
       }
     }
   }
 
+  // Strip acronym + the word "trial" from clinical query
   let clinicalQuery = trimmed;
   if (trialAcronym) {
     const acronymRe   = new RegExp(`\\b${trialAcronym}\\b`, 'gi');
     const trialWordRe = /\btrial\b/gi;
-    clinicalQuery = trimmed.replace(acronymRe, '').replace(trialWordRe, '').replace(/\s{2,}/g, ' ').trim();
+    clinicalQuery = trimmed
+      .replace(acronymRe, '')
+      .replace(trialWordRe, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
   } else {
     clinicalQuery = cleanedForDesign;
   }
@@ -226,7 +252,7 @@ function classifyQuery(rawQuery) {
 
 
 // =============================================================================
-// STAGE 2: GEMINI PICO ENRICHMENT (unchanged from v5)
+// STAGE 2: GEMINI PICO ENRICHMENT
 // =============================================================================
 async function enrichQueryWithGemini(userQuery) {
   const prompt = `You are a clinical research assistant. Extract PICO components from the search query below.
@@ -258,7 +284,7 @@ Query: "${userQuery}"`;
 
   if (!geminiRes.ok) throw new Error(`Gemini API error: ${geminiRes.status}`);
   const geminiData = await geminiRes.json();
-  const raw = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const raw        = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!raw) throw new Error('Empty Gemini response');
 
   const cleaned = raw.replace(/```json|```/gi, '').trim();
@@ -270,23 +296,18 @@ Query: "${userQuery}"`;
 
 // =============================================================================
 // STAGE 3: PUBMED QUERY BUILDER
-// PubMed field tags:
-//   [ti]   = title only
-//   [tiab] = title or abstract
-//   [mh]   = MeSH heading
-//   [pt]   = publication type
-//   [tw]   = text word (anywhere)
+// PubMed field tags: [ti] title, [tiab] title+abstract, [mh] MeSH, [pt] pub type
 // =============================================================================
 function buildPubmedQuery(clinicalQuery, enriched, finalDesign, trialAcronym, queryMode, isAmbiguousAcronym) {
 
   if (queryMode === 'named_trial') {
     if (!isAmbiguousAcronym) {
-      // Unambiguous: title anchor alone is precise
+      // Unambiguous acronym: title anchor is precise enough
       const parts = [`${trialAcronym}[ti]`];
       if (clinicalQuery) parts.push(`${clinicalQuery}[tiab]`);
       return parts.join(' AND ');
     } else {
-      // Ambiguous: require clinical context as hard AND
+      // Ambiguous acronym: require clinical context as hard AND
       if (!clinicalQuery) return `${trialAcronym}[ti]`;
       return `${trialAcronym}[ti] AND ${clinicalQuery}[tiab]`;
     }
@@ -294,17 +315,17 @@ function buildPubmedQuery(clinicalQuery, enriched, finalDesign, trialAcronym, qu
 
   // PICO / design_intent mode
   const parts = [];
-
   if (enriched) {
-    if (enriched.condition)    parts.push(`(${enriched.condition}[ti] OR ${enriched.condition}[mh])`);
-    if (enriched.intervention) parts.push(`(${enriched.intervention}[ti] OR ${enriched.intervention}[mh])`);
-    if (enriched.outcome)      parts.push(`${enriched.outcome}[tiab]`);
+    if (enriched.condition)
+      parts.push(`(${enriched.condition}[ti] OR ${enriched.condition}[mh])`);
+    if (enriched.intervention)
+      parts.push(`(${enriched.intervention}[ti] OR ${enriched.intervention}[mh])`);
+    if (enriched.outcome)
+      parts.push(`${enriched.outcome}[tiab]`);
   }
-
   if (parts.length === 0) parts.push(`${clinicalQuery}[tiab]`);
 
-  const designFilter = buildDesignFilter(finalDesign);
-  return `(${parts.join(' AND ')}) AND ${designFilter}`;
+  return `(${parts.join(' AND ')}) AND ${buildDesignFilter(finalDesign)}`;
 }
 
 function buildDesignFilter(design) {
@@ -328,7 +349,7 @@ function buildDesignFilter(design) {
 
 
 // =============================================================================
-// STAGE 5: RE-RANKER (adapted for PubMed esummary doc structure)
+// STAGE 5: RE-RANKER
 // =============================================================================
 const SECONDARY_MARKERS = [
   'secondary analysis', 'secondary analyses', 'post-hoc', 'post hoc',
@@ -342,14 +363,14 @@ const PROTOCOL_MARKERS = [
 ];
 
 const NOISE_MARKERS = [
-  'cross-sectional', 'cross sectional', 'cross-cultural', 'cross cultural',
-  'cross-national'
+  'cross-sectional', 'cross sectional', 'cross-cultural',
+  'cross cultural', 'cross-national'
 ];
 
 function rankResults(results, queryTerms, designIntent, trialAcronym, queryMode) {
   return results
     .map(doc => {
-      let score    = 0;
+      let score        = 0;
       const titleLower = (doc.title || '').toLowerCase();
       const pubTypes   = getPubTypes(doc);
 
@@ -378,7 +399,7 @@ function rankResults(results, queryTerms, designIntent, trialAcronym, queryMode)
         // PICO / design_intent scoring
 
         // 1. Study design (max 40 pts)
-        if (pubTypes.some(t => t.includes('randomized controlled trial')))   score += 40;
+        if (pubTypes.some(t => t.includes('randomized controlled trial')))    score += 40;
         else if (pubTypes.some(t => t.includes('controlled clinical trial'))) score += 35;
         else if (pubTypes.some(t => t.includes('clinical trial')))            score += 30;
         else if (pubTypes.some(t => t.includes('systematic review')))         score += 35;
@@ -386,13 +407,13 @@ function rankResults(results, queryTerms, designIntent, trialAcronym, queryMode)
         else if (pubTypes.some(t => t.includes('cohort')))                    score += 15;
         else if (pubTypes.some(t => t.includes('observational')))             score += 10;
 
-        // 1a. Crossover bonus
+        // 1a. Crossover title bonus
         if (designIntent === 'crossover' &&
             (titleLower.includes('crossover') || titleLower.includes('cross-over'))) {
           score += 20;
         }
 
-        // 2. Open access (max 15 pts)
+        // 2. Open access — PMC ID present (max 15 pts)
         if (doc.pmcid) score += 15;
 
         // 3. Recency — linear decay over 10 years (max 20 pts)
@@ -413,37 +434,50 @@ function rankResults(results, queryTerms, designIntent, trialAcronym, queryMode)
 
 
 // =============================================================================
-// HELPERS — PubMed esummary doc field mapping
+// HELPERS
+// All array fields are normalised with toArray() to defend against PubMed
+// esummary's habit of collapsing single-element arrays into bare objects.
 // =============================================================================
 
-// esummary authors: array of { name, authtype, clusterid }
-function formatAuthors(doc) {
-  const authors = doc.authors || [];
-  if (authors.length === 0) return 'Unknown Authors';
-  const names = authors.filter(a => a.authtype === 'Author').map(a => a.name);
-  if (names.length === 0) return authors.slice(0, 3).map(a => a.name).join(', ');
-  if (names.length <= 3) return names.join(', ');
-  return names.slice(0, 3).join(', ') + ' et al.';
+// Safe coercion — always returns an array regardless of input type
+function toArray(val) {
+  if (!val) return [];
+  return Array.isArray(val) ? val : [val];
 }
 
-// esummary pub date is in doc.pubdate ("2023 Jan 15") or doc.epubdate
+// Journal: esummary provides fulljournalname and source as flat strings — no path ambiguity
+function resolveJournal(doc) {
+  return doc.fulljournalname || doc.source || 'Unknown Journal';
+}
+
+// Authors: doc.authors can be array or single object
+function formatAuthors(doc) {
+  const authors = toArray(doc.authors);
+  if (authors.length === 0) return 'Unknown Authors';
+  const named   = authors.filter(a => a && a.authtype === 'Author').map(a => a.name);
+  const display = named.length > 0 ? named : authors.map(a => a.name).filter(Boolean);
+  if (display.length === 0) return 'Unknown Authors';
+  if (display.length <= 3)  return display.join(', ');
+  return display.slice(0, 3).join(', ') + ' et al.';
+}
+
+// Year: pubdate is a string like "2023 Jan 15" or "2023"
 function extractYear(doc) {
-  const raw = doc.pubdate || doc.epubdate || '';
+  const raw   = doc.pubdate || doc.epubdate || '';
   const match = raw.match(/\b(\d{4})\b/);
   return match ? match[1] : null;
 }
 
-// esummary DOI is in doc.elocationid array: [{ eidtype: "doi", value: "10.xxx" }]
+// DOI: elocationid can be array, single object, or string
 function extractDoi(doc) {
-  if (!doc.elocationid) return null;
-  const doiEntry = doc.elocationid.find(e => e.eidtype === 'doi');
+  const locations = toArray(doc.elocationid);
+  const doiEntry  = locations.find(e => e && typeof e === 'object' && e.eidtype === 'doi');
   return doiEntry ? doiEntry.value : null;
 }
 
-// esummary pub types: doc.pubtype array of strings
+// Pub types: doc.pubtype can be array or single string
 function getPubTypes(doc) {
-  if (!doc.pubtype) return [];
-  return doc.pubtype.map(t => t.toLowerCase());
+  return toArray(doc.pubtype).map(t => String(t).toLowerCase());
 }
 
 function normalisePubType(doc) {
@@ -458,6 +492,12 @@ function normalisePubType(doc) {
   return 'Publication';
 }
 
+// Title: PubMed sometimes appends a trailing period
+function cleanTitle(title) {
+  return (title || 'Untitled').replace(/\.$/, '').trim();
+}
+
+// Terms for title overlap scoring — strips clinical stopwords
 function extractTerms(query) {
   const stopwords = new Set([
     'a','an','the','and','or','of','in','for','with','on','at','to','is',
