@@ -12,11 +12,11 @@ export const config = {
 
 // ==========================================
 // SECURITY LAYER 3: Upstash Rate Limiter
-// 25 requests per IP per 24-hour sliding window
+// 100 requests per IP per 24-hour sliding window
 // ==========================================
 const ratelimit = new Ratelimit({
     redis: Redis.fromEnv(),
-    limiter: Ratelimit.slidingWindow(25, '24 h'),
+    limiter: Ratelimit.slidingWindow(100, '24 h'),
     analytics: true,
     prefix: 'trial-visualiser',
 });
