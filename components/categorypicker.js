@@ -7,6 +7,8 @@ import { DOMAINS, getSpecialties, getSubspecialties } from '../config/taxonomy.j
 /**
  * Renders taxonomy filter dropdowns into a container element.
  *
+ * 
+ *
  * @param {HTMLElement} containerEl
  * @param {object}      initial     — { domain, specialty, subspecialty }
  * @param {function}    onChange    — called with { domain, specialty, subspecialty } on any change
