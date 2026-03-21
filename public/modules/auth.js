@@ -3,7 +3,10 @@
 // Handles login, logout, session persistence, and current user access.
 // All other modules call getUser() / requireAuth() rather than touching Supabase directly.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_NAME } from '../config/constants.js';
+import { APP_NAME } from '../config/constants.js';
+
+// Runtime config
+function _env(key, fb='') { return window.ENV?.[key] || fb; }
 
 // ─────────────────────────────────────────────
 // SUPABASE CLIENT
@@ -17,7 +20,7 @@ function getClient() {
   if (!window.supabase) {
     throw new Error('Supabase JS client not loaded. Ensure the CDN script is in index.html.');
   }
-  _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  _supabase = window.supabase.createClient(_env('SUPABASE_URL'), _env('SUPABASE_ANON_KEY'));
   return _supabase;
 }
 

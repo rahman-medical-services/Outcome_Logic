@@ -6,7 +6,9 @@
 
 import { DOMAINS, getSpecialties, getSubspecialties } from '../config/taxonomy.js';
 import { getAccessToken, getDisplayName }             from '../modules/auth.js';
-import { API_BASE_URL, INTERNAL_API_TOKEN }           from '../config/constants.js';
+function _env(k,fb=''){return window.ENV?.[k]||fb;}
+const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
+const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
 
 // ─────────────────────────────────────────────
 // STATE
@@ -321,11 +323,11 @@ async function _submit({ validateOnSave, confirmOverwrite = false }) {
       validator_name:    validateOnSave ? form.validator_name : undefined,
     };
 
-    const response = await fetch(`${API_BASE_URL}/library-save`, {
+    const response = await fetch(`${getApiUrl()}/library-save`, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',
-        'x-api-token':   INTERNAL_API_TOKEN,
+        'x-api-token': getApiToken(),
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(payload),

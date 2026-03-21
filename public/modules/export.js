@@ -2,8 +2,10 @@
 // Export library data as JSON (full backup) or PDF compendium (one chapter per trial).
 // PDF compendium uses html2pdf.js — same library already loaded for the analyse tab.
 
-import { getAccessToken }                    from './auth.js';
-import { API_BASE_URL, INTERNAL_API_TOKEN }  from '../config/constants.js';
+import { getAccessToken } from './auth.js';
+function _env(k,fb=''){return window.ENV?.[k]||fb;}
+const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
+const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
 import { toast }                             from '../components/toasts.js';
 
 // ─────────────────────────────────────────────
@@ -209,11 +211,11 @@ async function _fetchAllTrials(filters) {
   if (!token) throw new Error('No active session. Please sign in.');
 
   // Step 1: get card list
-  const browseRes = await fetch(`${API_BASE_URL}/library-get`, {
+  const browseRes = await fetch(`${getApiUrl()}/library-get`, {
     method:  'POST',
     headers: {
       'Content-Type':  'application/json',
-      'x-api-token':   INTERNAL_API_TOKEN,
+      'x-api-token': getApiToken(),
       'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ mode: 'browse', ...filters }),
@@ -227,11 +229,11 @@ async function _fetchAllTrials(filters) {
   // Step 2: fetch full records in parallel (analysis_json included)
   const fullRecords = await Promise.all(
     cards.map(async card => {
-      const r = await fetch(`${API_BASE_URL}/library-get`, {
+      const r = await fetch(`${getApiUrl()}/library-get`, {
         method:  'POST',
         headers: {
           'Content-Type':  'application/json',
-          'x-api-token':   INTERNAL_API_TOKEN,
+          'x-api-token': getApiToken(),
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ mode: 'single', id: card.id }),
