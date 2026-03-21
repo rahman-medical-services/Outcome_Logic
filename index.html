@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Clinical Trial Evidence Engine</title>
+  <meta name="description" content="AI-powered clinical trial analysis and evidence library by Rahman Medical." />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- html2pdf -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- Supabase JS client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!--
+    Environment variables injected at deploy time by Vercel.
+    SUPABASE_URL and SUPABASE_ANON_KEY are safe to expose in the browser.
+    INTERNAL_API_TOKEN and SERVICE_ROLE_KEY must NEVER appear here.
+  -->
+  <script>
+    window.ENV = {
+      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
+      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
+      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
+    };
+  </script>
+</head>
+
+<body class="bg-slate-50 text-slate-900 font-sans">
+
+  <!-- Auth modal root — login modal renders here when unauthenticated -->
+  <div id="auth-modal-root"></div>
+
+  <!-- App shell — hidden until authenticated -->
+  <div id="app-shell" class="hidden min-h-screen flex flex-col">
+
+    <!-- ===================== HEADER ===================== -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+
+        <!-- Logo -->
+        <div class="flex items-center gap-3 min-w-0">
+          <a href="https://www.rahmanmedical.co.uk" target="_blank"
+             class="text-xl font-bold text-slate-900 tracking-tight hover:text-slate-700 transition shrink-0">
+            OutcomeLogic
+          </a>
+          <span id="app-version"
+                class="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded uppercase tracking-wide shrink-0">
+          </span>
+        </div>
+
+        <!-- Tab navigation -->
+        <nav class="flex items-end gap-1 -mb-3 pb-0">
+          <button data-tab="analyse"
+            class="px-4 py-2 text-sm border-b-2 border-slate-900 text-slate-900 font-semibold transition">
+            Analyse
+          </button>
+          <button data-tab="library"
+            class="px-4 py-2 text-sm text-slate-400 hover:text-slate-700 transition">
+            Library
+          </button>
+        </nav>
+
+        <!-- User badge -->
+        <div id="user-badge" class="shrink-0"></div>
+
+      </div>
+    </header>
+
+    <!-- ===================== TAB PANELS ===================== -->
+    <main class="flex-1">
+
+      <!-- ── ANALYSE TAB ── -->
+      <div data-tab-panel="analyse" class="p-4 md:p-8">
+        <div id="outcomelogic-app" class="max-w-5xl mx-auto">
+
+          <!-- Intro + controls -->
+          <div id="ui-controls" class="mb-8">
+
+            <!-- Intro -->
+            <div class="mb-6 text-sm text-slate-600 space-y-4">
+              <p class="text-base text-slate-800 leading-relaxed">
+                <strong class="text-slate-900">OutcomeLogic</strong> synthesises clinical trial evidence in seconds —
+                extracting PICO structure, endpoint data, risk of bias, and GRADE certainty from full-text papers,
+                then generating both a clinician summary and a patient-facing shared decision-making report.
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="flex gap-3 items-start p-3 bg-white border border-slate-200 rounded-md shadow-sm">
+                  <span class="text-xl shrink-0">①</span>
+                  <div>
+                    <p class="font-semibold text-slate-800 text-xs uppercase tracking-wide mb-1">Search</p>
+                    <p class="text-slate-600 text-xs leading-relaxed">
+                      Type a trial name, PMID, or clinical question — e.g.
+                      <em>CODA trial appendicitis</em> or <em>laparoscopic hernia mesh RCT</em>.
+                      Results are ranked by clinical relevance.
+                    </p>
+                  </div>
+                </div>
+                <div class="flex gap-3 items-start p-3 bg-white border border-slate-200 rounded-md shadow-sm">
+                  <span class="text-xl shrink-0">②</span>
+                  <div>
+                    <p class="font-semibold text-slate-800 text-xs uppercase tracking-wide mb-1">Select or Upload</p>
+                    <p class="text-slate-600 text-xs leading-relaxed">
+                      Click <strong>Extract</strong> on any search result — free full-text papers are processed
+                      automatically. Or upload your own PDF for any paywalled or unpublished trial.
+                    </p>
+                  </div>
+                </div>
+                <div class="flex gap-3 items-start p-3 bg-white border border-slate-200 rounded-md shadow-sm">
+                  <span class="text-xl shrink-0">③</span>
+                  <div>
+                    <p class="font-semibold text-slate-800 text-xs uppercase tracking-wide mb-1">Review &amp; Export</p>
+                    <p class="text-slate-600 text-xs leading-relaxed">
+                      The synthesis includes endpoint visualisation, critical appraisal, and a lay summary
+                      ready for shared decision-making. Save to the library or export as PDF.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-slate-400 border-t border-slate-200 pt-3">
+                Analysis is performed by a 3-node AI consensus pipeline on full-text where available, falling back
+                to abstract. Results should be verified against the primary source before clinical use.
+                Limited to 20 analyses per day per user.
+              </p>
+            </div>
+
+            <!-- Search + PDF controls -->
+            <div class="bg-white p-4 sm:p-6 rounded-md shadow-sm border border-slate-200">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
+                    Search Global Database
+                  </label>
+                  <div class="flex gap-2">
+                    <input type="text" id="searchInput"
+                      placeholder="e.g., CODA Trial Appendicitis"
+                      class="flex-1 min-w-0 border border-slate-300 rounded px-4 py-2 text-sm
+                             focus:ring-2 focus:ring-slate-900 outline-none"
+                      onkeydown="if(event.key==='Enter') searchDatabase()" />
+                    <button onclick="searchDatabase()"
+                      class="shrink-0 bg-slate-200 text-slate-800 px-4 py-2 rounded
+                             hover:bg-slate-300 transition font-semibold text-sm">
+                      Search
+                    </button>
+                  </div>
+                  <div id="searchResults"
+                    class="mt-4 hidden flex-col gap-2 max-h-72 overflow-y-auto border border-slate-200 rounded p-2 bg-slate-50">
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
+                    Or Upload Full-Text PDF
+                  </label>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="file" id="pdfInput" accept="application/pdf"
+                      class="flex-1 min-w-0 border border-slate-300 rounded px-3 py-1.5 text-sm
+                             file:mr-3 file:py-1 file:px-3 file:rounded file:border-0
+                             file:bg-slate-100 file:text-slate-700 file:text-xs w-full" />
+                    <button onclick="analyzePdf()"
+                      class="shrink-0 w-full sm:w-auto bg-slate-900 text-white px-4 py-2 rounded
+                             hover:bg-slate-800 transition font-semibold text-sm shadow">
+                      Extract PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p id="loadingState"
+                class="text-slate-500 mt-6 text-xs font-mono hidden animate-pulse text-center">
+                > Engine executing 3-Node Consensus… Please wait.
+              </p>
+            </div>
+          </div>
+
+          <!-- Export + Save bar -->
+          <div id="exportBar" class="hidden mb-4 flex flex-wrap gap-3 justify-end">
+            <button onclick="exportMDT()"
+              class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-blue-700 transition">
+              📄 MDT PDF
+            </button>
+            <button onclick="exportPatient()"
+              class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-emerald-700 transition">
+              🤝 Patient PDF
+            </button>
+            <button onclick="window.promptSaveToLibrary(window._lastAnalysis)"
+              class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-slate-700 transition">
+              📚 Save to Library
+            </button>
+          </div>
+
+          <!-- Report -->
+          <div id="reportContainer"
+            class="hidden bg-white rounded-md shadow-sm border border-slate-200 p-4 sm:p-8">
+
+            <!-- Header -->
+            <div class="border-b-2 border-slate-800 pb-4 mb-6">
+              <h2 id="trialTitle" class="text-2xl font-bold text-slate-900"></h2>
+              <div class="flex flex-wrap items-center gap-2 mt-2">
+                <span id="studyDesign" class="text-sm font-mono text-slate-500"></span>
+                <span id="dataSourceBadge" class="text-xs bg-slate-100 text-slate-500 py-1 px-2 rounded"></span>
+                <a id="pubmedLink"  href="#" target="_blank" class="hidden text-xs bg-blue-50 text-blue-700 border border-blue-200 py-1 px-2 rounded hover:bg-blue-100 transition">PubMed ↗</a>
+                <a id="pmcLink"     href="#" target="_blank" class="hidden text-xs bg-green-50 text-green-700 border border-green-200 py-1 px-2 rounded hover:bg-green-100 transition">Free Full Text ↗</a>
+                <a id="doiLink"     href="#" target="_blank" class="hidden text-xs bg-slate-50 text-slate-600 border border-slate-200 py-1 px-2 rounded hover:bg-slate-100 transition">DOI ↗</a>
+              </div>
+              <div id="extractionWarning" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                ⚠️ <strong>Source warning:</strong> <span id="extractionWarningText"></span>
+              </div>
+            </div>
+
+            <!-- MDT Section -->
+            <div id="mdtSection">
+              <div class="mb-8 p-5 bg-blue-50/50 border-l-4 border-blue-600 rounded-r text-sm">
+                <h3 class="font-bold text-blue-900 uppercase tracking-wide mb-3 text-xs">Research in Context</h3>
+                <p class="mb-2"><strong class="text-blue-800">Already Known:</strong> <span id="ui-known" class="text-slate-700"></span></p>
+                <p><strong class="text-blue-800">What This Adds:</strong> <span id="ui-adds" class="text-slate-700"></span></p>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 text-sm">
+                <div class="space-y-4">
+                  <div><span class="font-bold text-slate-400 text-xs uppercase block">Population</span><p id="ui-pop" class="text-slate-800"></p></div>
+                  <div><span class="font-bold text-slate-400 text-xs uppercase block">Baseline Characteristics</span><p id="ui-baseline" class="text-slate-800"></p></div>
+                </div>
+                <div class="space-y-4">
+                  <div><span class="font-bold text-slate-400 text-xs uppercase block">Intervention vs Control</span><p id="ui-int-con" class="text-slate-800"></p></div>
+                  <div><span class="font-bold text-slate-400 text-xs uppercase block">Primary Outcome</span><p id="ui-out" class="font-semibold text-slate-900"></p></div>
+                  <div><span class="font-bold text-slate-400 text-xs uppercase block">Secondary Outcomes</span><ul id="ui-sec-out" class="list-disc pl-4 text-slate-700"></ul></div>
+                </div>
+              </div>
+
+              <div id="chartSection" class="mb-8">
+                <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
+                <div class="relative h-72 w-full"><canvas id="endpointChart"></canvas></div>
+                <p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+              </div>
+
+              <div class="mb-8 p-4 bg-slate-50 border border-slate-200 rounded text-sm">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <span class="font-bold text-slate-500 text-xs uppercase block mb-2">Risk of Bias</span>
+                    <span id="ui-rob-badge" class="text-xs font-bold px-2 py-1 rounded uppercase tracking-wide"></span>
+                    <p id="ui-rob-rationale" class="text-slate-600 text-xs leading-relaxed mt-2"></p>
+                    <p class="mt-2 text-slate-500 text-xs"><em id="ui-limitations"></em></p>
+                  </div>
+                  <div>
+                    <span class="font-bold text-slate-500 text-xs uppercase block mb-2">GRADE Certainty of Evidence</span>
+                    <span id="ui-grade-badge" class="text-xs font-bold px-2 py-1 rounded uppercase tracking-wide"></span>
+                    <div class="flex gap-1 mt-2">
+                      <div id="grade-bar-1" class="h-2 flex-1 rounded bg-slate-200"></div>
+                      <div id="grade-bar-2" class="h-2 flex-1 rounded bg-slate-200"></div>
+                      <div id="grade-bar-3" class="h-2 flex-1 rounded bg-slate-200"></div>
+                      <div id="grade-bar-4" class="h-2 flex-1 rounded bg-slate-200"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] text-slate-400 mt-1"><span>Very Low</span><span>High</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Patient Section -->
+            <div id="patientSection" class="border-t-2 border-emerald-500 pt-6 mt-6">
+              <h3 class="font-bold text-emerald-800 uppercase tracking-wide mb-4 text-sm">Patient Summary (Shared Decision Making)</h3>
+              <div class="p-5 bg-emerald-50 rounded border border-emerald-100 text-sm space-y-4">
+                <div><strong class="text-emerald-900">Lay Summary:</strong><p id="ui-lay" class="text-emerald-800 mt-1"></p></div>
+                <div><strong class="text-emerald-900">Key Takeaway for You:</strong><p id="ui-sdm" class="text-emerald-800 mt-1"></p></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── LIBRARY TAB ── -->
+      <div data-tab-panel="library" class="hidden">
+        <div id="tab-panel-library"></div>
+      </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-200 py-4 px-4 text-center text-xs text-slate-400">
+      OutcomeLogic · <a href="https://www.rahmanmedical.co.uk" target="_blank" class="hover:text-slate-600">rahmanmedical.co.uk</a>
+      · Results should be verified against the primary source before clinical use.
+    </footer>
+
+  </div>
+
+  <!-- ===================== ANALYSE TAB SCRIPTS ===================== -->
+  <script>
+    // ── Config ──────────────────────────────────────────────────────────
+    const API_BASE_URL       = window.ENV?.API_BASE_URL       || 'https://outcome-logic.vercel.app/api';
+    const INTERNAL_API_TOKEN = window.ENV?.INTERNAL_API_TOKEN || 'surgeon-secure-key-99';
+
+    let currentChart       = null;
+    window._lastAnalysis   = null;
+
+    // ── Enum helpers ────────────────────────────────────────────────────
+    const ROB_CONFIG = {
+      'Low':      { bg: 'bg-green-100',  text: 'text-green-800',  label: 'Low Risk'      },
+      'Moderate': { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Moderate Risk'  },
+      'High':     { bg: 'bg-red-100',    text: 'text-red-800',    label: 'High Risk'     },
+      'Unclear':  { bg: 'bg-slate-100',  text: 'text-slate-600',  label: 'Unclear'       },
+    };
+    const GRADE_CONFIG = {
+      'High':     { bg: 'bg-green-100',  text: 'text-green-800',  bars: 4, colour: 'bg-green-500'  },
+      'Moderate': { bg: 'bg-blue-100',   text: 'text-blue-800',   bars: 3, colour: 'bg-blue-500'   },
+      'Low':      { bg: 'bg-yellow-100', text: 'text-yellow-800', bars: 2, colour: 'bg-yellow-500' },
+      'Very Low': { bg: 'bg-red-100',    text: 'text-red-800',    bars: 1, colour: 'bg-red-500'    },
+    };
+    const PUB_TYPE_CONFIG = {
+      'RCT':               { bg: 'bg-green-100',  text: 'text-green-800'  },
+      'Clinical Trial':    { bg: 'bg-blue-100',   text: 'text-blue-800'   },
+      'Meta-analysis':     { bg: 'bg-purple-100', text: 'text-purple-800' },
+      'Systematic Review': { bg: 'bg-purple-50',  text: 'text-purple-700' },
+      'Cohort Study':      { bg: 'bg-yellow-100', text: 'text-yellow-800' },
+      'Publication':       { bg: 'bg-slate-100',  text: 'text-slate-500'  },
+    };
+
+    function robBadge(rob) {
+      const c = ROB_CONFIG[rob] || ROB_CONFIG['Unclear'];
+      document.getElementById('ui-rob-badge').className = `text-xs font-bold px-2 py-1 rounded uppercase tracking-wide ${c.bg} ${c.text}`;
+      document.getElementById('ui-rob-badge').innerText  = c.label;
+    }
+    function gradeBadge(grade) {
+      const c = GRADE_CONFIG[grade] || GRADE_CONFIG['Very Low'];
+      document.getElementById('ui-grade-badge').className = `text-xs font-bold px-2 py-1 rounded uppercase tracking-wide ${c.bg} ${c.text}`;
+      document.getElementById('ui-grade-badge').innerText  = grade;
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById(`grade-bar-${i}`).className =
+          `h-2 flex-1 rounded ${i <= c.bars ? c.colour : 'bg-slate-200'}`;
+      }
+    }
+    function setLink(id, href) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (href) { el.href = href; el.classList.remove('hidden'); }
+      else      { el.classList.add('hidden'); }
+    }
+
+    // ── Search ──────────────────────────────────────────────────────────
+    async function searchDatabase() {
+      const query      = document.getElementById('searchInput').value.trim();
+      if (!query) return alert('Enter a search term.');
+      const resultsBox = document.getElementById('searchResults');
+      resultsBox.innerHTML = '<div class="text-sm text-slate-500 p-2">Searching…</div>';
+      resultsBox.classList.remove('hidden');
+      resultsBox.classList.add('flex');
+      try {
+        const res  = await fetch(`${API_BASE_URL}/search`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-token': INTERNAL_API_TOKEN },
+          body:    JSON.stringify({ query }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error.');
+        if (!data.results?.length) { resultsBox.innerHTML = '<div class="text-sm text-slate-500 p-2">No trials found.</div>'; return; }
+        resultsBox.innerHTML = '';
+        data.results.forEach(trial => {
+          const ftBadge = trial.has_free_full_text
+            ? `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Free Full Text</span>` : '';
+          const ptCfg   = PUB_TYPE_CONFIG[trial.pub_type] || PUB_TYPE_CONFIG['Publication'];
+          const ptBadge = trial.pub_type
+            ? `<span class="${ptCfg.bg} ${ptCfg.text} text-[10px] font-bold px-2 py-0.5 rounded uppercase">${trial.pub_type}</span>` : '';
+          const pmUrl   = trial.pubmed_url || `https://pubmed.ncbi.nlm.nih.gov/${trial.id}/`;
+          const item    = document.createElement('div');
+          item.className = 'p-3 bg-white border border-slate-200 rounded hover:border-slate-400 cursor-pointer transition';
+          item.innerHTML = `
+            <div class="flex justify-between items-start gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="font-bold text-sm text-slate-800 leading-snug">${trial.title}</div>
+                <div class="text-xs text-slate-500 mt-1">${trial.authors} • ${trial.journal} (${trial.year || '—'})</div>
+                <div class="flex flex-wrap gap-1 mt-1.5">${ftBadge}${ptBadge}</div>
+              </div>
+              <div class="flex flex-col gap-1 shrink-0">
+                <button class="bg-slate-900 text-white text-xs px-3 py-1.5 rounded font-bold hover:bg-slate-700 transition">Extract</button>
+                <a href="${pmUrl}" target="_blank" onclick="event.stopPropagation()"
+                   class="text-center bg-slate-100 text-slate-600 text-xs px-3 py-1.5 rounded font-medium hover:bg-slate-200 transition">PubMed ↗</a>
+              </div>
+            </div>`;
+          item.querySelector('button').onclick = (e) => { e.stopPropagation(); executeEngine({ inputPayload: trial.id, isPdf: false }); };
+          resultsBox.appendChild(item);
+        });
+      } catch (err) {
+        resultsBox.innerHTML = `<div class="text-sm text-red-500 p-2">Search failed: ${err.message}</div>`;
+      }
+    }
+
+    // ── PDF Upload ──────────────────────────────────────────────────────
+    async function analyzePdf() {
+      const file = document.getElementById('pdfInput').files[0];
+      if (!file) return alert('Please select a PDF file first.');
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader(); r.readAsDataURL(file);
+        r.onload = () => res(r.result.split(',')[1]); r.onerror = rej;
+      });
+      executeEngine({ inputPayload: base64, isPdf: true });
+    }
+
+    // ── Core Engine ─────────────────────────────────────────────────────
+    async function executeEngine(payload) {
+      document.getElementById('searchResults').classList.add('hidden');
+      document.getElementById('loadingState').classList.remove('hidden');
+      document.getElementById('reportContainer').classList.add('hidden');
+      document.getElementById('exportBar').classList.add('hidden');
+      try {
+        const res  = await fetch(`${API_BASE_URL}/analyze`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-token': INTERNAL_API_TOKEN },
+          body:    JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 429) throw new Error('Rate limit exceeded. Try again tomorrow.');
+          throw new Error(data.error || data.details || 'Server failed to process request.');
+        }
+        window._lastAnalysis = data;
+        populateDashboard(data);
+      } catch (err) {
+        alert('Analysis Error: ' + err.message);
+      } finally {
+        document.getElementById('loadingState').classList.add('hidden');
+      }
+    }
+
+    // ── Dashboard Population ─────────────────────────────────────────────
+    function populateDashboard(data) {
+      document.getElementById('trialTitle').innerText  = data.metadata?.trial_identification || data.reportMeta?.trial_identification || 'Trial Synthesis';
+      document.getElementById('studyDesign').innerText = data.metadata?.study_design         || data.reportMeta?.study_design         || '';
+      document.getElementById('dataSourceBadge').innerText = data.reportMeta?.source_type ? `Source: ${data.reportMeta.source_type}` : '';
+
+      setLink('pubmedLink', data.reportMeta?.pubmed_link);
+      setLink('pmcLink',    data.reportMeta?.pmc_link);
+      if (data.reportMeta?.doi) { setLink('doiLink', `https://doi.org/${data.reportMeta.doi}`); document.getElementById('doiLink').innerText = 'DOI ↗'; }
+
+      const warning = data.reportMeta?.extraction_warning;
+      const warningEl = document.getElementById('extractionWarning');
+      if (warning) { document.getElementById('extractionWarningText').innerText = warning; warningEl.classList.remove('hidden'); }
+      else warningEl.classList.add('hidden');
+
+      const view = data.clinician_view;
+      document.getElementById('ui-known').innerText    = view.context.already_known;
+      document.getElementById('ui-adds').innerText     = view.context.what_this_adds;
+      document.getElementById('ui-pop').innerText      = view.pico.population;
+      document.getElementById('ui-baseline').innerText = view.baseline_characteristics;
+      document.getElementById('ui-int-con').innerText  = `${view.pico.intervention} vs ${view.pico.control}`;
+      document.getElementById('ui-out').innerText      = view.pico.primary_outcome;
+
+      const secOutUl = document.getElementById('ui-sec-out');
+      secOutUl.innerHTML = '';
+      (view.pico.secondary_outcomes || []).forEach(o => { const li = document.createElement('li'); li.innerText = o; secOutUl.appendChild(li); });
+
+      const ca = view.critical_appraisal;
+      robBadge(ca.risk_of_bias   || 'Unclear');
+      gradeBadge(ca.grade_certainty || 'Very Low');
+      document.getElementById('ui-rob-rationale').innerText = ca.risk_of_bias_rationale || '';
+      document.getElementById('ui-limitations').innerText   = ca.limitations            || '';
+
+      document.getElementById('ui-lay').innerText = data.patient_view.lay_summary;
+      document.getElementById('ui-sdm').innerText = data.patient_view.shared_decision_making_takeaway;
+
+      if (currentChart) { currentChart.destroy(); currentChart = null; }
+      const endpoints    = view.interactive_data?.endpoints;
+      const chartSection = document.getElementById('chartSection');
+      if (endpoints?.length) {
+        chartSection.style.display = 'block';
+        const target = endpoints.find(e => e.recommended_chart_type === 'stepped-line') || endpoints[0];
+        document.getElementById('chartTitle').innerText   = target.label;
+        document.getElementById('ui-synthesis').innerText = target.clinical_synthesis;
+        renderChart(target);
+      } else chartSection.style.display = 'none';
+
+      document.getElementById('reportContainer').classList.remove('hidden');
+      document.getElementById('exportBar').classList.remove('hidden');
+      document.getElementById('mdtSection').style.display    = 'block';
+      document.getElementById('patientSection').style.display = 'block';
+    }
+
+    // Expose for library load
+    window.populateDashboard = populateDashboard;
+
+    function renderChart(endpointData) {
+      const ctx   = document.getElementById('endpointChart').getContext('2d');
+      const isKM  = endpointData.recommended_chart_type === 'stepped-line';
+      currentChart = new Chart(ctx, {
+        type: isKM ? 'line' : 'bar',
+        data: {
+          labels:   endpointData.arms[0].data_points.map(dp => dp.x),
+          datasets: endpointData.arms.map((arm, i) => ({
+            label:           arm.group_name,
+            data:            arm.data_points.map(dp => dp.y),
+            backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)' : 'rgba(14,165,233,0.1)',
+            borderColor:     i === 0 ? '#0f172a' : '#0ea5e9',
+            borderWidth: 2, stepped: false, tension: isKM ? 0.3 : 0, fill: !isKM, pointRadius: isKM ? 4 : 0,
+          })),
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: endpointData.axes.y_label } },
+            x: { title: { display: true, text: endpointData.axes.x_label } },
+          },
+        },
+      });
+    }
+
+    // ── PDF Export ──────────────────────────────────────────────────────
+    function exportMDT() {
+      document.getElementById('patientSection').style.display = 'none';
+      html2pdf().set({ margin:[0.5,0.5,0.5,0.5], filename:'Outcomelogic_MDT_Report.pdf', image:{type:'jpeg',quality:0.98}, html2canvas:{scale:2,scrollY:0}, jsPDF:{unit:'in',format:'a4',orientation:'portrait'}, pagebreak:{mode:['avoid-all','css','legacy']} })
+        .from(document.getElementById('reportContainer')).save()
+        .then(() => document.getElementById('patientSection').style.display = 'block');
+    }
+    function exportPatient() {
+      document.getElementById('mdtSection').style.display = 'none';
+      html2pdf().set({ margin:[0.5,0.5,0.5,0.5], filename:'Outcomelogic_Patient_Summary.pdf', image:{type:'jpeg',quality:0.98}, html2canvas:{scale:2,scrollY:0}, jsPDF:{unit:'in',format:'a4',orientation:'portrait'}, pagebreak:{mode:['avoid-all','css','legacy']} })
+        .from(document.getElementById('reportContainer')).save()
+        .then(() => document.getElementById('mdtSection').style.display = 'block');
+    }
+  </script>
+
+  <!-- ===================== APP BOOT ===================== -->
+  <script type="module">
+    import { boot } from './app.js';
+    boot();
+  </script>
+
+</body>
+</html>
