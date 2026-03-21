@@ -7,7 +7,7 @@ import { LIBRARY_TABLE } from '../config/constants.js';
 function _env(k,fb=''){return window.ENV?.[k]||fb;}
 const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
 const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
-import { toast } from '../components/toasts.js';
+import { toast } from '../components/Toasts.js';
 
 // ─────────────────────────────────────────────
 // RENDER VALIDATION QUEUE
