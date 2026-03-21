@@ -11,7 +11,7 @@ import { renderTrialCards }                       from '../components/trialCard.
 import { renderValidationQueue }                  from './validate.js';
 import { openBatchModal }                         from './batch.js';
 import { exportJson, exportPdfCompendium }        from './export.js';
-import { toast }                                  from '../components/Toasts.js';
+import { toast }                                  from '../components/toasts.js';
 
 // ─────────────────────────────────────────────
 // STATE
