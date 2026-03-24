@@ -1,43 +1,78 @@
 // app.js
 // Application router and global state.
-// Handles tab switching, auth gating, and wires together all modules.
+// Handles tab switching, auth gating, recovery hash detection,
+// and wires together all modules.
 
-import { initAuth, onAuthChange, renderLoginModal, renderUserBadge } from './modules/auth.js';
-import { openSaveModal }   from './components/saveModal.js';
+import {
+  initAuth, onAuthChange,
+  renderLoginModal, renderSetPasswordForm,
+  renderUserBadge,
+} from './modules/auth.js';
+import { openSaveModal }               from './components/saveModal.js';
 import { initLibrary, refreshLibrary } from './modules/library.js';
-import { toast }           from './components/toasts.js';
-import { APP_VERSION }     from './config/constants.js';
+import { toast }                       from './components/toasts.js';
+import { APP_VERSION }                 from './config/constants.js';
 
 // ─────────────────────────────────────────────
 // GLOBAL STATE
 // ─────────────────────────────────────────────
 const state = {
-  currentTab:      'analyse',   // 'analyse' | 'library'
-  lastAnalysis:    null,        // last successful analysis JSON
-  libraryEl:       null,        // library tab container
-  analyseEl:       null,        // analyse tab container
+  currentTab:   'analyse',
+  lastAnalysis: null,
+  libraryEl:    null,
 };
 
 // ─────────────────────────────────────────────
 // BOOT
 // ─────────────────────────────────────────────
 export async function boot() {
-  // Update version badge
+  // Version badge
   const versionEl = document.getElementById('app-version');
   if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
 
-  // Init auth — restores session from localStorage
-  const user = await initAuth();
+  // Init auth — restores session and detects recovery hash
+  const { user, isRecovery } = await initAuth();
 
-  // React to auth state changes
+  const modalEl = document.getElementById('auth-modal-root');
+
+  // ── Recovery flow: URL contains a password reset token ──────────────────
+  // Show the set-new-password form regardless of session state.
+  // Once the password is set, Supabase automatically signs the user in
+  // and onAuthStateChange fires → _showApp() is called.
+  if (isRecovery) {
+    if (modalEl) {
+      renderSetPasswordForm(modalEl, () => {
+        // Password set — onAuthStateChange will handle showing the app
+        // but clear the modal just in case it fires before the callback
+        if (modalEl) modalEl.innerHTML = '';
+      });
+    }
+    // Don't proceed with normal auth flow — wait for the password to be set
+    _setupAuthListener(modalEl);
+    return;
+  }
+
+  // ── Normal flow ──────────────────────────────────────────────────────────
+  _setupAuthListener(modalEl);
+}
+
+// ─────────────────────────────────────────────
+// AUTH LISTENER
+// Reacts to every login/logout event for the lifetime of the app.
+// ─────────────────────────────────────────────
+function _setupAuthListener(modalEl) {
   onAuthChange((event, user) => {
-    const modalEl = document.getElementById('auth-modal-root');
     if (!user) {
-      // Not logged in — show login modal
+      // Signed out — show login modal (but not if we're mid-recovery)
+      const hash   = window.location.hash;
+      const params = new URLSearchParams(hash.replace('#', ''));
+      const type   = params.get('type');
+      if (type === 'recovery') return;  // recovery form is already showing
+
       if (modalEl) renderLoginModal(modalEl);
       _hideApp();
     } else {
-      // Logged in — remove modal, show app
+      // Signed in — remove modal, show app
       if (modalEl) modalEl.innerHTML = '';
       _showApp(user);
     }
@@ -56,17 +91,16 @@ function _showApp(user) {
   if (!shell) return;
   shell.classList.remove('hidden');
 
-  // Render user badge in header
+  // Render user badge
   const badgeEl = document.getElementById('user-badge');
   if (badgeEl) renderUserBadge(badgeEl);
 
   // Store display name globally for validate prompts
-  window._currentUserDisplayName = user.user_metadata?.full_name || user.email?.split('@')[0] || '';
+  window._currentUserDisplayName =
+    user.user_metadata?.full_name ||
+    user.email?.split('@')[0]     || '';
 
-  // Wire tabs
   _wireTabs();
-
-  // Show the current tab
   _showTab(state.currentTab);
 }
 
@@ -82,29 +116,26 @@ function _wireTabs() {
 function _showTab(tabName) {
   state.currentTab = tabName;
 
-  // Update tab button styles
   document.querySelectorAll('[data-tab]').forEach(btn => {
     const active = btn.dataset.tab === tabName;
-    btn.classList.toggle('border-b-2',         active);
-    btn.classList.toggle('border-slate-900',   active);
-    btn.classList.toggle('text-slate-900',     active);
-    btn.classList.toggle('font-semibold',      active);
-    btn.classList.toggle('text-slate-400',     !active);
+    btn.classList.toggle('border-b-2',       active);
+    btn.classList.toggle('border-slate-900', active);
+    btn.classList.toggle('text-slate-900',   active);
+    btn.classList.toggle('font-semibold',    active);
+    btn.classList.toggle('text-slate-400',   !active);
   });
 
-  // Show/hide tab panels
   document.querySelectorAll('[data-tab-panel]').forEach(panel => {
     panel.classList.toggle('hidden', panel.dataset.tabPanel !== tabName);
   });
 
-  // Lazy-init library tab on first open
+  // Lazy-init library on first open
   if (tabName === 'library') {
     const libEl = document.getElementById('tab-panel-library');
     if (libEl && !state.libraryEl) {
       state.libraryEl = libEl;
       initLibrary(libEl, {
         onLoadTrial: (analysis) => {
-          // Switch to analyse tab and populate dashboard
           _showTab('analyse');
           window.populateDashboard?.(analysis);
           toast.success('Trial loaded from library.');
@@ -124,12 +155,11 @@ export function promptSaveToLibrary(analysis) {
     analysis,
     (savedRecord) => {
       toast.success(`"${savedRecord.display_title}" saved to library.`);
-      // Refresh library if it's been initialised
       if (state.libraryEl) refreshLibrary(state.libraryEl);
     },
-    () => {}  // dismissed — no action
+    () => {}
   );
 }
 
-// Expose globally so the analyse tab inline onclick can call it
+// Expose globally so inline onclick in index.html can reach it
 window.promptSaveToLibrary = promptSaveToLibrary;
