@@ -62,17 +62,24 @@ export async function boot() {
 // ─────────────────────────────────────────────
 function _setupAuthListener(modalEl) {
   onAuthChange((event, user) => {
-    if (!user) {
-      // Signed out — show login modal (but not if we're mid-recovery)
-      const hash   = window.location.hash;
-      const params = new URLSearchParams(hash.replace('#', ''));
-      const type   = params.get('type');
-      if (type === 'recovery') return;  // recovery form is already showing
 
+    // PASSWORD_RECOVERY: user clicked a reset link.
+    // Show the set-new-password form — do NOT show the app yet.
+    if (event === 'PASSWORD_RECOVERY') {
+      if (modalEl) renderSetPasswordForm(modalEl, () => {
+        // Password set successfully — clear the modal.
+        // Supabase will fire SIGNED_IN next which will call _showApp().
+        if (modalEl) modalEl.innerHTML = '';
+      });
+      _hideApp();
+      return;
+    }
+
+    if (!user) {
       if (modalEl) renderLoginModal(modalEl);
       _hideApp();
     } else {
-      // Signed in — remove modal, show app
+      // Normal sign-in — clear modal and show app
       if (modalEl) modalEl.innerHTML = '';
       _showApp(user);
     }

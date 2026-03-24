@@ -44,10 +44,21 @@ export async function initAuth() {
   _user    = session?.user ?? null;
 
   // Listen for future auth state changes
+  // PASSWORD_RECOVERY is fired when the user clicks a reset link.
+  // We suppress it from reaching app.js listeners — app.js handles it
+  // separately via the isRecovery flag returned from this function.
   client.auth.onAuthStateChange((event, session) => {
     _session = session;
     _user    = session?.user ?? null;
     console.log(`[Auth] ${event}`, _user?.email ?? 'signed out');
+
+    // Do NOT propagate PASSWORD_RECOVERY as SIGNED_IN —
+    // it would show the app before the user has set a password.
+    if (event === 'PASSWORD_RECOVERY') {
+      _listeners.forEach(fn => fn('PASSWORD_RECOVERY', _user));
+      return;
+    }
+
     _listeners.forEach(fn => fn(event, _user));
   });
 
