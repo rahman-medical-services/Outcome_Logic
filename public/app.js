@@ -92,6 +92,7 @@ function _setupAuthListener(modalEl, isRecovery = false) {
 
     if (!user) {
       if (modalEl) renderLoginModal(modalEl);
+      state.libraryEl = null;   // reset so library re-inits on next login
       _hideApp();
     } else {
       // Normal sign-in — clear modal and show app
@@ -194,7 +195,7 @@ function _showTab(tabName) {
     panel.classList.toggle('hidden', panel.dataset.tabPanel !== tabName);
   });
 
-  // Lazy-init library on first open
+  // Lazy-init library on first open — find inner container by id
   if (tabName === 'library') {
     const libEl = document.getElementById('tab-panel-library');
     if (libEl && !state.libraryEl) {
@@ -205,6 +206,13 @@ function _showTab(tabName) {
           window.populateDashboard?.(analysis);
           toast.success('Trial loaded from library.');
         },
+      }).catch(err => {
+        console.error('[App] Library init failed:', err);
+        if (libEl) libEl.innerHTML = `
+          <div class="text-center py-16 text-red-500 text-sm">
+            Failed to load library: ${err.message}<br>
+            <button onclick="location.reload()" class="mt-3 text-slate-600 underline text-xs">Reload page</button>
+          </div>`;
       });
     }
   }

@@ -19,10 +19,18 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!--
-    Runtime environment config — loaded from /env.js (never replaced wholesale).
-    Edit public/env.js directly to update keys. Do not inline window.ENV here.
+    Environment variables injected at deploy time by Vercel.
+    SUPABASE_URL and SUPABASE_ANON_KEY are safe to expose in the browser.
+    INTERNAL_API_TOKEN and SERVICE_ROLE_KEY must NEVER appear here.
   -->
-  <script src="/env.js"></script>
+  <script>
+    window.ENV = {
+      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
+      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
+      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
+    };
+  </script>
 </head>
 
 <body class="bg-slate-50 text-slate-900 font-sans">
@@ -166,17 +174,38 @@
               </div>
 
 <div id="loadingState" class="hidden mt-6">
-  <div class="flex flex-col items-center gap-3">
+  <div class="flex flex-col items-center gap-4 max-w-sm mx-auto">
     <div class="w-8 h-8 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
-    <div class="text-center space-y-1">
-      <p id="loading-stage" class="text-sm font-medium text-slate-700">Retrieving source…</p>
-      <div class="flex justify-center gap-1.5 mt-1">
-        <span id="stage-dot-1" class="w-2 h-2 rounded-full bg-slate-900"></span>
-        <span id="stage-dot-2" class="w-2 h-2 rounded-full bg-slate-300"></span>
-        <span id="stage-dot-3" class="w-2 h-2 rounded-full bg-slate-300"></span>
+    <div class="w-full text-center space-y-2">
+      <p id="loading-stage" class="text-sm font-semibold text-slate-700">Retrieving source…</p>
+      <div class="w-full bg-slate-200 rounded-full h-2.5">
+        <div id="loading-progress-bar"
+             class="bg-slate-900 h-2.5 rounded-full transition-all duration-700 ease-in-out"
+             style="width: 0%"></div>
       </div>
-      <p class="text-xs text-slate-400 font-mono">3-Node Consensus Pipeline</p>
+      <p id="loading-pct" class="text-xs font-mono text-slate-500">0%</p>
+      <p class="text-xs text-slate-400">3-Node Consensus Pipeline</p>
     </div>
+  </div>
+</div>
+
+<!-- Error panel — shown on analysis failure -->
+<div id="errorPanel" class="hidden mt-6 max-w-sm mx-auto">
+  <div class="bg-red-50 border border-red-200 rounded-lg p-5 text-center space-y-3">
+    <div class="text-2xl">⚠️</div>
+    <p class="text-sm font-semibold text-red-800">Analysis failed</p>
+    <p id="errorMessage" class="text-xs text-red-600 leading-relaxed"></p>
+    <div class="flex gap-2 justify-center pt-1">
+      <button id="retryBtn"
+        class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-slate-700 transition">
+        Retry with Pro model
+      </button>
+      <button onclick="hideError()"
+        class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded text-sm hover:bg-slate-50 transition">
+        Dismiss
+      </button>
+    </div>
+    <p class="text-[10px] text-red-400">Pro model uses Gemini 2.5 Pro with enhanced extraction</p>
   </div>
 </div>
 
@@ -290,6 +319,7 @@
   <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
     Grade ≥3 Adverse Events
   </h3>
+  <p id="ae-note" class="hidden text-xs text-slate-500 italic mb-2"></p>
   <div class="overflow-x-auto">
     <table class="w-full text-sm border-collapse">
       <thead>
@@ -356,40 +386,59 @@ let currentChart  = null;
 let currentChart2 = null;
 window._lastAnalysis = null;
 
-// ── Loading stage helpers ────────────────────────────────────────────
+// ── Loading progress bar helpers ─────────────────────────────────────
 const LOADING_STAGES = [
-  { label: 'Retrieving source…',    dots: [1,0,0] },
-  { label: 'Extracting data…',      dots: [1,1,0] },
-  { label: 'Synthesising report…',  dots: [1,1,1] },
+  { label: 'Retrieving source…',   pct: 15  },
+  { label: 'Extracting data…',     pct: 45  },
+  { label: 'Synthesising report…', pct: 80  },
+  { label: 'Finalising output…',   pct: 95  },
 ];
 let _stageTimer = null;
+let _currentPayload = null;   // stored for retry
 
 function showLoading() {
-  const el = document.getElementById('loadingState');
-  if (!el) return;
-  el.classList.remove('hidden');
+  document.getElementById('loadingState').classList.remove('hidden');
+  document.getElementById('errorPanel').classList.add('hidden');
   let stage = 0;
-  _setStage(stage);
+  _setProgress(LOADING_STAGES[0].pct, LOADING_STAGES[0].label);
   _stageTimer = setInterval(() => {
     stage = Math.min(stage + 1, LOADING_STAGES.length - 1);
-    _setStage(stage);
-  }, 8000);
+    _setProgress(LOADING_STAGES[stage].pct, LOADING_STAGES[stage].label);
+  }, 7000);
 }
 
 function hideLoading() {
-  const el = document.getElementById('loadingState');
-  if (el) el.classList.add('hidden');
+  document.getElementById('loadingState').classList.add('hidden');
   if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; }
 }
 
-function _setStage(i) {
-  const s = LOADING_STAGES[i];
+function _setProgress(pct, label) {
+  const bar = document.getElementById('loading-progress-bar');
   const lbl = document.getElementById('loading-stage');
-  if (lbl) lbl.textContent = s.label;
-  [1,2,3].forEach(n => {
-    const dot = document.getElementById(`stage-dot-${n}`);
-    if (dot) dot.className = `w-2 h-2 rounded-full ${s.dots[n-1] ? 'bg-slate-900' : 'bg-slate-300'}`;
-  });
+  const num = document.getElementById('loading-pct');
+  if (bar) bar.style.width = pct + '%';
+  if (lbl) lbl.textContent = label;
+  if (num) num.textContent = pct + '%';
+}
+
+function showError(message, payload) {
+  hideLoading();
+  const panel = document.getElementById('errorPanel');
+  const msg   = document.getElementById('errorMessage');
+  if (msg)   msg.textContent = message;
+  if (panel) panel.classList.remove('hidden');
+  // Wire retry button
+  const retryBtn = document.getElementById('retryBtn');
+  if (retryBtn && payload) {
+    retryBtn.onclick = () => {
+      panel.classList.add('hidden');
+      executeEngine({ ...payload, isEscalation: true });
+    };
+  }
+}
+
+function hideError() {
+  document.getElementById('errorPanel').classList.add('hidden');
 }
 
 // ── Enum helpers ────────────────────────────────────────────────────
@@ -496,10 +545,12 @@ async function analyzePdf() {
 
 // ── Core Engine ─────────────────────────────────────────────────────
 async function executeEngine(payload) {
+  _currentPayload = payload;
   document.getElementById('searchResults').classList.add('hidden');
-  showLoading();
+  document.getElementById('errorPanel').classList.add('hidden');
   document.getElementById('reportContainer').classList.add('hidden');
   document.getElementById('exportBar').classList.add('hidden');
+  showLoading();
   try {
     const res  = await fetch(`${API_BASE_URL}/analyze`, {
       method:  'POST',
@@ -508,13 +559,24 @@ async function executeEngine(payload) {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (res.status === 429) throw new Error('Rate limit exceeded. Try again tomorrow.');
-      throw new Error(data.error || data.details || 'Server failed to process request.');
+      let reason = data.error || data.details || 'Server failed to process the request.';
+      if (res.status === 429) reason = 'Rate limit reached — you have used your daily analysis quota. Please try again tomorrow.';
+      if (res.status === 504 || res.status === 502) reason = 'The pipeline timed out retrieving or processing the source. The paper may be behind a paywall or the source server is slow.';
+      throw new Error(reason);
     }
+    _setProgress(100, 'Complete');
+    await new Promise(r => setTimeout(r, 300)); // brief visual pause at 100%
     window._lastAnalysis = data;
     populateDashboard(data);
   } catch (err) {
-    alert('Analysis Error: ' + err.message);
+    const isEscalation = !!payload.isEscalation;
+    let userMessage = err.message;
+    if (!isEscalation) {
+      userMessage += '\n\nYou can retry using the Pro model, which uses Gemini 2.5 Pro with a rescue prompt and may succeed where the standard pipeline failed.';
+    } else {
+      userMessage += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
+    }
+    showError(userMessage, isEscalation ? null : payload);
   } finally {
     hideLoading();
   }
@@ -633,20 +695,53 @@ function renderAETable(ae, pico) {
 
   section.classList.remove('hidden');
 
-  // Set column headers from PICO arm names
+  const allNullControl = ae._control_not_applicable ||
+                         ae.rows.every(r => r.control_pct === null);
+
+  // Column headers
   const intHeader = document.getElementById('ae-header-intervention');
   const conHeader = document.getElementById('ae-header-control');
-  if (intHeader) intHeader.textContent = pico?.intervention?.split(' ')[0] || 'Intervention';
-  if (conHeader) conHeader.textContent = ae.rows[0]?.control_pct === null ? '—' : (pico?.control?.split(' ')[0] || 'Control');
+  const intName   = pico?.intervention?.split(' ').slice(0,3).join(' ') || 'Intervention';
+  const conName   = pico?.control?.split(' ').slice(0,3).join(' ')      || 'Control';
+
+  if (intHeader) intHeader.textContent = intName;
+  if (conHeader) {
+    if (allNullControl) {
+      conHeader.textContent = '—';
+      conHeader.classList.add('hidden');
+    } else {
+      conHeader.textContent = conName;
+      conHeader.classList.remove('hidden');
+    }
+  }
 
   const tbody = document.getElementById('ae-table-body');
-  tbody.innerHTML = ae.rows.map((row, i) => `
-    <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
-      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1">(${row.note})</span>` : ''}</td>
-      <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
-      <td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = ae.rows.map((row, i) => {
+    const conCell = allNullControl
+      ? ''
+      : `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
+    return `
+      <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
+        <td class="p-2 text-slate-700">
+          ${row.event}
+          ${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}
+        </td>
+        <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
+        ${conCell}
+      </tr>
+    `;
+  }).join('');
+
+  // Intervention-only note banner
+  const noteEl = document.getElementById('ae-note');
+  if (noteEl) {
+    if (allNullControl) {
+      noteEl.textContent = 'These adverse events are specific to the intervention arm and are not applicable to the control arm.';
+      noteEl.classList.remove('hidden');
+    } else {
+      noteEl.classList.add('hidden');
+    }
+  }
 
   // Footer — discontinuation and mortality
   const tfoot = document.getElementById('ae-table-foot');
@@ -656,7 +751,7 @@ function renderAETable(ae, pico) {
       <tr class="border-t border-slate-200">
         <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
         <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>
+        ${allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`}
       </tr>
     `);
   }
@@ -665,7 +760,7 @@ function renderAETable(ae, pico) {
       <tr>
         <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
         <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>
+        ${allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`}
       </tr>
     `);
   }
