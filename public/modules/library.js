@@ -49,8 +49,16 @@ function _render(containerEl) {
         <!-- Category picker -->
         <div id="lib-category-picker"></div>
 
+        <!-- Keyword search -->
+        <div class="mt-4">
+          <input type="text" id="lib-search-input"
+            placeholder="Search by title, author, tag…"
+            class="w-full border border-slate-300 rounded px-4 py-2 text-sm
+                   focus:ring-2 focus:ring-slate-900 outline-none" />
+        </div>
+
         <!-- Second filter row -->
-        <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 mt-3">
           <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
             <input type="checkbox" id="lib-validated-only" class="rounded" />
             Validated only
@@ -110,6 +118,19 @@ function _render(containerEl) {
     _state.counts,
     { showAll: true }
   );
+
+  // Keyword search — client-side filter on loaded cards
+  const searchInput = containerEl.querySelector('#lib-search-input');
+  if (searchInput) {
+    searchInput.oninput = () => {
+      const term = searchInput.value.toLowerCase().trim();
+      const cards = containerEl.querySelectorAll('.trial-card');
+      cards.forEach(card => {
+        const text = card.innerText.toLowerCase();
+        card.style.display = (!term || text.includes(term)) ? '' : 'none';
+      });
+    };
+  }
 
   // Validated only checkbox
   containerEl.querySelector('#lib-validated-only').onchange = (e) => {

@@ -3,6 +3,45 @@
 // Returns an HTML string — caller inserts into DOM.
 
 // ─────────────────────────────────────────────
+// SPECIALTY COLOUR MAP
+// Consistent colour accent per specialty across all cards
+// ─────────────────────────────────────────────
+const SPECIALTY_COLOURS = {
+  // Surgery
+  'Upper GI':       'bg-blue-500',
+  'Hernia':         'bg-emerald-500',
+  'Colorectal':     'bg-orange-500',
+  'Breast':         'bg-pink-500',
+  'Endocrine':      'bg-purple-500',
+  'Vascular':       'bg-red-500',
+  'Hepatobiliary':  'bg-amber-500',
+  // Orthopaedics
+  'Hip':            'bg-cyan-500',
+  'Knee':           'bg-teal-500',
+  'Spine':          'bg-indigo-500',
+  'Shoulder':       'bg-violet-500',
+  'Trauma':         'bg-rose-500',
+  // Medicine
+  'Cardiology':     'bg-red-600',
+  'Oncology':       'bg-purple-600',
+  'Respiratory':    'bg-sky-500',
+  'Gastroenterology': 'bg-lime-600',
+  'Endocrinology':  'bg-yellow-600',
+  'Neurology':      'bg-indigo-600',
+  'Infectious Disease': 'bg-green-600',
+  // Critical Care
+  'ICU':            'bg-slate-600',
+  'Emergency Medicine': 'bg-red-700',
+  // Anaesthesia
+  'Regional':       'bg-teal-600',
+  'General':        'bg-slate-500',
+};
+
+function specialtyColour(specialty) {
+  return SPECIALTY_COLOURS[specialty] || 'bg-slate-400';
+}
+
+// ─────────────────────────────────────────────
 // BADGE HELPERS
 // ─────────────────────────────────────────────
 const ROB_BADGE = {
@@ -94,12 +133,15 @@ export function trialCardHtml(trial, options = {}) {
        </span>`;
 
   return `
-    <div class="trial-card group p-4 bg-white border border-slate-200 rounded-lg
-                hover:border-slate-400 hover:shadow-sm cursor-pointer transition
+    <div class="trial-card group bg-white border border-slate-200 rounded-lg
+                hover:border-slate-400 hover:shadow-sm cursor-pointer transition overflow-hidden
                 ${selected ? 'border-slate-500 bg-slate-50' : ''}"
          data-id="${escHtml(trial.id)}">
 
-      <div class="flex items-start gap-3">
+      <!-- Specialty colour accent bar -->
+      <div class="h-1 w-full ${specialtyColour(trial.specialty)}"></div>
+
+      <div class="flex items-start gap-3 p-4">
         ${checkbox}
         <div class="flex-1 min-w-0">
 
@@ -158,8 +200,10 @@ export function trialCardHtml(trial, options = {}) {
         </div>
       </div>
 
+      </div><!-- close inner p-4 div -->
+
       <!-- Action buttons — visible on hover -->
-      <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100
+      <div class="flex gap-2 px-4 pb-4 pt-0 border-t border-slate-100
                   opacity-0 group-hover:opacity-100 transition-opacity">
         <button class="trial-card-load flex-1 bg-slate-900 text-white text-xs
                         px-3 py-1.5 rounded font-semibold hover:bg-slate-700 transition"
