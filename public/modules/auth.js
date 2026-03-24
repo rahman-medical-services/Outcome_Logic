@@ -14,7 +14,14 @@ let _supabase = null;
 function getClient() {
   if (_supabase) return _supabase;
   if (!window.supabase) throw new Error('Supabase JS client not loaded.');
-  _supabase = window.supabase.createClient(_env('SUPABASE_URL'), _env('SUPABASE_ANON_KEY'));
+  _supabase = window.supabase.createClient(_env('SUPABASE_URL'), _env('SUPABASE_ANON_KEY'), {
+    auth: {
+      flowType:    'pkce',
+      detectSessionInUrl: true,
+      autoRefreshToken:   true,
+      persistSession:     true,
+    }
+  });
   return _supabase;
 }
 
@@ -38,7 +45,7 @@ export async function initAuth() {
   // Supabase v2 exchanges the token during getSession() and clears the hash.
   // We must read the hash first, before calling anything on the client.
   const isRecovery = _detectRecoveryHash();
-  console.log('[Auth] initAuth — hash isRecovery:', isRecovery, '| hash:', window.location.hash.slice(0, 80));
+  console.log('[Auth] initAuth — isRecovery:', isRecovery, '| hash:', window.location.hash.slice(0, 80), '| search:', window.location.search.slice(0, 80));
 
   // Register listener
   client.auth.onAuthStateChange((event, session) => {
@@ -65,16 +72,27 @@ export async function initAuth() {
 }
 
 // ─────────────────────────────────────────────
-// RECOVERY HASH DETECTION
-// Supabase puts the token in the URL hash after a reset/magic-link click.
-// We detect it here and return a flag — never expose the raw token.
+// RECOVERY DETECTION
+// Supports both:
+//   Implicit flow: token in hash  (#access_token=xxx&type=recovery)
+//   PKCE flow:     code in query  (?code=xxx) — survives email client rewrites
 // ─────────────────────────────────────────────
 function _detectRecoveryHash() {
-  const hash   = window.location.hash;
-  if (!hash)   return false;
-  const params = new URLSearchParams(hash.replace('#', ''));
-  const type   = params.get('type');
-  return type === 'recovery' || type === 'magiclink';
+  // Check hash fragment (implicit flow)
+  const hash = window.location.hash;
+  if (hash) {
+    const hashParams = new URLSearchParams(hash.replace('#', ''));
+    const type       = hashParams.get('type');
+    if (type === 'recovery' || type === 'magiclink') return true;
+  }
+
+  // Check query string (PKCE flow)
+  // Supabase PKCE sends ?code=xxx for both password reset and magic link
+  const search      = window.location.search;
+  const queryParams = new URLSearchParams(search);
+  if (queryParams.get('code')) return true;
+
+  return false;
 }
 
 // ─────────────────────────────────────────────
