@@ -58,25 +58,33 @@ function _setupAuthListener(modalEl, isRecovery = false) {
   // Track whether we are mid-recovery — block SIGNED_IN until password is set
   let _awaitingPasswordSet = isRecovery;
 
+  console.log('[App] setupAuthListener — isRecovery:', isRecovery);
+
   onAuthChange((event, user) => {
+    console.log('[App] onAuthChange event:', event, '| awaitingPasswordSet:', _awaitingPasswordSet, '| user:', user?.email ?? 'none');
 
     // PASSWORD_RECOVERY: user clicked a reset link.
     // Show the set-new-password form — block app from showing.
     if (event === 'PASSWORD_RECOVERY') {
       _awaitingPasswordSet = true;
       _hideApp();
-      if (modalEl) renderSetPasswordForm(modalEl, () => {
-        _awaitingPasswordSet = false;
-        if (modalEl) modalEl.innerHTML = '';
-        // _showApp will be called when SIGNED_IN fires after password update
-      });
+      console.log('[App] Showing set-password form');
+      if (modalEl) {
+        renderSetPasswordForm(modalEl, () => {
+          console.log('[App] Password set — clearing modal');
+          _awaitingPasswordSet = false;
+          if (modalEl) modalEl.innerHTML = '';
+        });
+        console.log('[App] Modal innerHTML after render:', modalEl.innerHTML.slice(0, 100));
+      } else {
+        console.error('[App] modalEl is null — cannot render set-password form');
+      }
       return;
     }
 
-    // While mid-recovery, suppress all SIGNED_IN events — the existing
-    // session fires SIGNED_IN immediately but we don't want to show the
-    // app until the password has actually been set.
+    // While mid-recovery, suppress all SIGNED_IN events
     if (_awaitingPasswordSet && event === 'SIGNED_IN') {
+      console.log('[App] Suppressing SIGNED_IN while awaiting password set');
       _hideApp();
       return;
     }
