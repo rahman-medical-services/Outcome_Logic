@@ -25,10 +25,10 @@
   -->
   <script>
     window.ENV = {
-      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
-      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
-      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
-      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
+      SUPABASE_URL:      '%%SUPABASE_URL%%',
+      SUPABASE_ANON_KEY: '%%SUPABASE_ANON_KEY%%',
+      API_BASE_URL:      '%%API_BASE_URL%%',
+      INTERNAL_API_TOKEN: '%%INTERNAL_API_TOKEN%%',
     };
   </script>
 </head>
@@ -190,8 +190,9 @@
               class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-emerald-700 transition">
               🤝 Patient PDF
             </button>
-            <button onclick="window.promptSaveToLibrary(window._lastAnalysis)"
-              class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-slate-700 transition">
+            <button id="btn-save-library"
+              onclick="window.promptSaveToLibrary(window._lastAnalysis)"
+              class="hidden bg-slate-900 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-slate-700 transition">
               📚 Save to Library
             </button>
           </div>

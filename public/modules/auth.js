@@ -45,7 +45,7 @@ export async function initAuth() {
   // Supabase v2 exchanges the token during getSession() and clears the hash.
   // We must read the hash first, before calling anything on the client.
   const isRecovery = _detectRecoveryHash();
-  console.log('[Auth] initAuth — isRecovery:', isRecovery, '| hash:', window.location.hash.slice(0, 80), '| search:', window.location.search.slice(0, 80));
+  
 
   // Register listener
   client.auth.onAuthStateChange((event, session) => {

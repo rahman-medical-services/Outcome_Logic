@@ -28,6 +28,27 @@ function getAnonClient() {
   });
 }
 
+
+// ─────────────────────────────────────────────
+// TIER CHECK HELPER
+// ─────────────────────────────────────────────
+function getTier(user) {
+  return user?.user_metadata?.tier || 'free';
+}
+
+function requireTier(user, allowedTiers, res) {
+  const tier = getTier(user);
+  if (!allowedTiers.includes(tier)) {
+    res.status(403).json({
+      error:   'Insufficient access.',
+      message: `This feature requires one of: ${allowedTiers.join(', ')}. Your current plan: ${tier}.`,
+      tier,
+    });
+    return false;
+  }
+  return true;
+}
+
 export default async function handler(req, res) {
 
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -125,6 +146,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ counts });
     }
 
+    // Apply tier-based library access
+    const userTier = getTier(user);
+    if (userTier === 'free') {
+      // Free tier: landmark papers only
+      req.body.landmark_only = true;
+    }
+
     // ────────────────────────────────────────
     // MODE: browse — fetch trial cards with filters
     // Returns card-level data only (no analysis_json) for performance
@@ -161,6 +189,11 @@ export default async function handler(req, res) {
     // Filter out superseded records unless explicitly requested
     if (!include_superseded) {
       query = query.is('superseded_by', null);
+    }
+
+    // Free tier — landmark only
+    if (req.body.landmark_only) {
+      query = query.eq('is_landmark', true);
     }
 
     // Taxonomy filters

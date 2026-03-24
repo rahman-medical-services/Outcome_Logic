@@ -6,12 +6,13 @@
 import {
   initAuth, onAuthChange,
   renderLoginModal, renderSetPasswordForm,
-  renderUserBadge,
+  renderUserBadge, getUserTier,
 } from './modules/auth.js';
 import { openSaveModal }               from './components/saveModal.js';
 import { initLibrary, refreshLibrary } from './modules/library.js';
 import { toast }                       from './components/toasts.js';
 import { APP_VERSION }                 from './config/constants.js';
+import { can, upgradeMessage }         from './config/tiers.js';
 
 // ─────────────────────────────────────────────
 // GLOBAL STATE
@@ -42,11 +43,9 @@ export async function boot() {
   // If recovery hash detected — show set-password form immediately
   // Do not wait for any Supabase event — just render the form now.
   if (isRecovery) {
-    console.log('[App] Recovery detected — showing set-password form immediately');
     _hideApp();
     if (modalEl) {
       renderSetPasswordForm(modalEl, () => {
-        console.log('[App] Password set — clearing modal');
         if (modalEl) modalEl.innerHTML = '';
       });
     }
@@ -67,33 +66,26 @@ function _setupAuthListener(modalEl, isRecovery = false) {
   // Track whether we are mid-recovery — block SIGNED_IN until password is set
   let _awaitingPasswordSet = isRecovery;
 
-  console.log('[App] setupAuthListener — isRecovery:', isRecovery);
 
   onAuthChange((event, user) => {
-    console.log('[App] onAuthChange event:', event, '| awaitingPasswordSet:', _awaitingPasswordSet, '| user:', user?.email ?? 'none');
 
     // PASSWORD_RECOVERY: user clicked a reset link.
     // Show the set-new-password form — block app from showing.
     if (event === 'PASSWORD_RECOVERY') {
       _awaitingPasswordSet = true;
       _hideApp();
-      console.log('[App] Showing set-password form');
       if (modalEl) {
         renderSetPasswordForm(modalEl, () => {
-          console.log('[App] Password set — clearing modal');
           _awaitingPasswordSet = false;
           if (modalEl) modalEl.innerHTML = '';
         });
-        console.log('[App] Modal innerHTML after render:', modalEl.innerHTML.slice(0, 100));
       } else {
-        console.error('[App] modalEl is null — cannot render set-password form');
       }
       return;
     }
 
     // While mid-recovery, suppress all SIGNED_IN events
     if (_awaitingPasswordSet && event === 'SIGNED_IN') {
-      console.log('[App] Suppressing SIGNED_IN while awaiting password set');
       _hideApp();
       return;
     }
@@ -125,13 +117,56 @@ function _showApp(user) {
   const badgeEl = document.getElementById('user-badge');
   if (badgeEl) renderUserBadge(badgeEl);
 
-  // Store display name globally for validate prompts
+  // Store display name and tier globally
   window._currentUserDisplayName =
     user.user_metadata?.full_name ||
     user.email?.split('@')[0]     || '';
 
+  const tier = getUserTier();
+  window._currentUserTier = tier;
+
   _wireTabs();
+  _applyTierUI(tier);
   _showTab(state.currentTab);
+}
+
+// ─────────────────────────────────────────────
+// TIER-AWARE UI
+// Show/hide elements based on user permissions
+// ─────────────────────────────────────────────
+function _applyTierUI(tier) {
+  // Save to Library button
+  const saveBtn = document.getElementById('btn-save-library');
+  if (saveBtn) {
+    if (can(tier, 'canAddToLib')) {
+      saveBtn.classList.remove('hidden');
+    } else {
+      saveBtn.classList.add('hidden');
+    }
+  }
+
+  // Analyse tab — search and PDF upload
+  const analyseControls = document.getElementById('ui-controls');
+  if (analyseControls) {
+    if (!can(tier, 'canAnalyse')) {
+      // Replace controls with upgrade message
+      const searchArea = analyseControls.querySelector('.bg-white');
+      if (searchArea) {
+        searchArea.innerHTML = `
+          <div class="text-center py-8">
+            <p class="text-slate-500 text-sm">${upgradeMessage('canAnalyse')}</p>
+          </div>
+        `;
+      }
+    }
+  }
+
+  // Library tab button — always visible (free gets landmark papers)
+  // But show a badge indicating limited access for free tier
+  const libTab = document.querySelector('[data-tab="library"]');
+  if (libTab && tier === 'free') {
+    libTab.textContent = 'Library (Preview)';
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -180,6 +215,11 @@ function _showTab(tabName) {
 // Called from the analyse tab after a successful analysis
 // ─────────────────────────────────────────────
 export function promptSaveToLibrary(analysis) {
+  const tier = getUserTier();
+  if (!can(tier, 'canAddToLib')) {
+    toast.warning(upgradeMessage('canAddToLib'));
+    return;
+  }
   state.lastAnalysis = analysis;
   openSaveModal(
     analysis,

@@ -35,6 +35,27 @@ function getAnonClient() {
   });
 }
 
+
+// ─────────────────────────────────────────────
+// TIER CHECK HELPER
+// ─────────────────────────────────────────────
+function getTier(user) {
+  return user?.user_metadata?.tier || 'free';
+}
+
+function requireTier(user, allowedTiers, res) {
+  const tier = getTier(user);
+  if (!allowedTiers.includes(tier)) {
+    res.status(403).json({
+      error:   'Insufficient access.',
+      message: `This feature requires one of: ${allowedTiers.join(', ')}. Your current plan: ${tier}.`,
+      tier,
+    });
+    return false;
+  }
+  return true;
+}
+
 export default async function handler(req, res) {
 
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -65,6 +86,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Tier check — free and standard cannot save to library
+    if (!requireTier(user, ['admin', 'pro'], res)) return;
+
     const {
       analysis,        // Full OutcomeLogic JSON output
       library_meta,    // { domain, specialty, subspecialty, tags, landmark_year, display_title }
