@@ -39,38 +39,44 @@ export async function boot() {
   // Show the set-new-password form regardless of session state.
   // Once the password is set, Supabase automatically signs the user in
   // and onAuthStateChange fires → _showApp() is called.
-  if (isRecovery) {
-    if (modalEl) {
-      renderSetPasswordForm(modalEl, () => {
-        // Password set — onAuthStateChange will handle showing the app
-        // but clear the modal just in case it fires before the callback
-        if (modalEl) modalEl.innerHTML = '';
-      });
-    }
-    // Don't proceed with normal auth flow — wait for the password to be set
-    _setupAuthListener(modalEl);
-    return;
-  }
+  // Always set up the auth listener first, passing isRecovery flag
+  // so it can block SIGNED_IN events while mid-recovery
+  _setupAuthListener(modalEl, isRecovery);
 
-  // ── Normal flow ──────────────────────────────────────────────────────────
-  _setupAuthListener(modalEl);
+  // If recovery hash detected, hide the app immediately and show the
+  // set-password form — the listener will handle everything from here
+  if (isRecovery) {
+    _hideApp();
+  }
 }
 
 // ─────────────────────────────────────────────
 // AUTH LISTENER
 // Reacts to every login/logout event for the lifetime of the app.
 // ─────────────────────────────────────────────
-function _setupAuthListener(modalEl) {
+function _setupAuthListener(modalEl, isRecovery = false) {
+  // Track whether we are mid-recovery — block SIGNED_IN until password is set
+  let _awaitingPasswordSet = isRecovery;
+
   onAuthChange((event, user) => {
 
     // PASSWORD_RECOVERY: user clicked a reset link.
-    // Show the set-new-password form — do NOT show the app yet.
+    // Show the set-new-password form — block app from showing.
     if (event === 'PASSWORD_RECOVERY') {
+      _awaitingPasswordSet = true;
+      _hideApp();
       if (modalEl) renderSetPasswordForm(modalEl, () => {
-        // Password set successfully — clear the modal.
-        // Supabase will fire SIGNED_IN next which will call _showApp().
+        _awaitingPasswordSet = false;
         if (modalEl) modalEl.innerHTML = '';
+        // _showApp will be called when SIGNED_IN fires after password update
       });
+      return;
+    }
+
+    // While mid-recovery, suppress all SIGNED_IN events — the existing
+    // session fires SIGNED_IN immediately but we don't want to show the
+    // app until the password has actually been set.
+    if (_awaitingPasswordSet && event === 'SIGNED_IN') {
       _hideApp();
       return;
     }
