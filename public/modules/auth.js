@@ -34,23 +34,19 @@ let _listeners = [];
 export async function initAuth() {
   const client = getClient();
 
-  // ── IMPORTANT: set up the auth listener BEFORE calling getSession() ──
-  // Supabase v2 exchanges the recovery token and fires PASSWORD_RECOVERY
-  // synchronously during initialisation — if we call getSession() first,
-  // we miss the event entirely and the hash is already cleared.
-  //
-  // By registering onAuthStateChange first, we catch PASSWORD_RECOVERY
-  // before getSession() processes the existing session and fires SIGNED_IN.
+  // ── Detect recovery from URL hash BEFORE Supabase exchanges the token ──
+  // Supabase v2 exchanges the token during getSession() and clears the hash.
+  // We must read the hash first, before calling anything on the client.
+  const isRecovery = _detectRecoveryHash();
+  console.log('[Auth] initAuth — hash isRecovery:', isRecovery, '| hash:', window.location.hash.slice(0, 80));
 
-  let _isRecovery = false;
-
-  const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
+  // Register listener
+  client.auth.onAuthStateChange((event, session) => {
     _session = session;
     _user    = session?.user ?? null;
     console.log(`[Auth] ${event}`, _user?.email ?? 'signed out');
 
     if (event === 'PASSWORD_RECOVERY') {
-      _isRecovery = true;
       _listeners.forEach(fn => fn('PASSWORD_RECOVERY', _user));
       return;
     }
@@ -58,17 +54,14 @@ export async function initAuth() {
     _listeners.forEach(fn => fn(event, _user));
   });
 
-  // Now restore the existing session — this fires INITIAL_SESSION
+  // Restore existing session
   const { data: { session } } = await client.auth.getSession();
-
-  // Only set user from session if we are NOT in recovery mode
-  // (PASSWORD_RECOVERY will have already set _user above if recovery)
-  if (!_isRecovery) {
+  if (!isRecovery) {
     _session = session;
     _user    = session?.user ?? null;
   }
 
-  return { user: _isRecovery ? null : _user, isRecovery: _isRecovery };
+  return { user: isRecovery ? null : _user, isRecovery };
 }
 
 // ─────────────────────────────────────────────

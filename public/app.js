@@ -39,15 +39,24 @@ export async function boot() {
   // Show the set-new-password form regardless of session state.
   // Once the password is set, Supabase automatically signs the user in
   // and onAuthStateChange fires → _showApp() is called.
-  // Always set up the auth listener first, passing isRecovery flag
-  // so it can block SIGNED_IN events while mid-recovery
-  _setupAuthListener(modalEl, isRecovery);
-
-  // If recovery hash detected, hide the app immediately and show the
-  // set-password form — the listener will handle everything from here
+  // If recovery hash detected — show set-password form immediately
+  // Do not wait for any Supabase event — just render the form now.
   if (isRecovery) {
+    console.log('[App] Recovery detected — showing set-password form immediately');
     _hideApp();
+    if (modalEl) {
+      renderSetPasswordForm(modalEl, () => {
+        console.log('[App] Password set — clearing modal');
+        if (modalEl) modalEl.innerHTML = '';
+      });
+    }
+    // Still set up listener so SIGNED_IN after password update shows the app
+    _setupAuthListener(modalEl, true);
+    return;
   }
+
+  // Normal flow
+  _setupAuthListener(modalEl, false);
 }
 
 // ─────────────────────────────────────────────
