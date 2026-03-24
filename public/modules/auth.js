@@ -34,27 +34,23 @@ let _listeners = [];
 export async function initAuth() {
   const client = getClient();
 
-  // Check for recovery / magic-link hash in the URL
-  // Supabase appends #access_token=xxx&type=recovery (or type=magiclink)
-  const isRecovery = _detectRecoveryHash();
+  // ── IMPORTANT: set up the auth listener BEFORE calling getSession() ──
+  // Supabase v2 exchanges the recovery token and fires PASSWORD_RECOVERY
+  // synchronously during initialisation — if we call getSession() first,
+  // we miss the event entirely and the hash is already cleared.
+  //
+  // By registering onAuthStateChange first, we catch PASSWORD_RECOVERY
+  // before getSession() processes the existing session and fires SIGNED_IN.
 
-  // Restore existing session from localStorage
-  const { data: { session } } = await client.auth.getSession();
-  _session = session;
-  _user    = session?.user ?? null;
+  let _isRecovery = false;
 
-  // Listen for future auth state changes
-  // PASSWORD_RECOVERY is fired when the user clicks a reset link.
-  // We suppress it from reaching app.js listeners — app.js handles it
-  // separately via the isRecovery flag returned from this function.
-  client.auth.onAuthStateChange((event, session) => {
+  const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
     _session = session;
     _user    = session?.user ?? null;
     console.log(`[Auth] ${event}`, _user?.email ?? 'signed out');
 
-    // Do NOT propagate PASSWORD_RECOVERY as SIGNED_IN —
-    // it would show the app before the user has set a password.
     if (event === 'PASSWORD_RECOVERY') {
+      _isRecovery = true;
       _listeners.forEach(fn => fn('PASSWORD_RECOVERY', _user));
       return;
     }
@@ -62,7 +58,17 @@ export async function initAuth() {
     _listeners.forEach(fn => fn(event, _user));
   });
 
-  return { user: _user, isRecovery };
+  // Now restore the existing session — this fires INITIAL_SESSION
+  const { data: { session } } = await client.auth.getSession();
+
+  // Only set user from session if we are NOT in recovery mode
+  // (PASSWORD_RECOVERY will have already set _user above if recovery)
+  if (!_isRecovery) {
+    _session = session;
+    _user    = session?.user ?? null;
+  }
+
+  return { user: _isRecovery ? null : _user, isRecovery: _isRecovery };
 }
 
 // ─────────────────────────────────────────────
