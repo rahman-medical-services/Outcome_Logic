@@ -2,16 +2,17 @@
 // Library tab — browse, filter, load, validate, and export saved trials.
 
 import { getAccessToken }                         from './auth.js';
-import { LIBRARY_TABLE } from '../config/constants.js';
-function _env(k,fb=''){return window.ENV?.[k]||fb;}
-const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
-const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
+import { LIBRARY_TABLE }                          from '../config/constants.js';
 import { renderCategoryPicker }                   from '../components/categoryPicker.js';
 import { renderTrialCards }                       from '../components/trialCard.js';
 import { renderValidationQueue }                  from './validate.js';
 import { openBatchModal }                         from './batch.js';
 import { exportJson, exportPdfCompendium }        from './export.js';
 import { toast }                                  from '../components/toasts.js';
+
+function _env(k,fb=''){return window.ENV?.[k]||fb;}
+const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
+const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
 
 // ─────────────────────────────────────────────
 // STATE

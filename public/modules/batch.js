@@ -4,11 +4,12 @@
 // Calls api/library-batch.js which runs each PDF through lib/pipeline.js sequentially.
 
 import { getAccessToken }                   from './auth.js';
-import { BATCH_MAX_FILES } from '../config/constants.js';
+import { BATCH_MAX_FILES }                  from '../config/constants.js';
+import { toast }                            from '../components/toasts.js';
+
 function _env(k,fb=''){return window.ENV?.[k]||fb;}
 const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
 const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
-import { toast }                            from '../components/toasts.js';
 
 // ─────────────────────────────────────────────
 // OPEN / CLOSE
