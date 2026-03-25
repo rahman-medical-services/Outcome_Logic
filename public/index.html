@@ -172,6 +172,8 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
 
 <div id="loadingState" class="hidden mt-6">
   <div class="flex flex-col items-center gap-3">
@@ -876,92 +878,52 @@ function renderChart(canvasId, endpointData) {
 // ══════════════════════════════════════════════════════════════════════
 // PDF EXPORT — COMPACT 2-PAGE FORMAT
 // Page 1: Title, Research in Context, PICO, AE Table
-// Page 2: Charts (side-by-side if 2), RoB/GRADE, Patient Summary
-// High resolution for book-quality output
+// Page 2: Charts, RoB/GRADE, Patient Summary
+// Uses CSS-only approach (no DOM reordering) to avoid breaking the page
 // ══════════════════════════════════════════════════════════════════════
 function exportReport() {
   const title = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
   
-  // ── Get all sections ──
   const reportContainer = document.getElementById('reportContainer');
-  const mdtSection = document.getElementById('mdtSection');
-  const chartSection = document.getElementById('chartSection');
-  const chart2Section = document.getElementById('chart2Section');
-  const appraisalSection = document.getElementById('appraisalSection');
-  const patientSection = document.getElementById('patientSection');
-  const aeSection = document.getElementById('aeSection');
-  const subgroupSection = document.getElementById('subgroupSection');
+  if (!reportContainer) return;
   
-  // ── Check if we have charts ──
-  const hasChart1 = currentChart !== null;
-  const hasChart2 = currentChart2 !== null && chart2Section && !chart2Section.classList.contains('hidden');
+  // ── Create a style element for PDF-specific compact styling ──
+  const pdfStyle = document.createElement('style');
+  pdfStyle.id = 'pdf-export-style';
+  pdfStyle.textContent = `
+    #reportContainer { font-size: 11px !important; }
+    #reportContainer h2 { font-size: 14px !important; }
+    #reportContainer h3 { font-size: 12px !important; }
+    #reportContainer p, #reportContainer li, #reportContainer td { font-size: 10px !important; line-height: 1.3 !important; }
+    #reportContainer .text-2xl { font-size: 16px !important; }
+    #reportContainer .text-lg { font-size: 13px !important; }
+    #reportContainer .text-sm { font-size: 10px !important; }
+    #reportContainer .text-xs { font-size: 9px !important; }
+    #reportContainer .mb-8 { margin-bottom: 12px !important; }
+    #reportContainer .mb-6 { margin-bottom: 10px !important; }
+    #reportContainer .p-5 { padding: 10px !important; }
+    #reportContainer .p-4 { padding: 8px !important; }
+    #reportContainer .gap-8 { gap: 12px !important; }
+    #reportContainer .space-y-4 > * + * { margin-top: 8px !important; }
+    #chartSection { page-break-before: always !important; padding-top: 10px !important; }
+    #chartSection .h-72 { height: 160px !important; }
+    #chart2Section .h-72 { height: 160px !important; }
+    #chart2Section { margin-top: 10px !important; }
+    #appraisalSection { margin-top: 12px !important; margin-bottom: 8px !important; padding: 8px !important; }
+    #patientSection { margin-top: 8px !important; padding-top: 8px !important; }
+    #patientSection .p-5 { padding: 10px !important; }
+    #aeSection { margin-bottom: 10px !important; }
+    #aeSection table { font-size: 9px !important; }
+    .border-b-2 { padding-bottom: 8px !important; margin-bottom: 10px !important; }
+  `;
+  document.head.appendChild(pdfStyle);
   
-  // ── Store original DOM positions and styles ──
-  const origState = {
-    aeParent: aeSection?.parentNode,
-    aeNext: aeSection?.nextSibling,
-    subgroupParent: subgroupSection?.parentNode,
-    subgroupNext: subgroupSection?.nextSibling,
-    chartSectionStyle: chartSection?.style.cssText || '',
-    chart2SectionStyle: chart2Section?.style.cssText || '',
-    appraisalStyle: appraisalSection?.style.cssText || '',
-    patientStyle: patientSection?.style.cssText || '',
-    chart1ContainerStyle: '',
-    chart2ContainerStyle: '',
-  };
+  // ── Hide edit hint ──
+  const editHint = document.querySelector('#trialTitle + span');
+  if (editHint) editHint.style.display = 'none';
   
-  // ── REORDER DOM FOR PDF ──
-  // Move AE and Subgroup sections BEFORE chartSection (so they're on page 1)
-  if (aeSection && mdtSection && chartSection) {
-    mdtSection.insertBefore(aeSection, chartSection);
-  }
-  if (subgroupSection && mdtSection && chartSection) {
-    mdtSection.insertBefore(subgroupSection, chartSection);
-  }
-  
-  // ── PAGE BREAK: Charts start page 2 ──
-  if (chartSection && hasChart1) {
-    chartSection.style.pageBreakBefore = 'always';
-    chartSection.style.paddingTop = '10px';
-  }
-  
-  // ── SIDE-BY-SIDE CHARTS if we have 2 ──
-  const chart1Container = chartSection?.querySelector('.relative.h-72');
-  const chart2Container = chart2Section?.querySelector('.relative.h-72');
-  
-  if (hasChart2 && chart1Container && chart2Container) {
-    origState.chart1ContainerStyle = chart1Container.style.cssText;
-    origState.chart2ContainerStyle = chart2Container.style.cssText;
-    
-    // Create flex wrapper
-    chartSection.style.display = 'block';
-    
-    // Make first chart smaller
-    chart1Container.style.height = '180px';
-    chart1Container.style.maxWidth = '100%';
-    
-    // Make second chart smaller and reduce gap
-    chart2Section.style.marginTop = '15px';
-    chart2Container.style.height = '180px';
-  } else if (chart1Container) {
-    origState.chart1ContainerStyle = chart1Container.style.cssText;
-    chart1Container.style.height = '220px';
-  }
-  
-  // ── Compact styling for page 2 content ──
-  if (appraisalSection) {
-    appraisalSection.style.marginTop = '15px';
-    appraisalSection.style.marginBottom = '10px';
-    appraisalSection.style.padding = '10px';
-  }
-  
-  if (patientSection) {
-    patientSection.style.marginTop = '10px';
-    patientSection.style.paddingTop = '10px';
-  }
-  
-  // ── Fix chart canvas widths ──
+  // ── Fix chart widths ──
   const charts = document.querySelectorAll('#reportContainer canvas');
   const origWidths = [];
   charts.forEach((c, i) => { 
@@ -969,65 +931,37 @@ function exportReport() {
     c.style.width = '100%';
   });
   
-  // ── Hide "click to edit" hint ──
-  const editHint = document.querySelector('#trialTitle + span');
-  const editHintDisplay = editHint?.style.display || '';
-  if (editHint) editHint.style.display = 'none';
-  
-  // ── Export with HIGH RESOLUTION ──
+  // ── Export with reasonable quality (not bloated) ──
   html2pdf().set({
     margin: [8, 10, 8, 10],
     filename,
-    image: { type: 'png', quality: 1.0 },
+    image: { type: 'jpeg', quality: 0.92 },
     html2canvas: { 
-      scale: 3,  // High resolution for book quality
+      scale: 2,
       scrollY: 0, 
       useCORS: true, 
       width: 794,
       logging: false,
-      letterRendering: true,
     },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['css'], avoid: ['tr', 'td', 'table', '#appraisalSection', '#patientSection', '.bg-emerald-50'] },
   }).from(reportContainer).save().then(() => {
-    restoreAfterExport();
+    cleanup();
   }).catch(err => {
     console.error('PDF export failed:', err);
-    restoreAfterExport();
+    cleanup();
   });
   
-  function restoreAfterExport() {
+  function cleanup() {
+    // Remove PDF styles
+    const style = document.getElementById('pdf-export-style');
+    if (style) style.remove();
+    
     // Restore chart widths
     charts.forEach((c, i) => { c.style.width = origWidths[i]; });
     
-    // Restore section styles
-    if (chartSection) chartSection.style.cssText = origState.chartSectionStyle;
-    if (chart2Section) chart2Section.style.cssText = origState.chart2SectionStyle;
-    if (appraisalSection) appraisalSection.style.cssText = origState.appraisalStyle;
-    if (patientSection) patientSection.style.cssText = origState.patientStyle;
-    if (chart1Container) chart1Container.style.cssText = origState.chart1ContainerStyle;
-    if (chart2Container) chart2Container.style.cssText = origState.chart2ContainerStyle;
-    
-    // Restore AE section to original position
-    if (aeSection && origState.aeParent) {
-      if (origState.aeNext) {
-        origState.aeParent.insertBefore(aeSection, origState.aeNext);
-      } else {
-        origState.aeParent.appendChild(aeSection);
-      }
-    }
-    
-    // Restore Subgroup section to original position
-    if (subgroupSection && origState.subgroupParent) {
-      if (origState.subgroupNext) {
-        origState.subgroupParent.insertBefore(subgroupSection, origState.subgroupNext);
-      } else {
-        origState.subgroupParent.appendChild(subgroupSection);
-      }
-    }
-    
     // Restore edit hint
-    if (editHint) editHint.style.display = editHintDisplay;
+    if (editHint) editHint.style.display = '';
   }
 }
   </script>
