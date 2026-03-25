@@ -87,74 +87,46 @@
         padding: 8pt !important;
       }
       
-      /* === CHARTS — PAGE 2 === */
+      /* === CHARTS — PAGE 2, STACKED === */
       #chartSection {
         page-break-before: always !important;
         break-before: page !important;
+        display: block !important;
         padding-top: 0 !important;
         margin-top: 0 !important;
         margin-bottom: 10pt !important;
       }
       
-      /* When there are 2 charts, use CSS grid for side-by-side layout */
-      #chartSection:has(#chart2Section:not(.hidden)) {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        grid-template-rows: auto auto auto !important;
-        gap: 10pt 20pt !important;
+      /* Force all chart children to stack vertically */
+      #chartSection > * {
+        display: block !important;
+        width: 100% !important;
       }
       
-      /* First chart title - spans first column */
-      #chartSection:has(#chart2Section:not(.hidden)) > #chartTitle,
-      #chartSection:has(#chart2Section:not(.hidden)) > h2:first-of-type {
-        grid-column: 1 !important;
-        grid-row: 1 !important;
-        font-size: 10pt !important;
-        margin-bottom: 0 !important;
+      /* Chart containers */
+      #chartSection .h-72,
+      #chartSection .relative {
+        height: 200pt !important;
+        page-break-inside: avoid !important;
       }
       
-      /* First chart canvas container */
-      #chartSection:has(#chart2Section:not(.hidden)) > .relative {
-        grid-column: 1 !important;
-        grid-row: 2 !important;
-        height: 160pt !important;
-      }
-      
-      /* First chart synthesis */
-      #chartSection:has(#chart2Section:not(.hidden)) > #ui-synthesis {
-        grid-column: 1 !important;
-        grid-row: 3 !important;
-        font-size: 7pt !important;
-        margin-top: 0 !important;
-      }
-      
-      /* Second chart section - occupies right column */
-      #chartSection:has(#chart2Section:not(.hidden)) > #chart2Section {
-        grid-column: 2 !important;
-        grid-row: 1 / 4 !important;
-        margin-top: 0 !important;
-        display: flex !important;
-        flex-direction: column !important;
-      }
-      
-      #chart2Section h2 {
-        font-size: 10pt !important;
-        margin-bottom: 6pt !important;
+      #chart2Section {
+        display: block !important;
+        margin-top: 20pt !important;
+        page-break-inside: avoid !important;
       }
       
       #chart2Section .h-72 {
-        height: 160pt !important;
-        flex: 1 !important;
-      }
-      
-      #ui-synthesis2 {
-        font-size: 7pt !important;
-        margin-top: 4pt !important;
-      }
-      
-      /* Single chart - full width */
-      #chartSection:not(:has(#chart2Section:not(.hidden))) .h-72 {
         height: 200pt !important;
+      }
+      
+      /* Chart titles */
+      #chartTitle, #chartTitle2,
+      #chartSection h2, #chart2Section h2 {
+        font-size: 11pt !important;
+        border-bottom-width: 1px !important;
+        padding-bottom: 4pt !important;
+        margin-bottom: 8pt !important;
       }
       
       /* Canvas elements */
@@ -164,20 +136,13 @@
         page-break-inside: avoid !important;
       }
       
-      /* Chart titles */
-      #chartTitle, #chartTitle2 {
-        font-size: 10pt !important;
-        border-bottom-width: 1px !important;
-        padding-bottom: 4pt !important;
-        margin-bottom: 6pt !important;
-      }
-      
       /* Synthesis text */
       #ui-synthesis, #ui-synthesis2 {
-        font-size: 7pt !important;
+        font-size: 8pt !important;
         font-style: italic !important;
         text-align: center !important;
-        margin-top: 4pt !important;
+        margin-top: 6pt !important;
+        margin-bottom: 10pt !important;
       }
       
       /* === ROB/GRADE BOX === */
