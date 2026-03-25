@@ -18,19 +18,8 @@
   <!-- Supabase JS client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!--
-    Environment variables injected at deploy time by Vercel.
-    SUPABASE_URL and SUPABASE_ANON_KEY are safe to expose in the browser.
-    INTERNAL_API_TOKEN and SERVICE_ROLE_KEY must NEVER appear here.
-  -->
-  <script>
-    window.ENV = {
-      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
-      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
-      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
-      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
-    };
-  </script>
+  <!-- Runtime env — loaded from /env.js (never replaced wholesale) -->
+  <script src="/env.js"></script>
 </head>
 
 <body class="bg-slate-50 text-slate-900 font-sans">
@@ -181,7 +170,7 @@
       <div class="w-full bg-slate-200 rounded-full h-2.5">
         <div id="loading-progress-bar"
              class="bg-slate-900 h-2.5 rounded-full transition-all duration-700 ease-in-out"
-             style="width: 0%"></div>
+             style="width:0%"></div>
       </div>
       <p id="loading-pct" class="text-xs font-mono text-slate-500">0%</p>
       <p class="text-xs text-slate-400">3-Node Consensus Pipeline</p>
@@ -189,12 +178,12 @@
   </div>
 </div>
 
-<!-- Error panel — shown on analysis failure -->
+          <!-- Error panel -->
 <div id="errorPanel" class="hidden mt-6 max-w-sm mx-auto">
   <div class="bg-red-50 border border-red-200 rounded-lg p-5 text-center space-y-3">
     <div class="text-2xl">⚠️</div>
     <p class="text-sm font-semibold text-red-800">Analysis failed</p>
-    <p id="errorMessage" class="text-xs text-red-600 leading-relaxed"></p>
+    <p id="errorMessage" class="text-xs text-red-600 leading-relaxed whitespace-pre-line"></p>
     <div class="flex gap-2 justify-center pt-1">
       <button id="retryBtn"
         class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-slate-700 transition">
@@ -386,15 +375,15 @@ let currentChart  = null;
 let currentChart2 = null;
 window._lastAnalysis = null;
 
-// ── Loading progress bar helpers ─────────────────────────────────────
+// ── Loading progress bar ─────────────────────────────────────────────
 const LOADING_STAGES = [
-  { label: 'Retrieving source…',   pct: 15  },
-  { label: 'Extracting data…',     pct: 45  },
-  { label: 'Synthesising report…', pct: 80  },
-  { label: 'Finalising output…',   pct: 95  },
+  { label: 'Retrieving source…',   pct: 15 },
+  { label: 'Extracting data…',     pct: 45 },
+  { label: 'Synthesising report…', pct: 80 },
+  { label: 'Finalising output…',   pct: 95 },
 ];
-let _stageTimer = null;
-let _currentPayload = null;   // stored for retry
+let _stageTimer   = null;
+let _lastPayload  = null;
 
 function showLoading() {
   document.getElementById('loadingState').classList.remove('hidden');
@@ -422,18 +411,21 @@ function _setProgress(pct, label) {
 }
 
 function showError(message, payload) {
-  hideLoading();
   const panel = document.getElementById('errorPanel');
   const msg   = document.getElementById('errorMessage');
   if (msg)   msg.textContent = message;
   if (panel) panel.classList.remove('hidden');
-  // Wire retry button
   const retryBtn = document.getElementById('retryBtn');
-  if (retryBtn && payload) {
-    retryBtn.onclick = () => {
-      panel.classList.add('hidden');
-      executeEngine({ ...payload, isEscalation: true });
-    };
+  if (retryBtn) {
+    if (payload) {
+      retryBtn.classList.remove('hidden');
+      retryBtn.onclick = () => {
+        panel.classList.add('hidden');
+        executeEngine({ ...payload, isEscalation: true });
+      };
+    } else {
+      retryBtn.classList.add('hidden');
+    }
   }
 }
 
@@ -545,7 +537,7 @@ async function analyzePdf() {
 
 // ── Core Engine ─────────────────────────────────────────────────────
 async function executeEngine(payload) {
-  _currentPayload = payload;
+  _lastPayload = payload;
   document.getElementById('searchResults').classList.add('hidden');
   document.getElementById('errorPanel').classList.add('hidden');
   document.getElementById('reportContainer').classList.add('hidden');
@@ -560,23 +552,23 @@ async function executeEngine(payload) {
     const data = await res.json();
     if (!res.ok) {
       let reason = data.error || data.details || 'Server failed to process the request.';
-      if (res.status === 429) reason = 'Rate limit reached — you have used your daily analysis quota. Please try again tomorrow.';
-      if (res.status === 504 || res.status === 502) reason = 'The pipeline timed out retrieving or processing the source. The paper may be behind a paywall or the source server is slow.';
+      if (res.status === 429) reason = 'Rate limit reached — daily quota exceeded. Please try again tomorrow.';
+      if (res.status === 504 || res.status === 502) reason = 'The pipeline timed out. The source may be behind a paywall or unavailable.';
       throw new Error(reason);
     }
     _setProgress(100, 'Complete');
-    await new Promise(r => setTimeout(r, 300)); // brief visual pause at 100%
+    await new Promise(r => setTimeout(r, 300));
     window._lastAnalysis = data;
     populateDashboard(data);
   } catch (err) {
-    const isEscalation = !!payload.isEscalation;
-    let userMessage = err.message;
-    if (!isEscalation) {
-      userMessage += '\n\nYou can retry using the Pro model, which uses Gemini 2.5 Pro with a rescue prompt and may succeed where the standard pipeline failed.';
+    const alreadyEscalated = !!payload.isEscalation;
+    let msg = err.message;
+    if (!alreadyEscalated) {
+      msg += '\n\nRetry using Gemini 2.5 Pro — this may succeed where the standard pipeline failed.';
     } else {
-      userMessage += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
+      msg += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
     }
-    showError(userMessage, isEscalation ? null : payload);
+    showError(msg, alreadyEscalated ? null : payload);
   } finally {
     hideLoading();
   }
@@ -684,6 +676,7 @@ function populateDashboard(data) {
 window.populateDashboard = populateDashboard;
 
 // ── Adverse Events Table ─────────────────────────────────────────────
+// ── Adverse Events Table ─────────────────────────────────────────────
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
@@ -698,41 +691,18 @@ function renderAETable(ae, pico) {
   const allNullControl = ae._control_not_applicable ||
                          ae.rows.every(r => r.control_pct === null);
 
-  // Column headers
+  const intName = pico?.intervention?.split(' ').slice(0,3).join(' ') || 'Intervention';
+  const conName = pico?.control?.split(' ').slice(0,3).join(' ')      || 'Control';
+
   const intHeader = document.getElementById('ae-header-intervention');
   const conHeader = document.getElementById('ae-header-control');
-  const intName   = pico?.intervention?.split(' ').slice(0,3).join(' ') || 'Intervention';
-  const conName   = pico?.control?.split(' ').slice(0,3).join(' ')      || 'Control';
-
   if (intHeader) intHeader.textContent = intName;
   if (conHeader) {
-    if (allNullControl) {
-      conHeader.textContent = '—';
-      conHeader.classList.add('hidden');
-    } else {
-      conHeader.textContent = conName;
-      conHeader.classList.remove('hidden');
-    }
+    conHeader.textContent = conName;
+    conHeader.classList.toggle('hidden', allNullControl);
   }
 
-  const tbody = document.getElementById('ae-table-body');
-  tbody.innerHTML = ae.rows.map((row, i) => {
-    const conCell = allNullControl
-      ? ''
-      : `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
-    return `
-      <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
-        <td class="p-2 text-slate-700">
-          ${row.event}
-          ${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}
-        </td>
-        <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
-        ${conCell}
-      </tr>
-    `;
-  }).join('');
-
-  // Intervention-only note banner
+  // Note banner
   const noteEl = document.getElementById('ae-note');
   if (noteEl) {
     if (allNullControl) {
@@ -743,26 +713,42 @@ function renderAETable(ae, pico) {
     }
   }
 
-  // Footer — discontinuation and mortality
+  const tbody = document.getElementById('ae-table-body');
+  tbody.innerHTML = ae.rows.map((row, i) => {
+    const conCell = allNullControl ? '' :
+      `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
+    return `
+      <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
+        <td class="p-2 text-slate-700">
+          ${row.event}
+          ${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}
+        </td>
+        <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
+        ${conCell}
+      </tr>`;
+  }).join('');
+
   const tfoot = document.getElementById('ae-table-foot');
   const footRows = [];
   if (ae.discontinuation?.intervention_pct != null) {
+    const conTd = allNullControl ? '' :
+      `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`;
     footRows.push(`
       <tr class="border-t border-slate-200">
         <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
         <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
-        ${allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`}
-      </tr>
-    `);
+        ${conTd}
+      </tr>`);
   }
   if (ae.treatment_related_mortality?.intervention_pct != null) {
+    const conTd = allNullControl ? '' :
+      `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`;
     footRows.push(`
       <tr>
         <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
         <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
-        ${allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`}
-      </tr>
-    `);
+        ${conTd}
+      </tr>`);
   }
   if (tfoot) tfoot.innerHTML = footRows.join('');
 }
@@ -828,30 +814,120 @@ function renderChart(canvasId, endpointData) {
   });
 }
 
-// ── PDF Export — single unified report ──────────────────────────────
+// ── PDF Export — strict 3-page layout ───────────────────────────────
 function exportReport() {
-  // Brief delay to ensure all sections are visible
-  document.getElementById('mdtSection').style.display    = 'block';
-  document.getElementById('patientSection').style.display = 'block';
+  const reportEl = document.getElementById('reportContainer');
+  if (!reportEl) return;
 
   const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
 
-  // Fix chart width before export
-  const charts = document.querySelectorAll('canvas');
-  const origWidths = [];
-  charts.forEach((c, i) => { origWidths[i] = c.style.width; c.style.width = '700px'; });
+  // Build a clean print-only clone with explicit page-break structure
+  const clone = document.createElement('div');
+  clone.style.cssText = 'font-family:system-ui,sans-serif;font-size:11px;color:#0f172a;width:174mm;';
+
+  // ── PAGE 1: Header + PICO + Appraisal + AE + Subgroups ──────────────
+  const page1 = document.createElement('div');
+  page1.style.cssText = 'page-break-after:always;';
+
+  // Header block
+  const hdr = reportEl.querySelector('.border-b-2.border-slate-800');
+  if (hdr) page1.appendChild(hdr.cloneNode(true));
+
+  // Context box
+  const ctx = reportEl.querySelector('.bg-blue-50');
+  if (ctx) { const w = ctx.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
+
+  // PICO grid
+  const pico = reportEl.querySelector('.grid.grid-cols-1.md\\:grid-cols-2.gap-4');
+  if (pico) { const w = pico.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
+
+  // Secondary outcomes
+  const secOut = reportEl.querySelector('#ui-sec-out');
+  if (secOut?.closest) {
+    const secWrap = secOut.closest('.mb-4, .mb-6, div');
+    if (secWrap) { const w = secWrap.cloneNode(true); w.style.marginTop='8px'; page1.appendChild(w); }
+  }
+
+  // Baseline
+  const baseline = reportEl.querySelector('#ui-baseline');
+  if (baseline?.parentElement) {
+    const w = baseline.parentElement.cloneNode(true);
+    w.style.marginTop = '8px';
+    page1.appendChild(w);
+  }
+
+  // Critical appraisal
+  const appr = reportEl.querySelector('.grid.grid-cols-1.md\\:grid-cols-2.gap-6');
+  if (appr) { const w = appr.cloneNode(true); w.style.cssText='margin-top:12px;padding:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;'; page1.appendChild(w); }
+
+  // AE table
+  const ae = reportEl.querySelector('#aeSection');
+  if (ae && !ae.classList.contains('hidden')) { const w = ae.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
+
+  // Subgroups
+  const sg = reportEl.querySelector('#subgroupSection');
+  if (sg && !sg.classList.contains('hidden')) { const w = sg.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
+
+  clone.appendChild(page1);
+
+  // ── PAGE 2: Charts ───────────────────────────────────────────────────
+  const page2 = document.createElement('div');
+  page2.style.cssText = 'page-break-after:always;';
+
+  // Replace canvas elements with static images at correct size
+  const chartSections = reportEl.querySelectorAll('#chartSection, #chart2Section');
+  chartSections.forEach(cs => {
+    if (!cs || cs.classList.contains('hidden') || cs.style.display === 'none') return;
+    const csClone = cs.cloneNode(false); // shallow — we'll handle canvas manually
+    csClone.style.cssText = 'margin-bottom:24px;';
+
+    // Copy non-canvas children
+    Array.from(cs.childNodes).forEach(child => {
+      if (child.tagName === 'CANVAS') {
+        const img = document.createElement('img');
+        img.src   = child.toDataURL('image/png');
+        img.style.cssText = 'width:100%;max-height:220px;object-fit:contain;display:block;';
+        csClone.appendChild(img);
+      } else {
+        csClone.appendChild(child.cloneNode(true));
+      }
+    });
+    page2.appendChild(csClone);
+  });
+
+  // Fallback: if no chart sections found, grab canvases directly
+  if (page2.children.length === 0) {
+    reportEl.querySelectorAll('canvas').forEach(c => {
+      const img = document.createElement('img');
+      img.src   = c.toDataURL('image/png');
+      img.style.cssText = 'width:100%;max-height:260px;object-fit:contain;display:block;margin-bottom:20px;';
+      page2.appendChild(img);
+    });
+  }
+
+  if (page2.children.length > 0) clone.appendChild(page2);
+
+  // ── PAGE 3: Patient summary ──────────────────────────────────────────
+  const page3 = document.createElement('div');
+  const pat = reportEl.querySelector('#patientSection');
+  if (pat) page3.appendChild(pat.cloneNode(true));
+  if (page3.children.length > 0) clone.appendChild(page3);
+
+  // Render
+  document.body.appendChild(clone);
 
   html2pdf().set({
-    margin:      [10, 10, 10, 10],
+    margin:      [12, 12, 12, 12],
     filename,
-    image:       { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, scrollY: 0, useCORS: true, width: 794 },
+    image:       { type: 'jpeg', quality: 0.97 },
+    html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
     jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] },
-  }).from(document.getElementById('reportContainer')).save().then(() => {
-    // Restore chart widths
-    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
+    pagebreak:   { mode: ['css'] },
+  }).from(clone).save().then(() => {
+    document.body.removeChild(clone);
+  }).catch(() => {
+    document.body.removeChild(clone);
   });
 }
   </script>
