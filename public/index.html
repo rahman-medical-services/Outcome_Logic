@@ -12,11 +12,219 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  <!-- html2pdf -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
   <!-- Supabase JS client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Print Styles for PDF Export -->
+  <style>
+    @media print {
+      /* === HIDE EVERYTHING EXCEPT REPORT === */
+      body * { visibility: hidden; }
+      #reportContainer, #reportContainer * { visibility: visible; }
+      
+      /* Position report at top */
+      #reportContainer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        background: white !important;
+        box-shadow: none !important;
+        border: none !important;
+      }
+      
+      /* Hide UI elements */
+      #app-shell > header,
+      #ui-controls,
+      #loadingState,
+      #exportBar,
+      footer,
+      #auth-modal-root,
+      [data-tab-panel="library"],
+      .html2pdf__page-break { display: none !important; }
+      
+      /* Hide edit hint */
+      #trialTitle + span { display: none !important; }
+      
+      /* === PAGE SETUP === */
+      @page {
+        size: A4;
+        margin: 12mm 15mm;
+      }
+      
+      /* === TYPOGRAPHY === */
+      #reportContainer { font-size: 10pt; line-height: 1.4; color: black; }
+      #reportContainer h1, .text-2xl { font-size: 14pt !important; }
+      #reportContainer h2, .text-lg { font-size: 11pt !important; }
+      #reportContainer h3 { font-size: 10pt !important; }
+      #reportContainer p, #reportContainer li { font-size: 9pt; line-height: 1.35; }
+      #reportContainer .text-sm { font-size: 8pt !important; }
+      #reportContainer .text-xs { font-size: 7pt !important; }
+      
+      /* === SPACING === */
+      #reportContainer .mb-8 { margin-bottom: 8pt !important; }
+      #reportContainer .mb-6 { margin-bottom: 6pt !important; }
+      #reportContainer .p-5 { padding: 8pt !important; }
+      #reportContainer .p-4 { padding: 6pt !important; }
+      #reportContainer .gap-8 { gap: 8pt !important; }
+      
+      /* === HEADER === */
+      .border-b-2 { border-bottom-width: 1pt !important; padding-bottom: 6pt !important; margin-bottom: 10pt !important; }
+      
+      /* === RESEARCH IN CONTEXT === */
+      .bg-blue-50\/50 { 
+        background: #f0f7ff !important; 
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      
+      /* === PICO GRID — keep reasonable size === */
+      #mdtSection .grid { gap: 10pt !important; }
+      #mdtSection .bg-slate-50 { 
+        background: #f8fafc !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        padding: 8pt !important;
+      }
+      
+      /* === CHARTS — PAGE 2, SIDE BY SIDE === */
+      #chartSection {
+        page-break-before: always !important;
+        break-before: page !important;
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+      }
+      
+      /* Charts container - flexbox for side by side */
+      #chartSection {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 15pt !important;
+        align-items: flex-start !important;
+      }
+      
+      /* Chart title spans full width */
+      #chartSection > h2:first-of-type,
+      #chartTitle {
+        width: 100% !important;
+        flex-basis: 100% !important;
+        font-size: 11pt !important;
+        margin-bottom: 8pt !important;
+      }
+      
+      /* First chart container - half width */
+      #chartSection > .relative:first-of-type,
+      #chartSection > div:has(> canvas#endpointChart) {
+        width: 48% !important;
+        flex: 0 0 48% !important;
+        height: 180pt !important;
+        page-break-inside: avoid !important;
+      }
+      
+      /* First chart synthesis */
+      #ui-synthesis {
+        width: 48% !important;
+        flex: 0 0 48% !important;
+        font-size: 7pt !important;
+        margin-top: 4pt !important;
+        order: 3;
+      }
+      
+      /* Second chart section - half width, inline */
+      #chart2Section {
+        width: 48% !important;
+        flex: 0 0 48% !important;
+        margin-top: 0 !important;
+        page-break-inside: avoid !important;
+      }
+      
+      #chart2Section .h-72 {
+        height: 180pt !important;
+      }
+      
+      #chart2Section h2 {
+        font-size: 11pt !important;
+        margin-bottom: 8pt !important;
+      }
+      
+      #ui-synthesis2 {
+        font-size: 7pt !important;
+        margin-top: 4pt !important;
+      }
+      
+      /* Canvas elements - ensure proper sizing */
+      #reportContainer canvas {
+        max-width: 100% !important;
+        height: auto !important;
+        page-break-inside: avoid !important;
+      }
+      
+      /* === ROB/GRADE BOX === */
+      #appraisalSection {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-top: 12pt !important;
+        padding: 8pt !important;
+        background: #f8fafc !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      
+      #appraisalSection .grid { gap: 10pt !important; }
+      #appraisalSection p { font-size: 8pt !important; }
+      
+      /* GRADE bar colors */
+      #appraisalSection .bg-slate-800,
+      #appraisalSection .bg-slate-300 {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      
+      /* === AE TABLE === */
+      #aeSection {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-top: 10pt !important;
+      }
+      
+      #aeSection table { font-size: 8pt !important; width: 100% !important; }
+      #aeSection th, #aeSection td { padding: 3pt 5pt !important; }
+      
+      /* === PATIENT SUMMARY === */
+      #patientSection {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-top: 12pt !important;
+      }
+      
+      #patientSection .bg-emerald-50 {
+        background: #ecfdf5 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      
+      #patientSection p { font-size: 8pt !important; line-height: 1.3 !important; }
+      
+      /* === COLORS FOR PRINT === */
+      .bg-slate-900, .bg-slate-800 { 
+        background: #1e293b !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .text-slate-900 { color: #0f172a !important; }
+      .text-slate-700 { color: #334155 !important; }
+      .text-slate-500 { color: #64748b !important; }
+      .border-slate-200 { border-color: #e2e8f0 !important; }
+      
+      /* Risk badge colors */
+      .bg-green-100 { background: #dcfce7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-yellow-100 { background: #fef9c3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-red-100 { background: #fee2e2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .text-green-800 { color: #166534 !important; }
+      .text-yellow-800 { color: #854d0e !important; }
+      .text-red-800 { color: #991b1b !important; }
+    }
+  </style>
 
   <!--
     Environment variables injected at deploy time by Vercel.
@@ -255,9 +463,6 @@
                   <div><span class="font-bold text-slate-400 text-xs uppercase block">Secondary Outcomes</span><ul id="ui-sec-out" class="list-disc pl-4 text-slate-700"></ul></div>
                 </div>
               </div>
-
-              <!-- PAGE BREAK MARKER - html2pdf.js looks for this class -->
-              <div id="pageBreakBeforeCharts" class="html2pdf__page-break" style="page-break-before: always;"></div>
 
               <div id="chartSection" class="mb-8">
                 <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
@@ -879,181 +1084,15 @@ function renderChart(canvasId, endpointData) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// PDF EXPORT — COMPACT 2-PAGE FORMAT
-// Page 1: Title, Research in Context, PICO
-// Page 2: Charts, RoB/GRADE, AE Table, Patient Summary
+// PDF EXPORT — NATIVE PRINT APPROACH
+// Uses window.print() with @media print CSS for:
+// - Selectable text (not rasterized)
+// - Native resolution
+// - Proper page breaks
+// - Smaller file sizes
 // ══════════════════════════════════════════════════════════════════════
 function exportReport() {
-  const title = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
-  const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
-  
-  const reportContainer = document.getElementById('reportContainer');
-  if (!reportContainer) return;
-  
-  // ── Create a style element for PDF-specific compact styling ──
-  const pdfStyle = document.createElement('style');
-  pdfStyle.id = 'pdf-export-style';
-  pdfStyle.textContent = `
-    /* Base compact sizing */
-    #reportContainer { font-size: 9px !important; line-height: 1.3 !important; }
-    #reportContainer h2 { font-size: 12px !important; margin-bottom: 4px !important; }
-    #reportContainer h3 { font-size: 10px !important; margin-bottom: 3px !important; }
-    #reportContainer p { font-size: 8px !important; line-height: 1.25 !important; margin-bottom: 3px !important; }
-    #reportContainer li { font-size: 8px !important; line-height: 1.2 !important; }
-    #reportContainer td, #reportContainer th { font-size: 7px !important; padding: 2px 3px !important; }
-    
-    /* Title area */
-    #reportContainer .text-2xl { font-size: 13px !important; }
-    #reportContainer .text-lg { font-size: 10px !important; }
-    #reportContainer .text-sm { font-size: 8px !important; }
-    #reportContainer .text-xs { font-size: 7px !important; }
-    #reportContainer .text-\\[10px\\] { font-size: 6px !important; }
-    
-    /* Aggressive spacing reductions for page 1 */
-    #reportContainer .mb-8 { margin-bottom: 6px !important; }
-    #reportContainer .mb-6 { margin-bottom: 5px !important; }
-    #reportContainer .mb-4 { margin-bottom: 3px !important; }
-    #reportContainer .mt-6 { margin-top: 5px !important; }
-    #reportContainer .mt-4 { margin-top: 3px !important; }
-    #reportContainer .pb-4 { padding-bottom: 4px !important; }
-    #reportContainer .p-5 { padding: 6px !important; }
-    #reportContainer .p-4 { padding: 5px !important; }
-    #reportContainer .gap-8 { gap: 6px !important; }
-    #reportContainer .gap-6 { gap: 5px !important; }
-    #reportContainer .space-y-4 > * + * { margin-top: 3px !important; }
-    
-    /* Research in Context box - very compact */
-    #reportContainer .bg-blue-50\\/50 { padding: 6px 8px !important; margin-bottom: 6px !important; }
-    #reportContainer .border-l-4 { border-left-width: 3px !important; }
-    
-    /* PICO grid - tighter */
-    #reportContainer .grid { gap: 5px !important; }
-    #mdtSection > .grid { margin-bottom: 6px !important; }
-    
-    /* CRITICAL: Chart section - force to page 2 and prevent splitting */
-    #chartSection { 
-      page-break-before: always !important; 
-      break-before: page !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      padding-top: 5px !important;
-      margin-top: 0 !important;
-    }
-    
-    /* Smaller charts that won't split */
-    #chartSection > .relative, #chartSection .h-72, .relative.h-72 { 
-      height: 120px !important; 
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    #chart2Section { 
-      margin-top: 6px !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    #chart2Section .h-72 { height: 120px !important; }
-    
-    /* Chart titles smaller */
-    #chartSection .text-lg, #chartTitle { 
-      font-size: 9px !important; 
-      border-bottom-width: 1px !important; 
-      padding-bottom: 2px !important; 
-      margin-bottom: 4px !important; 
-    }
-    #chart2Section .text-lg, #chartTitle2 { 
-      font-size: 9px !important; 
-      border-bottom-width: 1px !important; 
-      padding-bottom: 2px !important; 
-      margin-bottom: 4px !important; 
-    }
-    
-    /* Chart synthesis text */
-    #ui-synthesis, #ui-synthesis2 { font-size: 7px !important; margin-top: 3px !important; }
-    
-    /* RoB/GRADE box - compact and don't split */
-    #appraisalSection { 
-      margin-top: 6px !important; 
-      margin-bottom: 5px !important; 
-      padding: 5px 6px !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    #appraisalSection .grid { gap: 6px !important; }
-    #appraisalSection .text-xs { font-size: 7px !important; }
-    #appraisalSection .h-2 { height: 3px !important; }
-    #appraisalSection p { font-size: 7px !important; }
-    
-    /* AE Table - compact */
-    #aeSection { 
-      margin-bottom: 5px !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    #aeSection h3 { font-size: 8px !important; padding-bottom: 2px !important; margin-bottom: 3px !important; }
-    #aeSection table { font-size: 7px !important; }
-    #aeSection td, #aeSection th { padding: 1px 3px !important; }
-    
-    /* Patient Summary - compact and don't split */
-    #patientSection { 
-      margin-top: 5px !important; 
-      padding-top: 5px !important;
-      border-top-width: 1px !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-    }
-    #patientSection h3 { font-size: 9px !important; margin-bottom: 3px !important; }
-    #patientSection .p-5 { padding: 5px 6px !important; }
-    #patientSection .space-y-4 > * + * { margin-top: 3px !important; }
-    #patientSection p { font-size: 7px !important; line-height: 1.2 !important; }
-    #patientSection strong { font-size: 8px !important; }
-    
-    /* Header area compact */
-    .border-b-2 { padding-bottom: 4px !important; margin-bottom: 6px !important; border-bottom-width: 1px !important; }
-  `;
-  document.head.appendChild(pdfStyle);
-  
-  // ── Hide edit hint ──
-  const editHint = document.querySelector('#trialTitle + span');
-  if (editHint) editHint.style.display = 'none';
-  
-  // ── Fix chart widths ──
-  const charts = document.querySelectorAll('#reportContainer canvas');
-  const origWidths = [];
-  charts.forEach((c, i) => { 
-    origWidths[i] = c.style.width; 
-    c.style.width = '100%';
-  });
-  
-  // ── Export ──
-  html2pdf().set({
-    margin: [5, 8, 5, 8],
-    filename,
-    image: { type: 'jpeg', quality: 0.92 },
-    html2canvas: { 
-      scale: 2,
-      scrollY: 0, 
-      useCORS: true, 
-      width: 794,
-      logging: false,
-    },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { 
-      mode: ['avoid-all', 'legacy'],
-      avoid: ['#appraisalSection', '#patientSection', '#aeSection', '.bg-emerald-50', 'canvas']
-    },
-  }).from(reportContainer).save().then(() => {
-    cleanup();
-  }).catch(err => {
-    console.error('PDF export failed:', err);
-    cleanup();
-  });
-  
-  function cleanup() {
-    const style = document.getElementById('pdf-export-style');
-    if (style) style.remove();
-    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
-    if (editHint) editHint.style.display = '';
-  }
+  window.print();
 }
   </script>
 
