@@ -3,10 +3,11 @@
 // PDF compendium uses html2pdf.js — same library already loaded for the analyse tab.
 
 import { getAccessToken } from './auth.js';
+import { toast }          from '../components/toasts.js';
+
 function _env(k,fb=''){return window.ENV?.[k]||fb;}
 const getApiUrl=()=>_env('API_BASE_URL','https://app.rahmanmedical.co.uk/api');
 const getApiToken=()=>_env('INTERNAL_API_TOKEN','');
-import { toast }                             from '../components/toasts.js';
 
 // ─────────────────────────────────────────────
 // JSON EXPORT
