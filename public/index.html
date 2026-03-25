@@ -722,146 +722,171 @@ function renderSubgroups(subgroups) {
 // 2. Comparative bar charts - each arm is a single value to compare
 // ══════════════════════════════════════════════════════════════════════
 function renderChart(canvasId, endpointData) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas || !endpointData.arms?.length) return null;
-  
-  const ctx = canvas.getContext('2d');
-  const isKM = endpointData.recommended_chart_type === 'stepped-line';
-  
-  // ── Detect chart mode ──
-  // Comparative bar: each arm has 1 data point, used for rate/proportion comparisons
-  // Time-series: arms have multiple data points sharing x-axis values
-  const isComparativeBar = !isKM && endpointData.arms.every(arm => 
-    arm.data_points?.length === 1
-  );
-  
-  // ── Also detect if arms have DIFFERENT x-values (another comparative pattern) ──
-  // This catches cases like [{x:"Intervention", y:10}, {x:"Control", y:5}]
-  const hasDistinctLabels = !isKM && endpointData.arms.length >= 2 &&
-    endpointData.arms[0].data_points?.[0]?.x !== endpointData.arms[1].data_points?.[0]?.x;
-  
-  const useComparativeMode = isComparativeBar || hasDistinctLabels;
-  
-  if (useComparativeMode) {
-    // ══ COMPARATIVE BAR CHART ══
-    // Each arm becomes a separate bar with its group_name as the label
-    // This ensures both bars render correctly
+  try {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+      console.warn('renderChart: Canvas not found:', canvasId);
+      return null;
+    }
+    if (!endpointData?.arms?.length) {
+      console.warn('renderChart: No arms data for:', canvasId);
+      return null;
+    }
+    
+    // Validate that at least one arm has data points
+    const hasValidData = endpointData.arms.some(arm => arm.data_points?.length > 0);
+    if (!hasValidData) {
+      console.warn('renderChart: No valid data points for:', canvasId);
+      return null;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    const isKM = endpointData.recommended_chart_type === 'stepped-line';
+    
+    // ── Detect chart mode ──
+    // Comparative bar: each arm has 1 data point, used for rate/proportion comparisons
+    // Time-series: arms have multiple data points sharing x-axis values
+    const isComparativeBar = !isKM && endpointData.arms.every(arm => 
+      arm.data_points?.length === 1
+    );
+    
+    // ── Also detect if arms have DIFFERENT x-values (another comparative pattern) ──
+    // This catches cases like [{x:"Intervention", y:10}, {x:"Control", y:5}]
+    const hasDistinctLabels = !isKM && endpointData.arms.length >= 2 &&
+      endpointData.arms[0].data_points?.[0]?.x !== endpointData.arms[1].data_points?.[0]?.x;
+    
+    const useComparativeMode = isComparativeBar || hasDistinctLabels;
+    
+    if (useComparativeMode) {
+      // ══ COMPARATIVE BAR CHART ══
+      // Each arm becomes a separate bar with its group_name as the label
+      // This ensures both bars render correctly
+      return new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: endpointData.arms.map(arm => arm.group_name || 'Unknown'),
+          datasets: [{
+            label: endpointData.label || 'Rate',
+            data: endpointData.arms.map(arm => {
+              // Get the y-value from the first (and likely only) data point
+              const dp = arm.data_points?.[0];
+              return dp?.y ?? 0;
+            }),
+            backgroundColor: endpointData.arms.map((_, i) => 
+              i === 0 ? 'rgba(15,23,42,0.7)' : 'rgba(14,165,233,0.7)'
+            ),
+            borderColor: endpointData.arms.map((_, i) => 
+              i === 0 ? '#0f172a' : '#0ea5e9'
+            ),
+            borderWidth: 2,
+            borderRadius: 4,
+            barPercentage: 0.6,
+            categoryPercentage: 0.7,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const val = ctx.parsed.y;
+                  // Check if values look like percentages (0-100 range)
+                  const isPercent = endpointData.arms.every(arm => {
+                    const y = arm.data_points?.[0]?.y ?? 0;
+                    return y >= 0 && y <= 100;
+                  });
+                  return isPercent ? `${val}%` : val.toString();
+                }
+              }
+            }
+          },
+          scales: {
+            y: { 
+              beginAtZero: true, 
+              title: { display: true, text: endpointData.axes?.y_label || '' },
+              ticks: {
+                callback: function(value) {
+                  // Add % suffix if y-axis label suggests percentages
+                  const yLabel = (endpointData.axes?.y_label || '').toLowerCase();
+                  if (yLabel.includes('percent') || yLabel.includes('%') || yLabel.includes('rate')) {
+                    return value + '%';
+                  }
+                  return value;
+                }
+              }
+            },
+            x: { 
+              title: { display: true, text: endpointData.axes?.x_label || '' },
+              grid: { display: false }
+            },
+          },
+        },
+      });
+    }
+    
+    // ══ TIME-SERIES CHART (Kaplan-Meier or grouped bar) ══
+    // All arms share the same x-axis labels
+    // Validate first arm has data points for labels
+    if (!endpointData.arms[0].data_points?.length) {
+      console.warn('renderChart: First arm has no data points for time-series chart');
+      return null;
+    }
+    
     return new Chart(ctx, {
-      type: 'bar',
+      type: isKM ? 'line' : 'bar',
       data: {
-        labels: endpointData.arms.map(arm => arm.group_name),
-        datasets: [{
-          label: endpointData.label || 'Rate',
-          data: endpointData.arms.map(arm => {
-            // Get the y-value from the first (and likely only) data point
-            const dp = arm.data_points?.[0];
-            return dp?.y ?? 0;
-          }),
-          backgroundColor: endpointData.arms.map((_, i) => 
-            i === 0 ? 'rgba(15,23,42,0.7)' : 'rgba(14,165,233,0.7)'
-          ),
-          borderColor: endpointData.arms.map((_, i) => 
-            i === 0 ? '#0f172a' : '#0ea5e9'
-          ),
+        labels: endpointData.arms[0].data_points.map(dp => dp.x),
+        datasets: endpointData.arms.map((arm, i) => ({
+          label: arm.group_name || `Arm ${i + 1}`,
+          data: (arm.data_points || []).map(dp => dp.y),
+          backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)' : 'rgba(14,165,233,0.1)',
+          borderColor: i === 0 ? '#0f172a' : '#0ea5e9',
           borderWidth: 2,
-          borderRadius: 4,
-          barPercentage: 0.6,
-          categoryPercentage: 0.7,
-        }],
+          stepped: false,
+          tension: isKM ? 0.3 : 0,
+          fill: !isKM,
+          pointRadius: isKM ? 4 : 0,
+          pointBackgroundColor: i === 0 ? '#0f172a' : '#0ea5e9',
+        })),
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
         plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const val = ctx.parsed.y;
-                // Check if values look like percentages (0-100 range)
-                const isPercent = endpointData.arms.every(arm => {
-                  const y = arm.data_points?.[0]?.y ?? 0;
-                  return y >= 0 && y <= 100;
-                });
-                return isPercent ? `${val}%` : val.toString();
-              }
-            }
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { usePointStyle: true, padding: 15 }
           }
         },
         scales: {
           y: { 
-            beginAtZero: true, 
-            title: { display: true, text: endpointData.axes?.y_label || '' },
-            ticks: {
-              callback: function(value) {
-                // Add % suffix if y-axis label suggests percentages
-                const yLabel = (endpointData.axes?.y_label || '').toLowerCase();
-                if (yLabel.includes('percent') || yLabel.includes('%') || yLabel.includes('rate')) {
-                  return value + '%';
-                }
-                return value;
-              }
-            }
+            beginAtZero: !isKM, 
+            max: isKM ? 1 : undefined, 
+            title: { display: true, text: endpointData.axes?.y_label || '' } 
           },
           x: { 
-            title: { display: true, text: endpointData.axes?.x_label || '' },
-            grid: { display: false }
+            title: { display: true, text: endpointData.axes?.x_label || '' } 
           },
         },
       },
     });
+  } catch (err) {
+    console.error('renderChart error:', err, 'for canvas:', canvasId);
+    return null;
   }
-  
-  // ══ TIME-SERIES CHART (Kaplan-Meier or grouped bar) ══
-  // All arms share the same x-axis labels
-  return new Chart(ctx, {
-    type: isKM ? 'line' : 'bar',
-    data: {
-      labels: endpointData.arms[0].data_points.map(dp => dp.x),
-      datasets: endpointData.arms.map((arm, i) => ({
-        label: arm.group_name,
-        data: arm.data_points.map(dp => dp.y),
-        backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)' : 'rgba(14,165,233,0.1)',
-        borderColor: i === 0 ? '#0f172a' : '#0ea5e9',
-        borderWidth: 2,
-        stepped: false,
-        tension: isKM ? 0.3 : 0,
-        fill: !isKM,
-        pointRadius: isKM ? 4 : 0,
-        pointBackgroundColor: i === 0 ? '#0f172a' : '#0ea5e9',
-      })),
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top',
-          labels: { usePointStyle: true, padding: 15 }
-        }
-      },
-      scales: {
-        y: { 
-          beginAtZero: !isKM, 
-          max: isKM ? 1 : undefined, 
-          title: { display: true, text: endpointData.axes?.y_label || '' } 
-        },
-        x: { 
-          title: { display: true, text: endpointData.axes?.x_label || '' } 
-        },
-      },
-    },
-  });
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // PDF EXPORT — FIXED VERSION
 // Creates a 4-page PDF with proper pagination:
 // Page 1: Title, Research in Context, PICO
-// Page 2: Charts (OS, DFS, or other endpoints)
+// Page 2: Charts (OS, DFS, or other endpoints) - only if charts exist
 // Page 3: Risk of Bias, GRADE, Adverse Events
 // Page 4: Patient Summary (Shared Decision Making)
 // ══════════════════════════════════════════════════════════════════════
@@ -873,29 +898,41 @@ function exportReport() {
   const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
   
-  // ── Store original styles so we can restore after export ──
+  // ── Get sections ──
   const chartSection = document.getElementById('chartSection');
   const appraisalSection = document.getElementById('appraisalSection');
   const patientSection = document.getElementById('patientSection');
   
+  // ── Check if charts ACTUALLY exist (not just if section is visible) ──
+  // currentChart and currentChart2 are set by renderChart when a chart is created
+  const hasChart1 = currentChart !== null;
+  const hasChart2 = currentChart2 !== null;
+  const hasAnyChart = hasChart1 || hasChart2;
+  
+  // ── Store original styles so we can restore after export ──
   const origStyles = {
     chartSection: chartSection?.style.cssText || '',
     appraisalSection: appraisalSection?.style.cssText || '',
     patientSection: patientSection?.style.cssText || '',
   };
   
-  // ── Apply page breaks temporarily ──
-  if (chartSection) {
+  // ── Apply page breaks only when appropriate ──
+  // Only add chart page break if charts actually exist
+  if (hasAnyChart && chartSection) {
     chartSection.style.pageBreakBefore = 'always';
-    chartSection.style.paddingTop = '30px';
+    chartSection.style.paddingTop = '10px';
   }
-  if (appraisalSection) {
+  
+  // Appraisal section gets a page break (either after charts, or stays with PICO if no charts)
+  if (appraisalSection && hasAnyChart) {
     appraisalSection.style.pageBreakBefore = 'always';
-    appraisalSection.style.paddingTop = '30px';
+    appraisalSection.style.paddingTop = '10px';
   }
+  
+  // Patient summary always on its own page
   if (patientSection) {
     patientSection.style.pageBreakBefore = 'always';
-    patientSection.style.paddingTop = '30px';
+    patientSection.style.paddingTop = '10px';
   }
   
   // ── Fix chart widths for export ──
@@ -913,18 +950,18 @@ function exportReport() {
   
   // ── Export ──
   html2pdf().set({
-    margin:      [12, 12, 12, 12],
+    margin:      [10, 10, 10, 10],
     filename,
     image:       { type: 'jpeg', quality: 0.98 },
     html2canvas: { 
-      scale: 2.5,
+      scale: 2,
       scrollY: 0, 
       useCORS: true, 
       width: 794,
       logging: false,
     },
     jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['css', 'legacy'], avoid: ['tr', 'td', 'table'] },
+    pagebreak:   { mode: ['css', 'legacy'], avoid: ['tr', 'td', 'table', '.bg-slate-50'] },
   }).from(document.getElementById('reportContainer')).save().then(() => {
     // ── Restore original styles ──
     charts.forEach((c, i) => { c.style.width = origWidths[i]; });
