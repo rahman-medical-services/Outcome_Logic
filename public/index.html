@@ -748,12 +748,12 @@ function renderChart(canvasId, endpointData) {
   const ctx   = canvas.getContext('2d');
   const isKM  = endpointData.recommended_chart_type === 'stepped-line';
   // Normalise bar chart values: pipeline sometimes returns 0.8 instead of 1 (integer %)
-  // Detect by checking if all y values are < 1 for a bar chart
   let chartArms = endpointData.arms;
   if (!isKM) {
     const allVals = chartArms.flatMap(a => a.data_points.map(dp => dp.y)).filter(v => v != null);
-    const allDecimal = allVals.length > 0 && allVals.every(v => v > 0 && v < 1);
-    if (allDecimal) {
+    // Normalise if values look like decimal fractions (max value < 1, at least one > 0)
+    const maxVal = Math.max(...allVals);
+    if (maxVal > 0 && maxVal < 1) {
       chartArms = chartArms.map(a => ({
         ...a,
         data_points: a.data_points.map(dp => ({ ...dp, y: Math.round(dp.y * 100) })),
@@ -761,13 +761,27 @@ function renderChart(canvasId, endpointData) {
     }
   }
 
+  // For bar charts: labels must be derived from ALL arms (not just arm[0])
+  // so that arms with different x-labels all appear on the axis
+  let chartLabels;
+  if (isKM) {
+    chartLabels = (chartArms[0]?.data_points || []).map(dp => dp.x);
+  } else {
+    const labelSet = new Set();
+    chartArms.forEach(a => a.data_points.forEach(dp => labelSet.add(dp.x)));
+    chartLabels = Array.from(labelSet);
+  }
+
   return new Chart(ctx, {
     type: isKM ? 'line' : 'bar',
     data: {
-      labels:   chartArms[0].data_points.map(dp => dp.x),
+      labels:   chartLabels,
       datasets: chartArms.map((arm, i) => ({
         label:           arm.group_name,
-        data:            arm.data_points.map(dp => dp.y),
+        data:            chartLabels.map(lbl => {
+          const pt = arm.data_points.find(dp => dp.x === lbl);
+          return pt ? pt.y : 0;
+        }),
         backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)'   : 'rgba(14,165,233,0.1)',
         borderColor:     i === 0 ? '#0f172a'               : '#0ea5e9',
         borderWidth: 2, stepped: false, tension: isKM ? 0.3 : 0,
@@ -796,7 +810,7 @@ function exportReport() {
   let styleEl = document.getElementById(styleId);
   if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
   styleEl.textContent = [
-    '#chartSection   { page-break-before: always; page-break-inside: avoid; }',
+    '#chartSection   { page-break-inside: avoid; }',
     '#chart2Section  { page-break-inside: avoid; }',
     '#patientSection { page-break-before: always; }',
   ].join(' ');
