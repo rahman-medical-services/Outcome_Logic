@@ -18,19 +18,8 @@
   <!-- Supabase JS client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!--
-    Environment variables injected at deploy time by Vercel.
-    SUPABASE_URL and SUPABASE_ANON_KEY are safe to expose in the browser.
-    INTERNAL_API_TOKEN and SERVICE_ROLE_KEY must NEVER appear here.
-  -->
-  <script>
-    window.ENV = {
-      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
-      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
-      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
-      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
-    };
-  </script>
+  <!-- Runtime env — see public/env.js (never replace wholesale) -->
+  <script src="/env.js"></script>
 </head>
 
 <body class="bg-slate-50 text-slate-900 font-sans">
@@ -174,17 +163,30 @@
               </div>
 
 <div id="loadingState" class="hidden mt-6">
-  <div class="flex flex-col items-center gap-3">
+  <div class="flex flex-col items-center gap-4 max-w-sm mx-auto">
     <div class="w-8 h-8 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
-    <div class="text-center space-y-1">
-      <p id="loading-stage" class="text-sm font-medium text-slate-700">Retrieving source…</p>
-      <div class="flex justify-center gap-1.5 mt-1">
-        <span id="stage-dot-1" class="w-2 h-2 rounded-full bg-slate-900"></span>
-        <span id="stage-dot-2" class="w-2 h-2 rounded-full bg-slate-300"></span>
-        <span id="stage-dot-3" class="w-2 h-2 rounded-full bg-slate-300"></span>
+    <div class="w-full text-center space-y-2">
+      <p id="loading-stage" class="text-sm font-semibold text-slate-700">Retrieving source…</p>
+      <div class="w-full bg-slate-200 rounded-full h-2.5">
+        <div id="loading-progress-bar" class="bg-slate-900 h-2.5 rounded-full transition-all duration-700 ease-in-out" style="width:0%"></div>
       </div>
-      <p class="text-xs text-slate-400 font-mono">3-Node Consensus Pipeline</p>
+      <p id="loading-pct" class="text-xs font-mono text-slate-500">0%</p>
+      <p class="text-xs text-slate-400">3-Node Consensus Pipeline</p>
     </div>
+  </div>
+</div>
+
+          <!-- Error panel -->
+<div id="errorPanel" class="hidden mt-6 max-w-sm mx-auto">
+  <div class="bg-red-50 border border-red-200 rounded-lg p-5 text-center space-y-3">
+    <div class="text-2xl">⚠️</div>
+    <p class="text-sm font-semibold text-red-800">Analysis failed</p>
+    <p id="errorMessage" class="text-xs text-red-600 leading-relaxed whitespace-pre-line"></p>
+    <div class="flex gap-2 justify-center pt-1">
+      <button id="retryBtn" class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-slate-700 transition">Retry with Pro model</button>
+      <button onclick="hideError()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded text-sm hover:bg-slate-50 transition">Dismiss</button>
+    </div>
+    <p class="text-[10px] text-red-400">Pro model uses Gemini 2.5 Pro with enhanced extraction</p>
   </div>
 </div>
 
@@ -298,6 +300,7 @@
   <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
     Grade ≥3 Adverse Events
   </h3>
+  <p id="ae-note" class="hidden text-xs text-slate-500 italic mb-2"></p>
   <div class="overflow-x-auto">
     <table class="w-full text-sm border-collapse">
       <thead>
@@ -367,40 +370,59 @@ let currentChart  = null;
 let currentChart2 = null;
 window._lastAnalysis = null;
 
-// ── Loading stage helpers ────────────────────────────────────────────
+// ── Loading progress bar ─────────────────────────────────────────────
 const LOADING_STAGES = [
-  { label: 'Retrieving source…',    dots: [1,0,0] },
-  { label: 'Extracting data…',      dots: [1,1,0] },
-  { label: 'Synthesising report…',  dots: [1,1,1] },
+  { label: 'Retrieving source…',   pct: 15 },
+  { label: 'Extracting data…',     pct: 45 },
+  { label: 'Synthesising report…', pct: 80 },
+  { label: 'Finalising output…',   pct: 95 },
 ];
-let _stageTimer = null;
+let _stageTimer  = null;
+let _lastPayload = null;
 
 function showLoading() {
-  const el = document.getElementById('loadingState');
-  if (!el) return;
-  el.classList.remove('hidden');
+  document.getElementById('loadingState').classList.remove('hidden');
+  document.getElementById('errorPanel').classList.add('hidden');
   let stage = 0;
-  _setStage(stage);
+  _setProgress(LOADING_STAGES[0].pct, LOADING_STAGES[0].label);
   _stageTimer = setInterval(() => {
     stage = Math.min(stage + 1, LOADING_STAGES.length - 1);
-    _setStage(stage);
-  }, 8000);
+    _setProgress(LOADING_STAGES[stage].pct, LOADING_STAGES[stage].label);
+  }, 7000);
 }
 
 function hideLoading() {
-  const el = document.getElementById('loadingState');
-  if (el) el.classList.add('hidden');
+  document.getElementById('loadingState').classList.add('hidden');
   if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; }
 }
 
-function _setStage(i) {
-  const s = LOADING_STAGES[i];
+function _setProgress(pct, label) {
+  const bar = document.getElementById('loading-progress-bar');
   const lbl = document.getElementById('loading-stage');
-  if (lbl) lbl.textContent = s.label;
-  [1,2,3].forEach(n => {
-    const dot = document.getElementById(`stage-dot-${n}`);
-    if (dot) dot.className = `w-2 h-2 rounded-full ${s.dots[n-1] ? 'bg-slate-900' : 'bg-slate-300'}`;
-  });
+  const num = document.getElementById('loading-pct');
+  if (bar) bar.style.width = pct + '%';
+  if (lbl) lbl.textContent = label;
+  if (num) num.textContent = pct + '%';
+}
+
+function showError(message, payload) {
+  const panel = document.getElementById('errorPanel');
+  const msg   = document.getElementById('errorMessage');
+  if (msg)   msg.textContent = message;
+  if (panel) panel.classList.remove('hidden');
+  const retryBtn = document.getElementById('retryBtn');
+  if (retryBtn) {
+    if (payload) {
+      retryBtn.classList.remove('hidden');
+      retryBtn.onclick = () => { panel.classList.add('hidden'); executeEngine({ ...payload, isEscalation: true }); };
+    } else {
+      retryBtn.classList.add('hidden');
+    }
+  }
+}
+
+function hideError() {
+  document.getElementById('errorPanel').classList.add('hidden');
 }
 
 // ── Enum helpers ────────────────────────────────────────────────────
@@ -507,10 +529,12 @@ async function analyzePdf() {
 
 // ── Core Engine ─────────────────────────────────────────────────────
 async function executeEngine(payload) {
+  _lastPayload = payload;
   document.getElementById('searchResults').classList.add('hidden');
-  showLoading();
+  document.getElementById('errorPanel').classList.add('hidden');
   document.getElementById('reportContainer').classList.add('hidden');
   document.getElementById('exportBar').classList.add('hidden');
+  showLoading();
   try {
     const res  = await fetch(`${API_BASE_URL}/analyze`, {
       method:  'POST',
@@ -519,13 +543,21 @@ async function executeEngine(payload) {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (res.status === 429) throw new Error('Rate limit exceeded. Try again tomorrow.');
-      throw new Error(data.error || data.details || 'Server failed to process request.');
+      let reason = data.error || data.details || 'Server failed to process the request.';
+      if (res.status === 429) reason = 'Rate limit reached — daily quota exceeded. Please try again tomorrow.';
+      if (res.status === 504 || res.status === 502) reason = 'The pipeline timed out. The source may be behind a paywall or unavailable.';
+      throw new Error(reason);
     }
+    _setProgress(100, 'Complete');
+    await new Promise(r => setTimeout(r, 300));
     window._lastAnalysis = data;
     populateDashboard(data);
   } catch (err) {
-    alert('Analysis Error: ' + err.message);
+    const alreadyEscalated = !!payload.isEscalation;
+    let msg = err.message;
+    if (!alreadyEscalated) msg += '\n\nRetry using Gemini 2.5 Pro — this may succeed where the standard pipeline failed.';
+    else msg += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
+    showError(msg, alreadyEscalated ? null : payload);
   } finally {
     hideLoading();
   }
@@ -585,6 +617,7 @@ function populateDashboard(data) {
   document.getElementById('ui-rob-rationale').innerText = ca.risk_of_bias_rationale || '';
   document.getElementById('ui-limitations').innerText   = ca.limitations            || '';
 
+
   // ── Adverse Events Table ──
   renderAETable(view.adverse_events, view.pico);
 
@@ -595,8 +628,8 @@ function populateDashboard(data) {
   if (currentChart)  { currentChart.destroy();  currentChart  = null; }
   if (currentChart2) { currentChart2.destroy(); currentChart2 = null; }
 
-  const endpoints    = view.interactive_data?.endpoints || [];
-  const chartSection = document.getElementById('chartSection');
+  const endpoints     = view.interactive_data?.endpoints || [];
+  const chartSection  = document.getElementById('chartSection');
   const chart2Section = document.getElementById('chart2Section');
 
   if (endpoints.length > 0) {
@@ -632,57 +665,50 @@ function populateDashboard(data) {
 // Expose for library load
 window.populateDashboard = populateDashboard;
 
-// ── Adverse Events Table ─────────────────────────────────────────────
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
-
-  if (!ae?.has_data || !ae.rows?.length) {
-    section.classList.add('hidden');
-    return;
-  }
-
+  if (!ae?.has_data || !ae.rows?.length) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
 
-  // Set column headers from PICO arm names
+  const allNullControl = ae._control_not_applicable || ae.rows.every(r => r.control_pct === null);
+  const intName = pico?.intervention?.split(' ').slice(0,3).join(' ') || 'Intervention';
+  const conName = pico?.control?.split(' ').slice(0,3).join(' ') || 'Control';
+
   const intHeader = document.getElementById('ae-header-intervention');
   const conHeader = document.getElementById('ae-header-control');
-  if (intHeader) intHeader.textContent = pico?.intervention?.split(' ')[0] || 'Intervention';
-  if (conHeader) conHeader.textContent = ae.rows[0]?.control_pct === null ? '—' : (pico?.control?.split(' ')[0] || 'Control');
+  if (intHeader) intHeader.textContent = intName;
+  if (conHeader) { conHeader.textContent = conName; conHeader.classList.toggle('hidden', allNullControl); }
+
+  const noteEl = document.getElementById('ae-note');
+  if (noteEl) {
+    if (allNullControl) {
+      noteEl.textContent = 'These adverse events are specific to the intervention arm and are not applicable to the control arm.';
+      noteEl.classList.remove('hidden');
+    } else { noteEl.classList.add('hidden'); }
+  }
 
   const tbody = document.getElementById('ae-table-body');
-  tbody.innerHTML = ae.rows.map((row, i) => `
-    <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
-      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1">(${row.note})</span>` : ''}</td>
+  tbody.innerHTML = ae.rows.map((row, i) => {
+    const conCell = allNullControl ? '' : `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
+    return `<tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
+      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}</td>
       <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
-      <td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>
-    </tr>
-  `).join('');
+      ${conCell}</tr>`;
+  }).join('');
 
-  // Footer — discontinuation and mortality
   const tfoot = document.getElementById('ae-table-foot');
   const footRows = [];
   if (ae.discontinuation?.intervention_pct != null) {
-    footRows.push(`
-      <tr class="border-t border-slate-200">
-        <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>
-      </tr>
-    `);
+    const conTd = allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`;
+    footRows.push(`<tr class="border-t border-slate-200"><td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td><td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>${conTd}</tr>`);
   }
   if (ae.treatment_related_mortality?.intervention_pct != null) {
-    footRows.push(`
-      <tr>
-        <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>
-      </tr>
-    `);
+    const conTd = allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`;
+    footRows.push(`<tr><td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td><td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>${conTd}</tr>`);
   }
   if (tfoot) tfoot.innerHTML = footRows.join('');
 }
-
 // ── Subgroups ────────────────────────────────────────────────────────
 function renderSubgroups(subgroups) {
   const section = document.getElementById('subgroupSection');
@@ -744,31 +770,64 @@ function renderChart(canvasId, endpointData) {
   });
 }
 
-// ── PDF Export — single unified report ──────────────────────────────
+// ── PDF Export — canvas snapshot + CSS page breaks ──────────────────
 function exportReport() {
-  // Brief delay to ensure all sections are visible
-  document.getElementById('mdtSection').style.display    = 'block';
-  document.getElementById('patientSection').style.display = 'block';
-
+  const reportEl = document.getElementById('reportContainer');
+  if (!reportEl) return;
   const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
 
-  // Fix chart width before export
-  const charts = document.querySelectorAll('canvas');
-  const origWidths = [];
-  charts.forEach((c, i) => { origWidths[i] = c.style.width; c.style.width = '700px'; });
+  // Inject page-break CSS
+  const styleId = 'pdf-pb-style';
+  let styleEl = document.getElementById(styleId);
+  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
+  styleEl.textContent = [
+    '#chartSection  { page-break-before: always; page-break-inside: avoid; }',
+    '#chart2Section { page-break-inside: avoid; }',
+    '#patientSection { page-break-before: always; }',
+    '.mb-8 { page-break-inside: avoid; }',
+  ].join(' ');
+
+  // Ensure sections visible
+  ['mdtSection','patientSection'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'block';
+  });
+
+  // Snapshot canvas → img so html2canvas captures at full res
+  const snapshots = [];
+  reportEl.querySelectorAll('canvas').forEach(c => {
+    if (c.width === 0) return;
+    const img = document.createElement('img');
+    img.src = c.toDataURL('image/png');
+    img.style.width  = '100%';
+    img.style.height = c.offsetHeight + 'px';
+    img.style.display = 'block';
+    c.parentNode.insertBefore(img, c);
+    c.style.display = 'none';
+    snapshots.push({ img, canvas: c });
+  });
+
+  const restore = () => {
+    snapshots.forEach(({ img, canvas }) => { canvas.style.display = ''; img.remove(); });
+    styleEl.textContent = '';
+  };
 
   html2pdf().set({
-    margin:      [10, 10, 10, 10],
+    margin:      [10, 12, 10, 12],
     filename,
-    image:       { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, scrollY: 0, useCORS: true, width: 794 },
-    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] },
-  }).from(document.getElementById('reportContainer')).save().then(() => {
-    // Restore chart widths
-    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
-  });
+    image:       { type: 'jpeg', quality: 0.97 },
+    html2canvas: { scale: 2, useCORS: true, scrollY: 0,
+      onclone: doc => {
+        ['mdtSection','patientSection'].forEach(id => {
+          const el = doc.getElementById(id);
+          if (el) el.style.display = 'block';
+        });
+      }
+    },
+    jsPDF:     { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css'], before: ['#chartSection', '#patientSection'] },
+  }).from(reportEl).save().then(restore).catch(restore);
 }
   </script>
 
