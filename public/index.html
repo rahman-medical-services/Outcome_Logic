@@ -744,44 +744,47 @@ function renderChart(canvasId, endpointData) {
     const isKM = endpointData.recommended_chart_type === 'stepped-line';
     
     // ── Detect chart mode ──
-    // Comparative bar: each arm has 1 data point, used for rate/proportion comparisons
-    // Time-series: arms have multiple data points sharing x-axis values
-    const isComparativeBar = !isKM && endpointData.arms.every(arm => 
-      arm.data_points?.length === 1
-    );
+    // Bar chart (comparative): NOT a KM curve, typically each arm has 1-2 data points
+    // KM curve: stepped-line type with multiple time points
+    const isBarChart = !isKM && endpointData.recommended_chart_type === 'bar';
+    const isSinglePointPerArm = endpointData.arms.every(arm => (arm.data_points?.length || 0) <= 1);
     
-    // ── Also detect if arms have DIFFERENT x-values (another comparative pattern) ──
-    // This catches cases like [{x:"Intervention", y:10}, {x:"Control", y:5}]
-    const hasDistinctLabels = !isKM && endpointData.arms.length >= 2 &&
-      endpointData.arms[0].data_points?.[0]?.x !== endpointData.arms[1].data_points?.[0]?.x;
+    // Use comparative bar mode for: explicit bar type OR single data point per arm (not KM)
+    const useComparativeBar = isBarChart || (!isKM && isSinglePointPerArm);
     
-    const useComparativeMode = isComparativeBar || hasDistinctLabels;
+    console.log('renderChart:', canvasId, {
+      type: endpointData.recommended_chart_type,
+      isKM, isBarChart, isSinglePointPerArm, useComparativeBar,
+      arms: endpointData.arms.map(a => ({ name: a.group_name, points: a.data_points?.length }))
+    });
     
-    if (useComparativeMode) {
+    if (useComparativeBar) {
       // ══ COMPARATIVE BAR CHART ══
-      // Each arm becomes a separate bar with its group_name as the label
-      // This ensures both bars render correctly
+      // Each arm = one bar, group_name = x-axis label
+      const labels = endpointData.arms.map(arm => arm.group_name || 'Unknown');
+      const values = endpointData.arms.map(arm => arm.data_points?.[0]?.y ?? 0);
+      
+      // Color palette for multiple arms
+      const colors = [
+        { bg: 'rgba(15,23,42,0.8)', border: '#0f172a' },   // Dark slate
+        { bg: 'rgba(14,165,233,0.8)', border: '#0ea5e9' }, // Sky blue
+        { bg: 'rgba(34,197,94,0.8)', border: '#22c55e' },  // Green
+        { bg: 'rgba(249,115,22,0.8)', border: '#f97316' }, // Orange
+      ];
+      
       return new Chart(ctx, {
         type: 'bar',
         data: {
-          labels: endpointData.arms.map(arm => arm.group_name || 'Unknown'),
+          labels: labels,
           datasets: [{
             label: endpointData.label || 'Rate',
-            data: endpointData.arms.map(arm => {
-              // Get the y-value from the first (and likely only) data point
-              const dp = arm.data_points?.[0];
-              return dp?.y ?? 0;
-            }),
-            backgroundColor: endpointData.arms.map((_, i) => 
-              i === 0 ? 'rgba(15,23,42,0.7)' : 'rgba(14,165,233,0.7)'
-            ),
-            borderColor: endpointData.arms.map((_, i) => 
-              i === 0 ? '#0f172a' : '#0ea5e9'
-            ),
+            data: values,
+            backgroundColor: endpointData.arms.map((_, i) => colors[i % colors.length].bg),
+            borderColor: endpointData.arms.map((_, i) => colors[i % colors.length].border),
             borderWidth: 2,
             borderRadius: 4,
-            barPercentage: 0.6,
-            categoryPercentage: 0.7,
+            barPercentage: 0.7,
+            categoryPercentage: 0.8,
           }],
         },
         options: {
@@ -792,35 +795,23 @@ function renderChart(canvasId, endpointData) {
             legend: { display: false },
             tooltip: {
               callbacks: {
-                label: (ctx) => {
-                  const val = ctx.parsed.y;
-                  // Check if values look like percentages (0-100 range)
-                  const isPercent = endpointData.arms.every(arm => {
-                    const y = arm.data_points?.[0]?.y ?? 0;
-                    return y >= 0 && y <= 100;
-                  });
-                  return isPercent ? `${val}%` : val.toString();
+                label: (context) => {
+                  const val = context.parsed.y;
+                  return val <= 100 ? `${val}%` : val.toString();
                 }
               }
             }
           },
           scales: {
             y: { 
-              beginAtZero: true, 
-              title: { display: true, text: endpointData.axes?.y_label || '' },
+              beginAtZero: true,
+              title: { display: true, text: endpointData.axes?.y_label || 'Percentage (%)' },
               ticks: {
-                callback: function(value) {
-                  // Add % suffix if y-axis label suggests percentages
-                  const yLabel = (endpointData.axes?.y_label || '').toLowerCase();
-                  if (yLabel.includes('percent') || yLabel.includes('%') || yLabel.includes('rate')) {
-                    return value + '%';
-                  }
-                  return value;
-                }
+                callback: (value) => value + '%'
               }
             },
             x: { 
-              title: { display: true, text: endpointData.axes?.x_label || '' },
+              title: { display: true, text: endpointData.axes?.x_label || 'Treatment Arm' },
               grid: { display: false }
             },
           },
@@ -883,64 +874,99 @@ function renderChart(canvasId, endpointData) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// PDF EXPORT — FIXED VERSION
-// Creates a 4-page PDF with proper pagination:
-// Page 1: Title, Research in Context, PICO
-// Page 2: Charts (OS, DFS, or other endpoints) - only if charts exist
-// Page 3: Risk of Bias, GRADE, Adverse Events
-// Page 4: Patient Summary (Shared Decision Making)
+// PDF EXPORT — COMPACT 2-PAGE FORMAT
+// Page 1: Title, Research in Context, PICO, AE Table
+// Page 2: Charts (side-by-side if 2), RoB/GRADE, Patient Summary
+// High resolution for book-quality output
 // ══════════════════════════════════════════════════════════════════════
 function exportReport() {
-  // Ensure all sections are visible
-  document.getElementById('mdtSection').style.display    = 'block';
-  document.getElementById('patientSection').style.display = 'block';
-  
-  const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
+  const title = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
   
-  // ── Get sections ──
+  // ── Get all sections ──
+  const reportContainer = document.getElementById('reportContainer');
+  const mdtSection = document.getElementById('mdtSection');
   const chartSection = document.getElementById('chartSection');
+  const chart2Section = document.getElementById('chart2Section');
   const appraisalSection = document.getElementById('appraisalSection');
   const patientSection = document.getElementById('patientSection');
+  const aeSection = document.getElementById('aeSection');
+  const subgroupSection = document.getElementById('subgroupSection');
   
-  // ── Check if charts ACTUALLY exist (not just if section is visible) ──
-  // currentChart and currentChart2 are set by renderChart when a chart is created
+  // ── Check if we have charts ──
   const hasChart1 = currentChart !== null;
-  const hasChart2 = currentChart2 !== null;
-  const hasAnyChart = hasChart1 || hasChart2;
+  const hasChart2 = currentChart2 !== null && chart2Section && !chart2Section.classList.contains('hidden');
   
-  // ── Store original styles so we can restore after export ──
-  const origStyles = {
-    chartSection: chartSection?.style.cssText || '',
-    appraisalSection: appraisalSection?.style.cssText || '',
-    patientSection: patientSection?.style.cssText || '',
+  // ── Store original DOM positions and styles ──
+  const origState = {
+    aeParent: aeSection?.parentNode,
+    aeNext: aeSection?.nextSibling,
+    subgroupParent: subgroupSection?.parentNode,
+    subgroupNext: subgroupSection?.nextSibling,
+    chartSectionStyle: chartSection?.style.cssText || '',
+    chart2SectionStyle: chart2Section?.style.cssText || '',
+    appraisalStyle: appraisalSection?.style.cssText || '',
+    patientStyle: patientSection?.style.cssText || '',
+    chart1ContainerStyle: '',
+    chart2ContainerStyle: '',
   };
   
-  // ── Apply page breaks only when appropriate ──
-  // Only add chart page break if charts actually exist
-  if (hasAnyChart && chartSection) {
+  // ── REORDER DOM FOR PDF ──
+  // Move AE and Subgroup sections BEFORE chartSection (so they're on page 1)
+  if (aeSection && mdtSection && chartSection) {
+    mdtSection.insertBefore(aeSection, chartSection);
+  }
+  if (subgroupSection && mdtSection && chartSection) {
+    mdtSection.insertBefore(subgroupSection, chartSection);
+  }
+  
+  // ── PAGE BREAK: Charts start page 2 ──
+  if (chartSection && hasChart1) {
     chartSection.style.pageBreakBefore = 'always';
     chartSection.style.paddingTop = '10px';
   }
   
-  // Appraisal section gets a page break (either after charts, or stays with PICO if no charts)
-  if (appraisalSection && hasAnyChart) {
-    appraisalSection.style.pageBreakBefore = 'always';
-    appraisalSection.style.paddingTop = '10px';
+  // ── SIDE-BY-SIDE CHARTS if we have 2 ──
+  const chart1Container = chartSection?.querySelector('.relative.h-72');
+  const chart2Container = chart2Section?.querySelector('.relative.h-72');
+  
+  if (hasChart2 && chart1Container && chart2Container) {
+    origState.chart1ContainerStyle = chart1Container.style.cssText;
+    origState.chart2ContainerStyle = chart2Container.style.cssText;
+    
+    // Create flex wrapper
+    chartSection.style.display = 'block';
+    
+    // Make first chart smaller
+    chart1Container.style.height = '180px';
+    chart1Container.style.maxWidth = '100%';
+    
+    // Make second chart smaller and reduce gap
+    chart2Section.style.marginTop = '15px';
+    chart2Container.style.height = '180px';
+  } else if (chart1Container) {
+    origState.chart1ContainerStyle = chart1Container.style.cssText;
+    chart1Container.style.height = '220px';
   }
   
-  // Patient summary always on its own page
+  // ── Compact styling for page 2 content ──
+  if (appraisalSection) {
+    appraisalSection.style.marginTop = '15px';
+    appraisalSection.style.marginBottom = '10px';
+    appraisalSection.style.padding = '10px';
+  }
+  
   if (patientSection) {
-    patientSection.style.pageBreakBefore = 'always';
+    patientSection.style.marginTop = '10px';
     patientSection.style.paddingTop = '10px';
   }
   
-  // ── Fix chart widths for export ──
+  // ── Fix chart canvas widths ──
   const charts = document.querySelectorAll('#reportContainer canvas');
   const origWidths = [];
   charts.forEach((c, i) => { 
     origWidths[i] = c.style.width; 
-    c.style.width = '700px'; 
+    c.style.width = '100%';
   });
   
   // ── Hide "click to edit" hint ──
@@ -948,36 +974,61 @@ function exportReport() {
   const editHintDisplay = editHint?.style.display || '';
   if (editHint) editHint.style.display = 'none';
   
-  // ── Export ──
+  // ── Export with HIGH RESOLUTION ──
   html2pdf().set({
-    margin:      [10, 10, 10, 10],
+    margin: [8, 10, 8, 10],
     filename,
-    image:       { type: 'jpeg', quality: 0.98 },
+    image: { type: 'png', quality: 1.0 },
     html2canvas: { 
-      scale: 2,
+      scale: 3,  // High resolution for book quality
       scrollY: 0, 
       useCORS: true, 
       width: 794,
       logging: false,
+      letterRendering: true,
     },
-    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['css', 'legacy'], avoid: ['tr', 'td', 'table', '.bg-slate-50'] },
-  }).from(document.getElementById('reportContainer')).save().then(() => {
-    // ── Restore original styles ──
-    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
-    if (chartSection) chartSection.style.cssText = origStyles.chartSection;
-    if (appraisalSection) appraisalSection.style.cssText = origStyles.appraisalSection;
-    if (patientSection) patientSection.style.cssText = origStyles.patientSection;
-    if (editHint) editHint.style.display = editHintDisplay;
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css'], avoid: ['tr', 'td', 'table', '#appraisalSection', '#patientSection', '.bg-emerald-50'] },
+  }).from(reportContainer).save().then(() => {
+    restoreAfterExport();
   }).catch(err => {
     console.error('PDF export failed:', err);
-    // Restore on error too
-    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
-    if (chartSection) chartSection.style.cssText = origStyles.chartSection;
-    if (appraisalSection) appraisalSection.style.cssText = origStyles.appraisalSection;
-    if (patientSection) patientSection.style.cssText = origStyles.patientSection;
-    if (editHint) editHint.style.display = editHintDisplay;
+    restoreAfterExport();
   });
+  
+  function restoreAfterExport() {
+    // Restore chart widths
+    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
+    
+    // Restore section styles
+    if (chartSection) chartSection.style.cssText = origState.chartSectionStyle;
+    if (chart2Section) chart2Section.style.cssText = origState.chart2SectionStyle;
+    if (appraisalSection) appraisalSection.style.cssText = origState.appraisalStyle;
+    if (patientSection) patientSection.style.cssText = origState.patientStyle;
+    if (chart1Container) chart1Container.style.cssText = origState.chart1ContainerStyle;
+    if (chart2Container) chart2Container.style.cssText = origState.chart2ContainerStyle;
+    
+    // Restore AE section to original position
+    if (aeSection && origState.aeParent) {
+      if (origState.aeNext) {
+        origState.aeParent.insertBefore(aeSection, origState.aeNext);
+      } else {
+        origState.aeParent.appendChild(aeSection);
+      }
+    }
+    
+    // Restore Subgroup section to original position
+    if (subgroupSection && origState.subgroupParent) {
+      if (origState.subgroupNext) {
+        origState.subgroupParent.insertBefore(subgroupSection, origState.subgroupNext);
+      } else {
+        origState.subgroupParent.appendChild(subgroupSection);
+      }
+    }
+    
+    // Restore edit hint
+    if (editHint) editHint.style.display = editHintDisplay;
+  }
 }
   </script>
 
