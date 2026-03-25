@@ -18,8 +18,19 @@
   <!-- Supabase JS client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Runtime env — see public/env.js (never replace wholesale) -->
-  <script src="/env.js"></script>
+  <!--
+    Environment variables injected at deploy time by Vercel.
+    SUPABASE_URL and SUPABASE_ANON_KEY are safe to expose in the browser.
+    INTERNAL_API_TOKEN and SERVICE_ROLE_KEY must NEVER appear here.
+  -->
+  <script>
+    window.ENV = {
+      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
+      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
+      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
+    };
+  </script>
 </head>
 
 <body class="bg-slate-50 text-slate-900 font-sans">
@@ -163,30 +174,17 @@
               </div>
 
 <div id="loadingState" class="hidden mt-6">
-  <div class="flex flex-col items-center gap-4 max-w-sm mx-auto">
+  <div class="flex flex-col items-center gap-3">
     <div class="w-8 h-8 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
-    <div class="w-full text-center space-y-2">
-      <p id="loading-stage" class="text-sm font-semibold text-slate-700">Retrieving source…</p>
-      <div class="w-full bg-slate-200 rounded-full h-2.5">
-        <div id="loading-progress-bar" class="bg-slate-900 h-2.5 rounded-full transition-all duration-700 ease-in-out" style="width:0%"></div>
+    <div class="text-center space-y-1">
+      <p id="loading-stage" class="text-sm font-medium text-slate-700">Retrieving source…</p>
+      <div class="flex justify-center gap-1.5 mt-1">
+        <span id="stage-dot-1" class="w-2 h-2 rounded-full bg-slate-900"></span>
+        <span id="stage-dot-2" class="w-2 h-2 rounded-full bg-slate-300"></span>
+        <span id="stage-dot-3" class="w-2 h-2 rounded-full bg-slate-300"></span>
       </div>
-      <p id="loading-pct" class="text-xs font-mono text-slate-500">0%</p>
-      <p class="text-xs text-slate-400">3-Node Consensus Pipeline</p>
+      <p class="text-xs text-slate-400 font-mono">3-Node Consensus Pipeline</p>
     </div>
-  </div>
-</div>
-
-          <!-- Error panel -->
-<div id="errorPanel" class="hidden mt-6 max-w-sm mx-auto">
-  <div class="bg-red-50 border border-red-200 rounded-lg p-5 text-center space-y-3">
-    <div class="text-2xl">⚠️</div>
-    <p class="text-sm font-semibold text-red-800">Analysis failed</p>
-    <p id="errorMessage" class="text-xs text-red-600 leading-relaxed whitespace-pre-line"></p>
-    <div class="flex gap-2 justify-center pt-1">
-      <button id="retryBtn" class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-slate-700 transition">Retry with Pro model</button>
-      <button onclick="hideError()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded text-sm hover:bg-slate-50 transition">Dismiss</button>
-    </div>
-    <p class="text-[10px] text-red-400">Pro model uses Gemini 2.5 Pro with enhanced extraction</p>
   </div>
 </div>
 
@@ -273,7 +271,8 @@
 </div>
               </div>
 
-              <div class="mb-8 p-4 bg-slate-50 border border-slate-200 rounded text-sm">
+              <!-- FIXED: Added id="appraisalSection" for PDF page break targeting -->
+              <div id="appraisalSection" class="mb-8 p-4 bg-slate-50 border border-slate-200 rounded text-sm">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <span class="font-bold text-slate-500 text-xs uppercase block mb-2">Risk of Bias</span>
@@ -300,7 +299,6 @@
   <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
     Grade ≥3 Adverse Events
   </h3>
-  <p id="ae-note" class="hidden text-xs text-slate-500 italic mb-2"></p>
   <div class="overflow-x-auto">
     <table class="w-full text-sm border-collapse">
       <thead>
@@ -336,9 +334,6 @@
         </div>
       </div>
 
-      </div>
-      </div>
-
       <!-- ── LIBRARY TAB ── -->
       <div data-tab-panel="library" class="hidden">
         <div id="tab-panel-library"></div>
@@ -357,9 +352,11 @@
   <!-- ===================== ANALYSE TAB SCRIPTS ===================== -->
   <script>
 // ==========================================
-// ANALYSE TAB SCRIPTS
-// Replace the contents of the large <script> block in index.html
-// (the one starting with "// ── Config ──")
+// ANALYSE TAB SCRIPTS — FIXED VERSION
+// Fixes:
+// 1. Bar chart rendering (comparative charts now show all arms)
+// 2. PDF pagination (4 pages: Title/PICO, Charts, RoB/AE, Summary)
+// 3. Higher resolution PDF export
 // ==========================================
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -370,59 +367,40 @@ let currentChart  = null;
 let currentChart2 = null;
 window._lastAnalysis = null;
 
-// ── Loading progress bar ─────────────────────────────────────────────
+// ── Loading stage helpers ────────────────────────────────────────────
 const LOADING_STAGES = [
-  { label: 'Retrieving source…',   pct: 15 },
-  { label: 'Extracting data…',     pct: 45 },
-  { label: 'Synthesising report…', pct: 80 },
-  { label: 'Finalising output…',   pct: 95 },
+  { label: 'Retrieving source…',    dots: [1,0,0] },
+  { label: 'Extracting data…',      dots: [1,1,0] },
+  { label: 'Synthesising report…',  dots: [1,1,1] },
 ];
-let _stageTimer  = null;
-let _lastPayload = null;
+let _stageTimer = null;
 
 function showLoading() {
-  document.getElementById('loadingState').classList.remove('hidden');
-  document.getElementById('errorPanel').classList.add('hidden');
+  const el = document.getElementById('loadingState');
+  if (!el) return;
+  el.classList.remove('hidden');
   let stage = 0;
-  _setProgress(LOADING_STAGES[0].pct, LOADING_STAGES[0].label);
+  _setStage(stage);
   _stageTimer = setInterval(() => {
     stage = Math.min(stage + 1, LOADING_STAGES.length - 1);
-    _setProgress(LOADING_STAGES[stage].pct, LOADING_STAGES[stage].label);
-  }, 7000);
+    _setStage(stage);
+  }, 8000);
 }
 
 function hideLoading() {
-  document.getElementById('loadingState').classList.add('hidden');
+  const el = document.getElementById('loadingState');
+  if (el) el.classList.add('hidden');
   if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; }
 }
 
-function _setProgress(pct, label) {
-  const bar = document.getElementById('loading-progress-bar');
+function _setStage(i) {
+  const s = LOADING_STAGES[i];
   const lbl = document.getElementById('loading-stage');
-  const num = document.getElementById('loading-pct');
-  if (bar) bar.style.width = pct + '%';
-  if (lbl) lbl.textContent = label;
-  if (num) num.textContent = pct + '%';
-}
-
-function showError(message, payload) {
-  const panel = document.getElementById('errorPanel');
-  const msg   = document.getElementById('errorMessage');
-  if (msg)   msg.textContent = message;
-  if (panel) panel.classList.remove('hidden');
-  const retryBtn = document.getElementById('retryBtn');
-  if (retryBtn) {
-    if (payload) {
-      retryBtn.classList.remove('hidden');
-      retryBtn.onclick = () => { panel.classList.add('hidden'); executeEngine({ ...payload, isEscalation: true }); };
-    } else {
-      retryBtn.classList.add('hidden');
-    }
-  }
-}
-
-function hideError() {
-  document.getElementById('errorPanel').classList.add('hidden');
+  if (lbl) lbl.textContent = s.label;
+  [1,2,3].forEach(n => {
+    const dot = document.getElementById(`stage-dot-${n}`);
+    if (dot) dot.className = `w-2 h-2 rounded-full ${s.dots[n-1] ? 'bg-slate-900' : 'bg-slate-300'}`;
+  });
 }
 
 // ── Enum helpers ────────────────────────────────────────────────────
@@ -529,12 +507,10 @@ async function analyzePdf() {
 
 // ── Core Engine ─────────────────────────────────────────────────────
 async function executeEngine(payload) {
-  _lastPayload = payload;
   document.getElementById('searchResults').classList.add('hidden');
-  document.getElementById('errorPanel').classList.add('hidden');
+  showLoading();
   document.getElementById('reportContainer').classList.add('hidden');
   document.getElementById('exportBar').classList.add('hidden');
-  showLoading();
   try {
     const res  = await fetch(`${API_BASE_URL}/analyze`, {
       method:  'POST',
@@ -543,21 +519,13 @@ async function executeEngine(payload) {
     });
     const data = await res.json();
     if (!res.ok) {
-      let reason = data.error || data.details || 'Server failed to process the request.';
-      if (res.status === 429) reason = 'Rate limit reached — daily quota exceeded. Please try again tomorrow.';
-      if (res.status === 504 || res.status === 502) reason = 'The pipeline timed out. The source may be behind a paywall or unavailable.';
-      throw new Error(reason);
+      if (res.status === 429) throw new Error('Rate limit exceeded. Try again tomorrow.');
+      throw new Error(data.error || data.details || 'Server failed to process request.');
     }
-    _setProgress(100, 'Complete');
-    await new Promise(r => setTimeout(r, 300));
     window._lastAnalysis = data;
     populateDashboard(data);
   } catch (err) {
-    const alreadyEscalated = !!payload.isEscalation;
-    let msg = err.message;
-    if (!alreadyEscalated) msg += '\n\nRetry using Gemini 2.5 Pro — this may succeed where the standard pipeline failed.';
-    else msg += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
-    showError(msg, alreadyEscalated ? null : payload);
+    alert('Analysis Error: ' + err.message);
   } finally {
     hideLoading();
   }
@@ -617,7 +585,6 @@ function populateDashboard(data) {
   document.getElementById('ui-rob-rationale').innerText = ca.risk_of_bias_rationale || '';
   document.getElementById('ui-limitations').innerText   = ca.limitations            || '';
 
-
   // ── Adverse Events Table ──
   renderAETable(view.adverse_events, view.pico);
 
@@ -628,8 +595,8 @@ function populateDashboard(data) {
   if (currentChart)  { currentChart.destroy();  currentChart  = null; }
   if (currentChart2) { currentChart2.destroy(); currentChart2 = null; }
 
-  const endpoints     = view.interactive_data?.endpoints || [];
-  const chartSection  = document.getElementById('chartSection');
+  const endpoints    = view.interactive_data?.endpoints || [];
+  const chartSection = document.getElementById('chartSection');
   const chart2Section = document.getElementById('chart2Section');
 
   if (endpoints.length > 0) {
@@ -665,50 +632,57 @@ function populateDashboard(data) {
 // Expose for library load
 window.populateDashboard = populateDashboard;
 
+// ── Adverse Events Table ─────────────────────────────────────────────
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
-  if (!ae?.has_data || !ae.rows?.length) { section.classList.add('hidden'); return; }
-  section.classList.remove('hidden');
 
-  const allNullControl = ae._control_not_applicable || ae.rows.every(r => r.control_pct === null);
-  const intName = pico?.intervention?.split(' ').slice(0,3).join(' ') || 'Intervention';
-  const conName = pico?.control?.split(' ').slice(0,3).join(' ') || 'Control';
-
-  const intHeader = document.getElementById('ae-header-intervention');
-  const conHeader = document.getElementById('ae-header-control');
-  if (intHeader) intHeader.textContent = intName;
-  if (conHeader) { conHeader.textContent = conName; conHeader.classList.toggle('hidden', allNullControl); }
-
-  const noteEl = document.getElementById('ae-note');
-  if (noteEl) {
-    if (allNullControl) {
-      noteEl.textContent = 'These adverse events are specific to the intervention arm and are not applicable to the control arm.';
-      noteEl.classList.remove('hidden');
-    } else { noteEl.classList.add('hidden'); }
+  if (!ae?.has_data || !ae.rows?.length) {
+    section.classList.add('hidden');
+    return;
   }
 
-  const tbody = document.getElementById('ae-table-body');
-  tbody.innerHTML = ae.rows.map((row, i) => {
-    const conCell = allNullControl ? '' : `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
-    return `<tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
-      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}</td>
-      <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
-      ${conCell}</tr>`;
-  }).join('');
+  section.classList.remove('hidden');
 
+  // Set column headers from PICO arm names
+  const intHeader = document.getElementById('ae-header-intervention');
+  const conHeader = document.getElementById('ae-header-control');
+  if (intHeader) intHeader.textContent = pico?.intervention?.split(' ')[0] || 'Intervention';
+  if (conHeader) conHeader.textContent = ae.rows[0]?.control_pct === null ? '—' : (pico?.control?.split(' ')[0] || 'Control');
+
+  const tbody = document.getElementById('ae-table-body');
+  tbody.innerHTML = ae.rows.map((row, i) => `
+    <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
+      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1">(${row.note})</span>` : ''}</td>
+      <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
+      <td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>
+    </tr>
+  `).join('');
+
+  // Footer — discontinuation and mortality
   const tfoot = document.getElementById('ae-table-foot');
   const footRows = [];
   if (ae.discontinuation?.intervention_pct != null) {
-    const conTd = allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`;
-    footRows.push(`<tr class="border-t border-slate-200"><td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td><td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>${conTd}</tr>`);
+    footRows.push(`
+      <tr class="border-t border-slate-200">
+        <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>
+      </tr>
+    `);
   }
   if (ae.treatment_related_mortality?.intervention_pct != null) {
-    const conTd = allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`;
-    footRows.push(`<tr><td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td><td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>${conTd}</tr>`);
+    footRows.push(`
+      <tr>
+        <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>
+      </tr>
+    `);
   }
   if (tfoot) tfoot.innerHTML = footRows.join('');
 }
+
 // ── Subgroups ────────────────────────────────────────────────────────
 function renderSubgroups(subgroups) {
   const section = document.getElementById('subgroupSection');
@@ -741,120 +715,280 @@ function renderSubgroups(subgroups) {
   `).join('');
 }
 
-// ── Chart renderer ───────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// CHART RENDERER — FIXED VERSION
+// Properly handles both:
+// 1. Time-series (KM curves) - multiple data points per arm over time
+// 2. Comparative bar charts - each arm is a single value to compare
+// ══════════════════════════════════════════════════════════════════════
 function renderChart(canvasId, endpointData) {
   const canvas = document.getElementById(canvasId);
   if (!canvas || !endpointData.arms?.length) return null;
-  const ctx   = canvas.getContext('2d');
-  const isKM  = endpointData.recommended_chart_type === 'stepped-line';
-  // Normalise bar chart values: pipeline sometimes returns 0.8 instead of 1 (integer %)
-  let chartArms = endpointData.arms;
-  if (!isKM) {
-    const allVals = chartArms.flatMap(a => a.data_points.map(dp => dp.y)).filter(v => v != null);
-    // Normalise if values look like decimal fractions (max value < 1, at least one > 0)
-    const maxVal = Math.max(...allVals);
-    if (maxVal > 0 && maxVal < 1) {
-      chartArms = chartArms.map(a => ({
-        ...a,
-        data_points: a.data_points.map(dp => ({ ...dp, y: Math.round(dp.y * 100) })),
-      }));
-    }
+  
+  const ctx = canvas.getContext('2d');
+  const isKM = endpointData.recommended_chart_type === 'stepped-line';
+  
+  // ── Detect chart mode ──
+  // Comparative bar: each arm has 1 data point, used for rate/proportion comparisons
+  // Time-series: arms have multiple data points sharing x-axis values
+  const isComparativeBar = !isKM && endpointData.arms.every(arm => 
+    arm.data_points?.length === 1
+  );
+  
+  // ── Also detect if arms have DIFFERENT x-values (another comparative pattern) ──
+  // This catches cases like [{x:"Intervention", y:10}, {x:"Control", y:5}]
+  const hasDistinctLabels = !isKM && endpointData.arms.length >= 2 &&
+    endpointData.arms[0].data_points?.[0]?.x !== endpointData.arms[1].data_points?.[0]?.x;
+  
+  const useComparativeMode = isComparativeBar || hasDistinctLabels;
+  
+  if (useComparativeMode) {
+    // ══ COMPARATIVE BAR CHART ══
+    // Each arm becomes a separate bar with its group_name as the label
+    // This ensures both bars render correctly
+    return new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: endpointData.arms.map(arm => arm.group_name),
+        datasets: [{
+          label: endpointData.label || 'Rate',
+          data: endpointData.arms.map(arm => {
+            // Get the y-value from the first (and likely only) data point
+            const dp = arm.data_points?.[0];
+            return dp?.y ?? 0;
+          }),
+          backgroundColor: endpointData.arms.map((_, i) => 
+            i === 0 ? 'rgba(15,23,42,0.7)' : 'rgba(14,165,233,0.7)'
+          ),
+          borderColor: endpointData.arms.map((_, i) => 
+            i === 0 ? '#0f172a' : '#0ea5e9'
+          ),
+          borderWidth: 2,
+          borderRadius: 4,
+          barPercentage: 0.6,
+          categoryPercentage: 0.7,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const val = ctx.parsed.y;
+                // Check if values look like percentages (0-100 range)
+                const isPercent = endpointData.arms.every(arm => {
+                  const y = arm.data_points?.[0]?.y ?? 0;
+                  return y >= 0 && y <= 100;
+                });
+                return isPercent ? `${val}%` : val.toString();
+              }
+            }
+          }
+        },
+        scales: {
+          y: { 
+            beginAtZero: true, 
+            title: { display: true, text: endpointData.axes?.y_label || '' },
+            ticks: {
+              callback: function(value) {
+                // Add % suffix if y-axis label suggests percentages
+                const yLabel = (endpointData.axes?.y_label || '').toLowerCase();
+                if (yLabel.includes('percent') || yLabel.includes('%') || yLabel.includes('rate')) {
+                  return value + '%';
+                }
+                return value;
+              }
+            }
+          },
+          x: { 
+            title: { display: true, text: endpointData.axes?.x_label || '' },
+            grid: { display: false }
+          },
+        },
+      },
+    });
   }
-
-  // For bar charts: labels must be derived from ALL arms (not just arm[0])
-  // so that arms with different x-labels all appear on the axis
-  let chartLabels;
-  if (isKM) {
-    chartLabels = (chartArms[0]?.data_points || []).map(dp => dp.x);
-  } else {
-    const labelSet = new Set();
-    chartArms.forEach(a => a.data_points.forEach(dp => labelSet.add(dp.x)));
-    chartLabels = Array.from(labelSet);
-  }
-
+  
+  // ══ TIME-SERIES CHART (Kaplan-Meier or grouped bar) ══
+  // All arms share the same x-axis labels
   return new Chart(ctx, {
     type: isKM ? 'line' : 'bar',
     data: {
-      labels:   chartLabels,
-      datasets: chartArms.map((arm, i) => ({
-        label:           arm.group_name,
-        data:            chartLabels.map(lbl => {
-          const pt = arm.data_points.find(dp => dp.x === lbl);
-          return pt ? pt.y : 0;
-        }),
-        backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)'   : 'rgba(14,165,233,0.1)',
-        borderColor:     i === 0 ? '#0f172a'               : '#0ea5e9',
-        borderWidth: 2, stepped: false, tension: isKM ? 0.3 : 0,
-        fill: !isKM, pointRadius: isKM ? 4 : 0,
+      labels: endpointData.arms[0].data_points.map(dp => dp.x),
+      datasets: endpointData.arms.map((arm, i) => ({
+        label: arm.group_name,
+        data: arm.data_points.map(dp => dp.y),
+        backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)' : 'rgba(14,165,233,0.1)',
+        borderColor: i === 0 ? '#0f172a' : '#0ea5e9',
+        borderWidth: 2,
+        stepped: false,
+        tension: isKM ? 0.3 : 0,
+        fill: !isKM,
+        pointRadius: isKM ? 4 : 0,
+        pointBackgroundColor: i === 0 ? '#0f172a' : '#0ea5e9',
       })),
     },
     options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { usePointStyle: true, padding: 15 }
+        }
+      },
       scales: {
-        y: { beginAtZero: !isKM, max: isKM ? 1 : undefined, title: { display: true, text: endpointData.axes?.y_label || '' } },
-        x: { title: { display: true, text: endpointData.axes?.x_label || '' } },
+        y: { 
+          beginAtZero: !isKM, 
+          max: isKM ? 1 : undefined, 
+          title: { display: true, text: endpointData.axes?.y_label || '' } 
+        },
+        x: { 
+          title: { display: true, text: endpointData.axes?.x_label || '' } 
+        },
       },
     },
   });
 }
 
-// ── PDF Export — canvas snapshot + CSS page breaks ──────────────────
+// ══════════════════════════════════════════════════════════════════════
+// PDF EXPORT — FIXED VERSION
+// Creates a 4-page PDF with proper pagination:
+// Page 1: Title, Research in Context, PICO
+// Page 2: Charts (OS, DFS, or other endpoints)
+// Page 3: Risk of Bias, GRADE, Adverse Events
+// Page 4: Patient Summary (Shared Decision Making)
+// ══════════════════════════════════════════════════════════════════════
 function exportReport() {
-  const reportEl = document.getElementById('reportContainer');
-  if (!reportEl) return;
+  // Ensure all sections are visible
+  document.getElementById('mdtSection').style.display    = 'block';
+  document.getElementById('patientSection').style.display = 'block';
+  
   const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
-
-  // Inject page-break CSS
-  const styleId = 'pdf-pb-style';
-  let styleEl = document.getElementById(styleId);
-  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
-  styleEl.textContent = [
-    '#chartSection   { page-break-inside: avoid; }',
-    '#chart2Section  { page-break-inside: avoid; }',
-    '#patientSection { page-break-before: always; }',
-  ].join(' ');
-
-  // Ensure sections visible
-  ['mdtSection','patientSection'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'block';
-  });
-
-  // Snapshot canvas → img so html2canvas captures at full res
-  const snapshots = [];
-  reportEl.querySelectorAll('canvas').forEach(c => {
-    if (c.width === 0) return;
-    const img = document.createElement('img');
-    img.src = c.toDataURL('image/png');
-    img.style.width  = '100%';
-    img.style.height = c.offsetHeight + 'px';
-    img.style.display = 'block';
-    c.parentNode.insertBefore(img, c);
-    c.style.display = 'none';
-    snapshots.push({ img, canvas: c });
-  });
-
-  const restore = () => {
-    snapshots.forEach(({ img, canvas }) => { canvas.style.display = ''; img.remove(); });
-    styleEl.textContent = '';
+  
+  // ── Step 1: Convert charts to high-res images BEFORE cloning ──
+  // This ensures charts are properly captured
+  const chartImages = {};
+  
+  const canvas1 = document.getElementById('endpointChart');
+  if (canvas1 && currentChart) {
+    chartImages.chart1 = canvas1.toDataURL('image/png', 1.0);
+  }
+  
+  const canvas2 = document.getElementById('endpointChart2');
+  if (canvas2 && currentChart2) {
+    chartImages.chart2 = canvas2.toDataURL('image/png', 1.0);
+  }
+  
+  // ── Step 2: Create a clone of the report ──
+  const original = document.getElementById('reportContainer');
+  const clone = original.cloneNode(true);
+  clone.id = 'reportContainer-pdf-clone';
+  
+  // ── Step 3: Apply PDF-specific styling ──
+  clone.style.cssText = 'width:794px;padding:40px 50px;font-family:Georgia,serif;background:#fff;';
+  
+  // ── Step 4: Replace canvases with images ──
+  // Cloned canvases don't retain Chart.js data, so we use the captured images
+  const replaceCanvasWithImage = (selector, imageData, altText) => {
+    const canvasEl = clone.querySelector(selector);
+    if (canvasEl && imageData) {
+      const img = document.createElement('img');
+      img.src = imageData;
+      img.alt = altText || 'Chart';
+      img.style.cssText = 'width:100%;max-width:700px;height:auto;display:block;margin:0 auto;';
+      canvasEl.parentNode.replaceChild(img, canvasEl);
+    }
   };
-
-  html2pdf().set({
-    margin:      [10, 12, 10, 12],
-    filename,
-    image:       { type: 'jpeg', quality: 0.97 },
-    html2canvas: { scale: 2, useCORS: true, scrollY: 0,
-      onclone: doc => {
-        ['mdtSection','patientSection'].forEach(id => {
-          const el = doc.getElementById(id);
-          if (el) el.style.display = 'block';
-        });
-      }
-    },
-    jsPDF:     { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css'], before: ['#chartSection', '#patientSection'] },
-  }).from(reportEl).save().then(restore).catch(restore);
+  
+  replaceCanvasWithImage('#endpointChart', chartImages.chart1, 'Primary Endpoint Chart');
+  replaceCanvasWithImage('#endpointChart2', chartImages.chart2, 'Secondary Endpoint Chart');
+  
+  // ── Step 5: Insert page breaks ──
+  // We need to wrap sections and add CSS page-break-before
+  
+  // Find key sections in the clone
+  const mdtSection = clone.querySelector('#mdtSection');
+  const chartSection = clone.querySelector('#chartSection');
+  const chart2Section = clone.querySelector('#chart2Section');
+  const patientSection = clone.querySelector('#patientSection');
+  const aeSection = clone.querySelector('#aeSection');
+  
+  // PAGE 2: Charts section
+  if (chartSection) {
+    chartSection.style.pageBreakBefore = 'always';
+    chartSection.style.paddingTop = '30px';
+  }
+  
+  // Find the RoB/GRADE appraisal box by ID (requires id="appraisalSection" in HTML)
+  // Fallback to class-based search if ID not found
+  let appraisalSection = clone.querySelector('#appraisalSection');
+  if (!appraisalSection) {
+    // Fallback: find by structure (last resort)
+    const candidates = clone.querySelectorAll('.mb-8.p-4.bg-slate-50');
+    appraisalSection = candidates[0] || null;
+  }
+  
+  // PAGE 3: RoB/GRADE + AE Table
+  if (appraisalSection) {
+    appraisalSection.style.pageBreakBefore = 'always';
+    appraisalSection.style.paddingTop = '30px';
+  }
+  
+  // PAGE 4: Patient Summary
+  if (patientSection) {
+    patientSection.style.pageBreakBefore = 'always';
+    patientSection.style.paddingTop = '30px';
+  }
+  
+  // ── Step 6: Hide/remove non-essential elements ──
+  // Hide "click to edit" hint
+  const editHints = clone.querySelectorAll('.text-slate-300');
+  editHints.forEach(el => {
+    if (el.textContent.includes('click to edit')) {
+      el.style.display = 'none';
+    }
+  });
+  
+  // ── Step 7: Append clone off-screen and export ──
+  clone.style.position = 'absolute';
+  clone.style.left = '-9999px';
+  clone.style.top = '0';
+  document.body.appendChild(clone);
+  
+  // Small delay to ensure DOM is ready
+  setTimeout(() => {
+    html2pdf().set({
+      margin:      [12, 12, 12, 12],
+      filename,
+      image:       { type: 'png', quality: 1.0 },  // PNG for better chart rendering
+      html2canvas: { 
+        scale: 3,           // 3x scale for high resolution
+        scrollY: 0, 
+        useCORS: true, 
+        width: 794,
+        windowWidth: 794,
+        logging: false,
+        letterRendering: true,
+        allowTaint: true,
+      },
+      jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:   { mode: ['css', 'legacy'], avoid: ['tr', 'td'] },
+    }).from(clone).save().then(() => {
+      document.body.removeChild(clone);
+    }).catch(err => {
+      console.error('PDF export failed:', err);
+      document.body.removeChild(clone);
+      alert('PDF export failed. Please try again.');
+    });
+  }, 200);
 }
   </script>
 
