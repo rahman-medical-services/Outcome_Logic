@@ -382,8 +382,8 @@ const LOADING_STAGES = [
   { label: 'Synthesising report…', pct: 80 },
   { label: 'Finalising output…',   pct: 95 },
 ];
-let _stageTimer   = null;
-let _lastPayload  = null;
+let _stageTimer  = null;
+let _lastPayload = null;
 
 function showLoading() {
   document.getElementById('loadingState').classList.remove('hidden');
@@ -676,7 +676,6 @@ function populateDashboard(data) {
 window.populateDashboard = populateDashboard;
 
 // ── Adverse Events Table ─────────────────────────────────────────────
-// ── Adverse Events Table ─────────────────────────────────────────────
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
@@ -702,7 +701,6 @@ function renderAETable(ae, pico) {
     conHeader.classList.toggle('hidden', allNullControl);
   }
 
-  // Note banner
   const noteEl = document.getElementById('ae-note');
   if (noteEl) {
     if (allNullControl) {
@@ -814,7 +812,7 @@ function renderChart(canvasId, endpointData) {
   });
 }
 
-// ── PDF Export — strict 3-page layout ───────────────────────────────
+// ── PDF Export — live DOM with CSS page breaks ───────────────────────
 function exportReport() {
   const reportEl = document.getElementById('reportContainer');
   if (!reportEl) return;
@@ -822,112 +820,70 @@ function exportReport() {
   const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
 
-  // Build a clean print-only clone with explicit page-break structure
-  const clone = document.createElement('div');
-  clone.style.cssText = 'font-family:system-ui,sans-serif;font-size:11px;color:#0f172a;width:174mm;';
-
-  // ── PAGE 1: Header + PICO + Appraisal + AE + Subgroups ──────────────
-  const page1 = document.createElement('div');
-  page1.style.cssText = 'page-break-after:always;';
-
-  // Header block
-  const hdr = reportEl.querySelector('.border-b-2.border-slate-800');
-  if (hdr) page1.appendChild(hdr.cloneNode(true));
-
-  // Context box
-  const ctx = reportEl.querySelector('.bg-blue-50');
-  if (ctx) { const w = ctx.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
-
-  // PICO grid
-  const pico = reportEl.querySelector('.grid.grid-cols-1.md\\:grid-cols-2.gap-4');
-  if (pico) { const w = pico.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
-
-  // Secondary outcomes
-  const secOut = reportEl.querySelector('#ui-sec-out');
-  if (secOut?.closest) {
-    const secWrap = secOut.closest('.mb-4, .mb-6, div');
-    if (secWrap) { const w = secWrap.cloneNode(true); w.style.marginTop='8px'; page1.appendChild(w); }
+  // Inject print-only page-break styles into the report
+  const styleId = 'pdf-pagebreak-style';
+  let styleEl   = document.getElementById(styleId);
+  if (!styleEl) {
+    styleEl    = document.createElement('style');
+    styleEl.id = styleId;
+    document.head.appendChild(styleEl);
   }
+  styleEl.textContent = `
+    #chartSection  { page-break-before: always; }
+    #chart2Section { page-break-before: auto;   }
+    #patientSection { page-break-before: always; }
+  `;
 
-  // Baseline
-  const baseline = reportEl.querySelector('#ui-baseline');
-  if (baseline?.parentElement) {
-    const w = baseline.parentElement.cloneNode(true);
-    w.style.marginTop = '8px';
-    page1.appendChild(w);
-  }
+  // Ensure patient section is visible
+  const patEl = document.getElementById('patientSection');
+  if (patEl) patEl.style.display = 'block';
+  const mdtEl = document.getElementById('mdtSection');
+  if (mdtEl) mdtEl.style.display = 'block';
 
-  // Critical appraisal
-  const appr = reportEl.querySelector('.grid.grid-cols-1.md\\:grid-cols-2.gap-6');
-  if (appr) { const w = appr.cloneNode(true); w.style.cssText='margin-top:12px;padding:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;'; page1.appendChild(w); }
-
-  // AE table
-  const ae = reportEl.querySelector('#aeSection');
-  if (ae && !ae.classList.contains('hidden')) { const w = ae.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
-
-  // Subgroups
-  const sg = reportEl.querySelector('#subgroupSection');
-  if (sg && !sg.classList.contains('hidden')) { const w = sg.cloneNode(true); w.style.marginTop='12px'; page1.appendChild(w); }
-
-  clone.appendChild(page1);
-
-  // ── PAGE 2: Charts ───────────────────────────────────────────────────
-  const page2 = document.createElement('div');
-  page2.style.cssText = 'page-break-after:always;';
-
-  // Replace canvas elements with static images at correct size
-  const chartSections = reportEl.querySelectorAll('#chartSection, #chart2Section');
-  chartSections.forEach(cs => {
-    if (!cs || cs.classList.contains('hidden') || cs.style.display === 'none') return;
-    const csClone = cs.cloneNode(false); // shallow — we'll handle canvas manually
-    csClone.style.cssText = 'margin-bottom:24px;';
-
-    // Copy non-canvas children
-    Array.from(cs.childNodes).forEach(child => {
-      if (child.tagName === 'CANVAS') {
-        const img = document.createElement('img');
-        img.src   = child.toDataURL('image/png');
-        img.style.cssText = 'width:100%;max-height:220px;object-fit:contain;display:block;';
-        csClone.appendChild(img);
-      } else {
-        csClone.appendChild(child.cloneNode(true));
-      }
-    });
-    page2.appendChild(csClone);
+  // Snapshot canvas → img so html2canvas captures them correctly at full resolution
+  const canvasEls = reportEl.querySelectorAll('canvas');
+  const snapshots = [];
+  canvasEls.forEach(c => {
+    const img       = document.createElement('img');
+    img.src         = c.toDataURL('image/png');
+    img.style.cssText = c.style.cssText;
+    img.width       = c.offsetWidth  || 500;
+    img.height      = c.offsetHeight || 250;
+    img.className   = c.className;
+    img.dataset.chartSnapshot = 'true';
+    c.parentNode.insertBefore(img, c);
+    c.style.display = 'none';
+    snapshots.push({ img, canvas: c });
   });
 
-  // Fallback: if no chart sections found, grab canvases directly
-  if (page2.children.length === 0) {
-    reportEl.querySelectorAll('canvas').forEach(c => {
-      const img = document.createElement('img');
-      img.src   = c.toDataURL('image/png');
-      img.style.cssText = 'width:100%;max-height:260px;object-fit:contain;display:block;margin-bottom:20px;';
-      page2.appendChild(img);
-    });
-  }
-
-  if (page2.children.length > 0) clone.appendChild(page2);
-
-  // ── PAGE 3: Patient summary ──────────────────────────────────────────
-  const page3 = document.createElement('div');
-  const pat = reportEl.querySelector('#patientSection');
-  if (pat) page3.appendChild(pat.cloneNode(true));
-  if (page3.children.length > 0) clone.appendChild(page3);
-
-  // Render
-  document.body.appendChild(clone);
-
   html2pdf().set({
-    margin:      [12, 12, 12, 12],
+    margin:      [10, 12, 10, 12],
     filename,
     image:       { type: 'jpeg', quality: 0.97 },
-    html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+    html2canvas: { scale: 2, useCORS: true, scrollY: 0,
+                   onclone: (doc) => {
+                     // Make sure all sections visible in the clone
+                     ['mdtSection','patientSection'].forEach(id => {
+                       const el = doc.getElementById(id);
+                       if (el) el.style.display = 'block';
+                     });
+                   }
+                 },
     jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['css'] },
-  }).from(clone).save().then(() => {
-    document.body.removeChild(clone);
+    pagebreak:   { mode: ['css'], before: ['#chartSection', '#patientSection'] },
+  }).from(reportEl).save().then(() => {
+    // Restore canvases
+    snapshots.forEach(({ img, canvas }) => {
+      canvas.style.display = '';
+      img.remove();
+    });
+    styleEl.textContent = '';
   }).catch(() => {
-    document.body.removeChild(clone);
+    snapshots.forEach(({ img, canvas }) => {
+      canvas.style.display = '';
+      img.remove();
+    });
+    styleEl.textContent = '';
   });
 }
   </script>
