@@ -168,9 +168,7 @@
     <div class="w-full text-center space-y-2">
       <p id="loading-stage" class="text-sm font-semibold text-slate-700">Retrieving source…</p>
       <div class="w-full bg-slate-200 rounded-full h-2.5">
-        <div id="loading-progress-bar"
-             class="bg-slate-900 h-2.5 rounded-full transition-all duration-700 ease-in-out"
-             style="width:0%"></div>
+        <div id="loading-progress-bar" class="bg-slate-900 h-2.5 rounded-full transition-all duration-700 ease-in-out" style="width:0%"></div>
       </div>
       <p id="loading-pct" class="text-xs font-mono text-slate-500">0%</p>
       <p class="text-xs text-slate-400">3-Node Consensus Pipeline</p>
@@ -185,14 +183,8 @@
     <p class="text-sm font-semibold text-red-800">Analysis failed</p>
     <p id="errorMessage" class="text-xs text-red-600 leading-relaxed whitespace-pre-line"></p>
     <div class="flex gap-2 justify-center pt-1">
-      <button id="retryBtn"
-        class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-slate-700 transition">
-        Retry with Pro model
-      </button>
-      <button onclick="hideError()"
-        class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded text-sm hover:bg-slate-50 transition">
-        Dismiss
-      </button>
+      <button id="retryBtn" class="bg-slate-900 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-slate-700 transition">Retry with Pro model</button>
+      <button onclick="hideError()" class="bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded text-sm hover:bg-slate-50 transition">Dismiss</button>
     </div>
     <p class="text-[10px] text-red-400">Pro model uses Gemini 2.5 Pro with enhanced extraction</p>
   </div>
@@ -343,6 +335,8 @@
           </div>
         </div>
       </div>
+      <!-- close data-tab-panel=analyse -->
+      </div>
 
       <!-- ── LIBRARY TAB ── -->
       <div data-tab-panel="library" class="hidden">
@@ -419,10 +413,7 @@ function showError(message, payload) {
   if (retryBtn) {
     if (payload) {
       retryBtn.classList.remove('hidden');
-      retryBtn.onclick = () => {
-        panel.classList.add('hidden');
-        executeEngine({ ...payload, isEscalation: true });
-      };
+      retryBtn.onclick = () => { panel.classList.add('hidden'); executeEngine({ ...payload, isEscalation: true }); };
     } else {
       retryBtn.classList.add('hidden');
     }
@@ -563,11 +554,8 @@ async function executeEngine(payload) {
   } catch (err) {
     const alreadyEscalated = !!payload.isEscalation;
     let msg = err.message;
-    if (!alreadyEscalated) {
-      msg += '\n\nRetry using Gemini 2.5 Pro — this may succeed where the standard pipeline failed.';
-    } else {
-      msg += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
-    }
+    if (!alreadyEscalated) msg += '\n\nRetry using Gemini 2.5 Pro — this may succeed where the standard pipeline failed.';
+    else msg += '\n\nThe Pro model also failed. Please check the source is accessible and try again later.';
     showError(msg, alreadyEscalated ? null : payload);
   } finally {
     hideLoading();
@@ -628,125 +616,46 @@ function populateDashboard(data) {
   document.getElementById('ui-rob-rationale').innerText = ca.risk_of_bias_rationale || '';
   document.getElementById('ui-limitations').innerText   = ca.limitations            || '';
 
-  // ── Adverse Events Table ──
-  renderAETable(view.adverse_events, view.pico);
-
-  // ── Subgroups ──
-  renderSubgroups(view.subgroups);
-
-  // ── Charts ──
-  if (currentChart)  { currentChart.destroy();  currentChart  = null; }
-  if (currentChart2) { currentChart2.destroy(); currentChart2 = null; }
-
-  const endpoints    = view.interactive_data?.endpoints || [];
-  const chartSection = document.getElementById('chartSection');
-  const chart2Section = document.getElementById('chart2Section');
-
-  if (endpoints.length > 0) {
-    chartSection.style.display = 'block';
-    const ep1 = endpoints[0];
-    document.getElementById('chartTitle').innerText   = ep1.label;
-    document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis;
-    currentChart = renderChart('endpointChart', ep1);
-  } else {
-    chartSection.style.display = 'none';
-  }
-
-  if (endpoints.length > 1) {
-    chart2Section.classList.remove('hidden');
-    const ep2 = endpoints[1];
-    document.getElementById('chartTitle2').innerText   = ep2.label;
-    document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis;
-    currentChart2 = renderChart('endpointChart2', ep2);
-  } else {
-    if (chart2Section) chart2Section.classList.add('hidden');
-  }
-
-  // ── Patient view ──
-  document.getElementById('ui-lay').innerText = data.patient_view.lay_summary;
-  document.getElementById('ui-sdm').innerText = data.patient_view.shared_decision_making_takeaway;
-
-  document.getElementById('reportContainer').classList.remove('hidden');
-  document.getElementById('exportBar').classList.remove('hidden');
-  document.getElementById('mdtSection').style.display    = 'block';
-  document.getElementById('patientSection').style.display = 'block';
-}
-
-// Expose for library load
-window.populateDashboard = populateDashboard;
-
-// ── Adverse Events Table ─────────────────────────────────────────────
+  // ── Adverse Events Table ─────────────────────────────────────────────
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
-
-  if (!ae?.has_data || !ae.rows?.length) {
-    section.classList.add('hidden');
-    return;
-  }
-
+  if (!ae?.has_data || !ae.rows?.length) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
 
-  const allNullControl = ae._control_not_applicable ||
-                         ae.rows.every(r => r.control_pct === null);
-
+  const allNullControl = ae._control_not_applicable || ae.rows.every(r => r.control_pct === null);
   const intName = pico?.intervention?.split(' ').slice(0,3).join(' ') || 'Intervention';
   const conName = pico?.control?.split(' ').slice(0,3).join(' ')      || 'Control';
 
   const intHeader = document.getElementById('ae-header-intervention');
   const conHeader = document.getElementById('ae-header-control');
   if (intHeader) intHeader.textContent = intName;
-  if (conHeader) {
-    conHeader.textContent = conName;
-    conHeader.classList.toggle('hidden', allNullControl);
-  }
+  if (conHeader) { conHeader.textContent = conName; conHeader.classList.toggle('hidden', allNullControl); }
 
   const noteEl = document.getElementById('ae-note');
   if (noteEl) {
-    if (allNullControl) {
-      noteEl.textContent = 'These adverse events are specific to the intervention arm and are not applicable to the control arm.';
-      noteEl.classList.remove('hidden');
-    } else {
-      noteEl.classList.add('hidden');
-    }
+    if (allNullControl) { noteEl.textContent = 'These adverse events are specific to the intervention arm and are not applicable to the control arm.'; noteEl.classList.remove('hidden'); }
+    else noteEl.classList.add('hidden');
   }
 
   const tbody = document.getElementById('ae-table-body');
   tbody.innerHTML = ae.rows.map((row, i) => {
-    const conCell = allNullControl ? '' :
-      `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
-    return `
-      <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
-        <td class="p-2 text-slate-700">
-          ${row.event}
-          ${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}
-        </td>
-        <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
-        ${conCell}
-      </tr>`;
+    const conCell = allNullControl ? '' : `<td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>`;
+    return `<tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
+      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1 italic">(${row.note})</span>` : ''}</td>
+      <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
+      ${conCell}</tr>`;
   }).join('');
 
   const tfoot = document.getElementById('ae-table-foot');
   const footRows = [];
   if (ae.discontinuation?.intervention_pct != null) {
-    const conTd = allNullControl ? '' :
-      `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`;
-    footRows.push(`
-      <tr class="border-t border-slate-200">
-        <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
-        ${conTd}
-      </tr>`);
+    const conTd = allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>`;
+    footRows.push(`<tr class="border-t border-slate-200"><td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td><td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>${conTd}</tr>`);
   }
   if (ae.treatment_related_mortality?.intervention_pct != null) {
-    const conTd = allNullControl ? '' :
-      `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`;
-    footRows.push(`
-      <tr>
-        <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
-        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
-        ${conTd}
-      </tr>`);
+    const conTd = allNullControl ? '' : `<td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>`;
+    footRows.push(`<tr><td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td><td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>${conTd}</tr>`);
   }
   if (tfoot) tfoot.innerHTML = footRows.join('');
 }
@@ -816,75 +725,45 @@ function renderChart(canvasId, endpointData) {
 function exportReport() {
   const reportEl = document.getElementById('reportContainer');
   if (!reportEl) return;
-
   const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
   const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
 
-  // Inject print-only page-break styles into the report
   const styleId = 'pdf-pagebreak-style';
-  let styleEl   = document.getElementById(styleId);
-  if (!styleEl) {
-    styleEl    = document.createElement('style');
-    styleEl.id = styleId;
-    document.head.appendChild(styleEl);
-  }
-  styleEl.textContent = `
-    #chartSection  { page-break-before: always; }
-    #chart2Section { page-break-before: auto;   }
-    #patientSection { page-break-before: always; }
-  `;
+  let styleEl = document.getElementById(styleId);
+  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
+  styleEl.textContent = '#chartSection { page-break-before: always; } #chart2Section { page-break-before: auto; } #patientSection { page-break-before: always; }';
 
-  // Ensure patient section is visible
   const patEl = document.getElementById('patientSection');
   if (patEl) patEl.style.display = 'block';
   const mdtEl = document.getElementById('mdtSection');
   if (mdtEl) mdtEl.style.display = 'block';
 
-  // Snapshot canvas → img so html2canvas captures them correctly at full resolution
   const canvasEls = reportEl.querySelectorAll('canvas');
   const snapshots = [];
   canvasEls.forEach(c => {
-    const img       = document.createElement('img');
-    img.src         = c.toDataURL('image/png');
+    const img = document.createElement('img');
+    img.src = c.toDataURL('image/png');
     img.style.cssText = c.style.cssText;
-    img.width       = c.offsetWidth  || 500;
-    img.height      = c.offsetHeight || 250;
-    img.className   = c.className;
-    img.dataset.chartSnapshot = 'true';
+    img.width = c.offsetWidth || 500;
+    img.height = c.offsetHeight || 250;
+    img.className = c.className;
     c.parentNode.insertBefore(img, c);
     c.style.display = 'none';
     snapshots.push({ img, canvas: c });
   });
 
+  const restore = () => { snapshots.forEach(({ img, canvas }) => { canvas.style.display = ''; img.remove(); }); styleEl.textContent = ''; };
+
   html2pdf().set({
-    margin:      [10, 12, 10, 12],
+    margin: [10, 12, 10, 12],
     filename,
-    image:       { type: 'jpeg', quality: 0.97 },
+    image: { type: 'jpeg', quality: 0.97 },
     html2canvas: { scale: 2, useCORS: true, scrollY: 0,
-                   onclone: (doc) => {
-                     // Make sure all sections visible in the clone
-                     ['mdtSection','patientSection'].forEach(id => {
-                       const el = doc.getElementById(id);
-                       if (el) el.style.display = 'block';
-                     });
-                   }
-                 },
-    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['css'], before: ['#chartSection', '#patientSection'] },
-  }).from(reportEl).save().then(() => {
-    // Restore canvases
-    snapshots.forEach(({ img, canvas }) => {
-      canvas.style.display = '';
-      img.remove();
-    });
-    styleEl.textContent = '';
-  }).catch(() => {
-    snapshots.forEach(({ img, canvas }) => {
-      canvas.style.display = '';
-      img.remove();
-    });
-    styleEl.textContent = '';
-  });
+      onclone: (doc) => { ['mdtSection','patientSection'].forEach(id => { const el = doc.getElementById(id); if (el) el.style.display = 'block'; }); }
+    },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css'], before: ['#chartSection', '#patientSection'] },
+  }).from(reportEl).save().then(restore).catch(restore);
 }
   </script>
 

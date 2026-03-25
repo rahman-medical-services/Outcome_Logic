@@ -200,6 +200,7 @@ export function trialCardHtml(trial, options = {}) {
         </div>
       </div>
 
+      <!-- OUTCOMELOGIC-FIX-v5: spurious div removed -->
       <!-- Action buttons — visible on hover -->
       <div class="flex gap-2 px-4 pb-4 pt-0 border-t border-slate-100
                   opacity-0 group-hover:opacity-100 transition-opacity">
