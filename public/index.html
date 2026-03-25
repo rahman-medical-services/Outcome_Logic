@@ -747,11 +747,25 @@ function renderChart(canvasId, endpointData) {
   if (!canvas || !endpointData.arms?.length) return null;
   const ctx   = canvas.getContext('2d');
   const isKM  = endpointData.recommended_chart_type === 'stepped-line';
+  // Normalise bar chart values: pipeline sometimes returns 0.8 instead of 1 (integer %)
+  // Detect by checking if all y values are < 1 for a bar chart
+  let chartArms = endpointData.arms;
+  if (!isKM) {
+    const allVals = chartArms.flatMap(a => a.data_points.map(dp => dp.y)).filter(v => v != null);
+    const allDecimal = allVals.length > 0 && allVals.every(v => v > 0 && v < 1);
+    if (allDecimal) {
+      chartArms = chartArms.map(a => ({
+        ...a,
+        data_points: a.data_points.map(dp => ({ ...dp, y: Math.round(dp.y * 100) })),
+      }));
+    }
+  }
+
   return new Chart(ctx, {
     type: isKM ? 'line' : 'bar',
     data: {
-      labels:   endpointData.arms[0].data_points.map(dp => dp.x),
-      datasets: endpointData.arms.map((arm, i) => ({
+      labels:   chartArms[0].data_points.map(dp => dp.x),
+      datasets: chartArms.map((arm, i) => ({
         label:           arm.group_name,
         data:            arm.data_points.map(dp => dp.y),
         backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)'   : 'rgba(14,165,233,0.1)',
@@ -782,10 +796,9 @@ function exportReport() {
   let styleEl = document.getElementById(styleId);
   if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
   styleEl.textContent = [
-    '#chartSection  { page-break-before: always; page-break-inside: avoid; }',
-    '#chart2Section { page-break-inside: avoid; }',
+    '#chartSection   { page-break-before: always; page-break-inside: avoid; }',
+    '#chart2Section  { page-break-inside: avoid; }',
     '#patientSection { page-break-before: always; }',
-    '.mb-8 { page-break-inside: avoid; }',
   ].join(' ');
 
   // Ensure sections visible
