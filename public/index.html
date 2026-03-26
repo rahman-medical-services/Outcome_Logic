@@ -1265,13 +1265,12 @@ function renderChart(canvasId, endpointData) {
       
       console.log('renderChart BAR: raw values:', values);
       
-      // Determine if values are proportions (0-1) or percentages (0-100) or already formatted
+      // Determine if values need conversion
       let yLabel = endpointData.axes?.y_label || 'Percentage (%)';
       const maxVal = Math.max(...values);
-      const minVal = Math.min(...values);
       
       if (forceBarChart) {
-        // Converting from KM survival data
+        // Converting from KM survival data (proportions 0-1)
         const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
         if (avgValue > 0.5) {
           // Convert survival to event rate (1 - survival) and to percentage
@@ -1284,12 +1283,9 @@ function renderChart(canvasId, endpointData) {
           console.log('renderChart: Converted proportion to percentage:', values);
         }
         // else: already in percentage form
-      } else if (maxVal <= 1 && maxVal > 0) {
-        // Standard bar data in proportion form (0-1), convert to percentage
-        values = values.map(v => v * 100);
-        console.log('renderChart: Standard bar - converted to percentage:', values);
       }
-      // else: already in percentage form (values > 1)
+      // For standard bar charts (isBarChart), pipeline returns percentages directly
+      // e.g., 3.7 means 3.7%, 0.8 means 0.8% - DO NOT CONVERT
       
       console.log('renderChart BAR: final values:', values, 'yLabel:', yLabel);
       
