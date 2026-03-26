@@ -945,6 +945,8 @@ function populateDashboard(data) {
   const chartSection  = document.getElementById('chartSection');
   const chart2Section = document.getElementById('chart2Section');
 
+  console.log('[Dashboard] Endpoints received:', endpoints.length, endpoints.map(e => e.label));
+
   // ALWAYS clear chart2 content first to prevent stale data
   document.getElementById('chartTitle2').innerText   = '';
   document.getElementById('ui-synthesis2').innerText = '';
@@ -966,25 +968,21 @@ function populateDashboard(data) {
     chartSection.style.display = 'none';
   }
 
-  // Only show chart2 if there's a valid second endpoint WITH data
+  // Show chart2 if there's a second endpoint
   if (endpoints.length > 1) {
     const ep2 = endpoints[1];
-    // Validate that ep2 has actual data before rendering
-    const hasValidData = ep2?.arms?.some(arm => arm.data_points?.length > 0);
+    console.log('[Dashboard] Chart 2 data:', ep2.label, ep2.arms?.length, 'arms');
     
-    if (hasValidData) {
-      document.getElementById('chartTitle2').innerText   = ep2.label || '';
-      document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis || '';
-      currentChart2 = renderChart('endpointChart2', ep2);
-      
-      // Only show if chart actually rendered
-      if (currentChart2) {
-        chart2Section.classList.remove('hidden');
-      } else {
-        console.warn('Chart 2 failed to render despite having data');
-      }
+    document.getElementById('chartTitle2').innerText   = ep2.label || '';
+    document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis || '';
+    currentChart2 = renderChart('endpointChart2', ep2);
+    
+    // Show if chart rendered successfully
+    if (currentChart2) {
+      chart2Section.classList.remove('hidden');
+      console.log('[Dashboard] Chart 2 displayed');
     } else {
-      console.log('Chart 2 skipped: no valid data points');
+      console.warn('Chart 2 failed to render');
     }
   }
 
@@ -1176,7 +1174,7 @@ function renderChart(canvasId, endpointData) {
     }
     
     const ctx = canvas.getContext('2d');
-    const isKM = endpointData.recommended_chart_type === 'stepped-line';
+    let isKM = endpointData.recommended_chart_type === 'stepped-line';
     
     // ── Detect chart mode ──
     // Bar chart (comparative): NOT a KM curve, typically each arm has 1-2 data points
@@ -1184,12 +1182,45 @@ function renderChart(canvasId, endpointData) {
     const isBarChart = !isKM && endpointData.recommended_chart_type === 'bar';
     const isSinglePointPerArm = endpointData.arms.every(arm => (arm.data_points?.length || 0) <= 1);
     
-    // Use comparative bar mode for: explicit bar type OR single data point per arm (not KM)
-    const useComparativeBar = isBarChart || (!isKM && isSinglePointPerArm);
+    // Smart override: If KM is recommended but data suggests bar chart is better
+    // Cases: very flat curves (all values > 0.9 or < 0.1), minimal difference between arms
+    let forceBarChart = false;
+    if (isKM && !isSinglePointPerArm) {
+      const allPoints = endpointData.arms.flatMap(arm => 
+        (arm.data_points || []).map(p => p.y)
+      );
+      
+      if (allPoints.length > 0) {
+        const minY = Math.min(...allPoints);
+        const maxY = Math.max(...allPoints);
+        const range = maxY - minY;
+        
+        // If all values clustered at top (> 0.85) or bottom (< 0.15) with small range
+        // This indicates a flat curve that's better shown as comparative bars
+        const isFlat = (minY > 0.85 || maxY < 0.15) && range < 0.1;
+        
+        // Also check if difference between arms at final time point is small
+        const finalPoints = endpointData.arms.map(arm => {
+          const pts = arm.data_points || [];
+          return pts.length > 0 ? pts[pts.length - 1].y : null;
+        }).filter(v => v !== null);
+        
+        const armDiff = finalPoints.length >= 2 ? 
+          Math.abs(finalPoints[0] - finalPoints[1]) : 0;
+        
+        if (isFlat && armDiff < 0.05) {
+          forceBarChart = true;
+          console.log('renderChart: Overriding KM to bar chart (flat curve, small arm difference)');
+        }
+      }
+    }
+    
+    // Use comparative bar mode for: explicit bar type OR single data point per arm OR forced override
+    const useComparativeBar = isBarChart || (!isKM && isSinglePointPerArm) || forceBarChart;
     
     console.log('renderChart:', canvasId, {
       type: endpointData.recommended_chart_type,
-      isKM, isBarChart, isSinglePointPerArm, useComparativeBar,
+      isKM, isBarChart, isSinglePointPerArm, forceBarChart, useComparativeBar,
       arms: endpointData.arms.map(a => ({ name: a.group_name, points: a.data_points?.length }))
     });
     
@@ -1197,7 +1228,35 @@ function renderChart(canvasId, endpointData) {
       // ══ COMPARATIVE BAR CHART ══
       // Each arm = one bar, group_name = x-axis label
       const labels = endpointData.arms.map(arm => arm.group_name || 'Unknown');
-      const values = endpointData.arms.map(arm => arm.data_points?.[0]?.y ?? 0);
+      
+      // For forced bar charts from KM data, use the LAST data point (final outcome)
+      // Otherwise use the first (standard bar chart data)
+      let values = endpointData.arms.map(arm => {
+        const pts = arm.data_points || [];
+        if (forceBarChart && pts.length > 1) {
+          // Use last point for forced bar from KM
+          return pts[pts.length - 1]?.y ?? 0;
+        }
+        return pts[0]?.y ?? 0;
+      });
+      
+      // If forced from KM and values are survival (> 0.5), convert to event rate
+      // This makes the comparison more intuitive (showing death rate, not survival)
+      let yLabel = endpointData.axes?.y_label || 'Percentage (%)';
+      let showAsPercent = true;
+      
+      if (forceBarChart) {
+        const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
+        if (avgValue > 0.5) {
+          // Convert survival to event rate (1 - survival)
+          values = values.map(v => (1 - v) * 100);
+          yLabel = 'Event Rate (%)';
+          console.log('renderChart: Converted survival to event rate:', values);
+        } else {
+          // Already event rate or proportion, convert to percentage
+          values = values.map(v => v * 100);
+        }
+      }
       
       // Color palette for multiple arms
       const colors = [
@@ -1233,7 +1292,7 @@ function renderChart(canvasId, endpointData) {
               callbacks: {
                 label: (context) => {
                   const val = context.parsed.y;
-                  return val <= 100 ? `${val}%` : val.toString();
+                  return val.toFixed(1) + '%';
                 }
               }
             }
@@ -1241,9 +1300,9 @@ function renderChart(canvasId, endpointData) {
           scales: {
             y: { 
               beginAtZero: true,
-              title: { display: true, text: endpointData.axes?.y_label || 'Percentage (%)' },
+              title: { display: true, text: yLabel },
               ticks: {
-                callback: (value) => value + '%'
+                callback: (value) => value.toFixed(1) + '%'
               }
             },
             x: { 
