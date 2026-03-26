@@ -97,52 +97,66 @@
         margin-bottom: 10pt !important;
       }
       
-      /* Force all chart children to stack vertically */
-      #chartSection > * {
-        display: block !important;
-        width: 100% !important;
+      /* Keep title + chart together - prevent orphaned headers */
+      #chartTitle, #chartTitle2 {
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+      
+      /* First chart wrapper - title + canvas + synthesis */
+      #chartSection > h2:first-of-type,
+      #chartSection > .relative:first-of-type,
+      #chartSection > #ui-synthesis {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
       
       /* Chart containers */
       #chartSection .h-72,
       #chartSection .relative {
-        height: 200pt !important;
+        height: 220pt !important;
         page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
       
       #chart2Section {
         display: block !important;
-        margin-top: 20pt !important;
+        margin-top: 25pt !important;
         page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
       
       #chart2Section .h-72 {
-        height: 200pt !important;
+        height: 220pt !important;
       }
       
       /* Chart titles */
       #chartTitle, #chartTitle2,
       #chartSection h2, #chart2Section h2 {
-        font-size: 11pt !important;
+        font-size: 12pt !important;
+        font-weight: bold !important;
         border-bottom-width: 1px !important;
         padding-bottom: 4pt !important;
-        margin-bottom: 8pt !important;
+        margin-bottom: 10pt !important;
       }
       
-      /* Canvas elements */
+      /* Canvas elements - high quality print */
       #reportContainer canvas {
         max-width: 100% !important;
         height: 100% !important;
         page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
       }
       
       /* Synthesis text */
       #ui-synthesis, #ui-synthesis2 {
-        font-size: 8pt !important;
+        font-size: 9pt !important;
         font-style: italic !important;
         text-align: center !important;
-        margin-top: 6pt !important;
-        margin-bottom: 10pt !important;
+        margin-top: 8pt !important;
+        margin-bottom: 12pt !important;
       }
       
       /* === ROB/GRADE BOX === */
@@ -987,6 +1001,7 @@ function renderChart(canvasId, endpointData) {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
+          devicePixelRatio: 3, // Higher resolution for print
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -1059,19 +1074,23 @@ function renderChart(canvasId, endpointData) {
           data: (arm.data_points || []).map(dp => dp.y),
           backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)' : 'rgba(14,165,233,0.1)',
           borderColor: i === 0 ? '#0f172a' : '#0ea5e9',
-          borderWidth: 2,
-          // KM curves: use stepped line (no bezier overshoot)
-          stepped: isKM ? 'before' : false,
-          tension: 0, // No bezier curves - prevents overshoot at endpoints
-          fill: !isKM,
-          pointRadius: isKM ? 3 : 0,
+          borderWidth: 2.5,
+          // For interval data: straight lines between points (not stepped)
+          // Stepped only makes sense for event-level data with actual event times
+          stepped: false,
+          tension: 0, // Straight lines, no bezier curves
+          fill: false, // No fill for cleaner KM appearance
+          pointRadius: isKM ? 4 : 0,
           pointBackgroundColor: i === 0 ? '#0f172a' : '#0ea5e9',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1,
         })),
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        devicePixelRatio: 3, // Higher resolution for print
         plugins: {
           legend: {
             display: true,
