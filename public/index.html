@@ -88,7 +88,14 @@
       }
       
       /* === CHARTS — PAGE 2, STACKED === */
-      #chartSection {
+      /* Only show chart section if it has the 'chart-visible' class */
+      #chartSection:not(.chart-visible) {
+        display: none !important;
+        page-break-before: auto !important;
+        break-before: auto !important;
+      }
+      
+      #chartSection.chart-visible {
         page-break-before: always !important;
         break-before: page !important;
         display: block !important;
@@ -113,7 +120,11 @@
         break-inside: avoid !important;
       }
       
-      #chart2Section {
+      #chart2Section.hidden {
+        display: none !important;
+      }
+      
+      #chart2Section:not(.hidden) {
         display: block !important;
         margin-top: 25pt !important;
       }
@@ -947,42 +958,48 @@ function populateDashboard(data) {
 
   console.log('[Dashboard] Endpoints received:', endpoints.length, endpoints.map(e => e.label));
 
-  // ALWAYS clear chart2 content first to prevent stale data
+  // ALWAYS clear ALL chart content first to prevent stale data from previous analyses
+  document.getElementById('chartTitle').innerText    = '';
+  document.getElementById('ui-synthesis').innerText  = '';
   document.getElementById('chartTitle2').innerText   = '';
   document.getElementById('ui-synthesis2').innerText = '';
+  chartSection.classList.remove('chart-visible');
+  chartSection.style.display = 'none';
   chart2Section.classList.add('hidden');
 
   if (endpoints.length > 0) {
-    chartSection.style.display = 'block';
     const ep1 = endpoints[0];
-    document.getElementById('chartTitle').innerText   = ep1.label || '';
-    document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis || '';
+    console.log('[Dashboard] Chart 1 attempting:', ep1.label, ep1.recommended_chart_type);
+    
     currentChart = renderChart('endpointChart', ep1);
     
-    // If chart failed to render, hide the section
-    if (!currentChart) {
-      console.warn('Chart 1 failed to render');
-      chartSection.style.display = 'none';
+    // Only show section and set title/synthesis if chart rendered successfully
+    if (currentChart) {
+      chartSection.classList.add('chart-visible');
+      chartSection.style.display = 'block';
+      document.getElementById('chartTitle').innerText   = ep1.label || '';
+      document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis || '';
+      console.log('[Dashboard] Chart 1 displayed:', ep1.label);
+    } else {
+      console.warn('[Dashboard] Chart 1 failed to render:', ep1.label);
     }
-  } else {
-    chartSection.style.display = 'none';
   }
 
   // Show chart2 if there's a second endpoint
   if (endpoints.length > 1) {
     const ep2 = endpoints[1];
-    console.log('[Dashboard] Chart 2 data:', ep2.label, ep2.arms?.length, 'arms');
+    console.log('[Dashboard] Chart 2 attempting:', ep2.label, ep2.recommended_chart_type);
     
-    document.getElementById('chartTitle2').innerText   = ep2.label || '';
-    document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis || '';
     currentChart2 = renderChart('endpointChart2', ep2);
     
-    // Show if chart rendered successfully
+    // Only show if chart rendered successfully
     if (currentChart2) {
+      document.getElementById('chartTitle2').innerText   = ep2.label || '';
+      document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis || '';
       chart2Section.classList.remove('hidden');
-      console.log('[Dashboard] Chart 2 displayed');
+      console.log('[Dashboard] Chart 2 displayed:', ep2.label);
     } else {
-      console.warn('Chart 2 failed to render');
+      console.warn('[Dashboard] Chart 2 failed to render:', ep2.label);
     }
   }
 
@@ -1156,6 +1173,9 @@ function renderSubgroups(subgroups) {
 // ══════════════════════════════════════════════════════════════════════
 function renderChart(canvasId, endpointData) {
   try {
+    // Debug: Log raw endpoint data
+    console.log('renderChart RAW:', canvasId, JSON.stringify(endpointData, null, 2).slice(0, 500));
+    
     const canvas = document.getElementById(canvasId);
     if (!canvas) {
       console.warn('renderChart: Canvas not found:', canvasId);
@@ -1169,7 +1189,8 @@ function renderChart(canvasId, endpointData) {
     // Validate that at least one arm has data points
     const hasValidData = endpointData.arms.some(arm => arm.data_points?.length > 0);
     if (!hasValidData) {
-      console.warn('renderChart: No valid data points for:', canvasId);
+      console.warn('renderChart: No valid data points for:', canvasId, 
+        'arms:', endpointData.arms.map(a => ({ name: a.group_name, pts: a.data_points })));
       return null;
     }
     
@@ -1233,6 +1254,8 @@ function renderChart(canvasId, endpointData) {
       // Otherwise use the first (standard bar chart data)
       let values = endpointData.arms.map(arm => {
         const pts = arm.data_points || [];
+        if (pts.length === 0) return 0;
+        
         if (forceBarChart && pts.length > 1) {
           // Use last point for forced bar from KM
           return pts[pts.length - 1]?.y ?? 0;
@@ -1240,23 +1263,35 @@ function renderChart(canvasId, endpointData) {
         return pts[0]?.y ?? 0;
       });
       
-      // If forced from KM and values are survival (> 0.5), convert to event rate
-      // This makes the comparison more intuitive (showing death rate, not survival)
+      console.log('renderChart BAR: raw values:', values);
+      
+      // Determine if values are proportions (0-1) or percentages (0-100) or already formatted
       let yLabel = endpointData.axes?.y_label || 'Percentage (%)';
-      let showAsPercent = true;
+      const maxVal = Math.max(...values);
+      const minVal = Math.min(...values);
       
       if (forceBarChart) {
+        // Converting from KM survival data
         const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
         if (avgValue > 0.5) {
-          // Convert survival to event rate (1 - survival)
+          // Convert survival to event rate (1 - survival) and to percentage
           values = values.map(v => (1 - v) * 100);
           yLabel = 'Event Rate (%)';
           console.log('renderChart: Converted survival to event rate:', values);
-        } else {
-          // Already event rate or proportion, convert to percentage
+        } else if (maxVal <= 1) {
+          // Already event rate as proportion, convert to percentage
           values = values.map(v => v * 100);
+          console.log('renderChart: Converted proportion to percentage:', values);
         }
+        // else: already in percentage form
+      } else if (maxVal <= 1 && maxVal > 0) {
+        // Standard bar data in proportion form (0-1), convert to percentage
+        values = values.map(v => v * 100);
+        console.log('renderChart: Standard bar - converted to percentage:', values);
       }
+      // else: already in percentage form (values > 1)
+      
+      console.log('renderChart BAR: final values:', values, 'yLabel:', yLabel);
       
       // Color palette for multiple arms
       const colors = [
