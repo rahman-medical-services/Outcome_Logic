@@ -97,24 +97,18 @@
         margin-bottom: 10pt !important;
       }
       
-      /* Keep title + chart together - prevent orphaned headers */
-      #chartTitle, #chartTitle2 {
-        page-break-after: avoid !important;
-        break-after: avoid !important;
-      }
-      
-      /* First chart wrapper - title + canvas + synthesis */
-      #chartSection > h2:first-of-type,
-      #chartSection > .relative:first-of-type,
-      #chartSection > #ui-synthesis {
+      /* Chart unit wrapper - keeps title + canvas + synthesis together */
+      .chart-unit {
         page-break-inside: avoid !important;
         break-inside: avoid !important;
+        margin-bottom: 20pt !important;
       }
       
-      /* Chart containers */
+      /* Chart containers - larger for better print resolution */
       #chartSection .h-72,
       #chartSection .relative {
-        height: 220pt !important;
+        height: 240pt !important;
+        min-height: 240pt !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
@@ -122,12 +116,11 @@
       #chart2Section {
         display: block !important;
         margin-top: 25pt !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
       }
       
       #chart2Section .h-72 {
-        height: 220pt !important;
+        height: 240pt !important;
+        min-height: 240pt !important;
       }
       
       /* Chart titles */
@@ -138,16 +131,17 @@
         border-bottom-width: 1px !important;
         padding-bottom: 4pt !important;
         margin-bottom: 10pt !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
       }
       
       /* Canvas elements - high quality print */
       #reportContainer canvas {
         max-width: 100% !important;
+        width: 100% !important;
         height: 100% !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
-        image-rendering: -webkit-optimize-contrast;
-        image-rendering: crisp-edges;
       }
       
       /* Synthesis text */
@@ -156,7 +150,7 @@
         font-style: italic !important;
         text-align: center !important;
         margin-top: 8pt !important;
-        margin-bottom: 12pt !important;
+        margin-bottom: 0 !important;
       }
       
       /* === ROB/GRADE BOX === */
@@ -394,6 +388,20 @@
         <span id="stage-dot-3" class="w-2 h-2 rounded-full bg-slate-300"></span>
       </div>
       <p class="text-xs text-slate-400 font-mono">3-Node Consensus Pipeline</p>
+      
+      <!-- Retry status (hidden by default) -->
+      <div id="retry-status" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+        <p class="text-amber-700 text-sm font-medium">
+          <span id="retry-message">AI service busy. Retrying...</span>
+        </p>
+        <p class="text-amber-600 text-xs mt-1">
+          Attempt <span id="retry-attempt">1</span> of 3 — waiting <span id="retry-countdown">30</span>s
+        </p>
+        <button id="retry-cancel-btn" 
+          class="mt-2 px-3 py-1 text-xs bg-amber-100 text-amber-800 rounded hover:bg-amber-200 transition">
+          Cancel
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -465,20 +473,23 @@
               </div>
 
               <div id="chartSection" class="mb-8">
-                <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
-<div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
-  <canvas id="endpointChart"></canvas>
-</div>
-<p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+                <!-- Chart 1 wrapper - keeps title+canvas+synthesis together -->
+                <div class="chart-unit">
+                  <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
+                  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
+                    <canvas id="endpointChart"></canvas>
+                  </div>
+                  <p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+                </div>
 
-<!-- Second chart (conditional) -->
-<div id="chart2Section" class="hidden mt-8">
-  <h2 id="chartTitle2" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4"></h2>
-  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
-    <canvas id="endpointChart2"></canvas>
-  </div>
-  <p id="ui-synthesis2" class="text-slate-700 text-sm mt-4 text-center italic"></p>
-</div>
+                <!-- Chart 2 wrapper (conditional) -->
+                <div id="chart2Section" class="hidden mt-8 chart-unit">
+                  <h2 id="chartTitle2" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4"></h2>
+                  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
+                    <canvas id="endpointChart2"></canvas>
+                  </div>
+                  <p id="ui-synthesis2" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+                </div>
               </div>
 
               <!-- FIXED: Added id="appraisalSection" for PDF page break targeting -->
@@ -715,30 +726,154 @@ async function analyzePdf() {
   executeEngine({ inputPayload: base64, isPdf: true });
 }
 
+// ── Retry State ──────────────────────────────────────────────────────
+let retryCancelled = false;
+
+function showRetryStatus(attempt, maxAttempts, waitSeconds) {
+  const retryStatus = document.getElementById('retry-status');
+  const retryAttempt = document.getElementById('retry-attempt');
+  const retryCountdown = document.getElementById('retry-countdown');
+  const cancelBtn = document.getElementById('retry-cancel-btn');
+  
+  retryStatus.classList.remove('hidden');
+  retryAttempt.textContent = attempt;
+  retryCountdown.textContent = waitSeconds;
+  
+  // Setup cancel button
+  cancelBtn.onclick = () => {
+    retryCancelled = true;
+    hideRetryStatus();
+  };
+  
+  // Countdown timer
+  let remaining = waitSeconds;
+  const countdownInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0 || retryCancelled) {
+      clearInterval(countdownInterval);
+    } else {
+      retryCountdown.textContent = remaining;
+    }
+  }, 1000);
+  
+  return countdownInterval;
+}
+
+function hideRetryStatus() {
+  document.getElementById('retry-status')?.classList.add('hidden');
+}
+
+// Sleep function that can be cancelled
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Check if error is retryable (rate limit / overload)
+function isRetryableError(errorMsg) {
+  const msg = (errorMsg || '').toLowerCase();
+  return msg.includes('rate') || 
+         msg.includes('quota') || 
+         msg.includes('busy') || 
+         msg.includes('overload') || 
+         msg.includes('resource exhausted') ||
+         msg.includes('503') ||
+         msg.includes('temporarily');
+}
+
 // ── Core Engine ─────────────────────────────────────────────────────
 async function executeEngine(payload) {
   document.getElementById('searchResults').classList.add('hidden');
   showLoading();
   document.getElementById('reportContainer').classList.add('hidden');
   document.getElementById('exportBar').classList.add('hidden');
-  try {
-    const res  = await fetch(`${API_BASE_URL}/analyze`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-token': INTERNAL_API_TOKEN },
-      body:    JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (res.status === 429) throw new Error('Rate limit exceeded. Try again tomorrow.');
-      throw new Error(data.error || data.details || 'Server failed to process request.');
+  
+  const MAX_RETRIES = 3;
+  const BASE_WAIT = 30; // seconds
+  let attempt = 0;
+  retryCancelled = false;
+  
+  while (attempt < MAX_RETRIES) {
+    attempt++;
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-token': INTERNAL_API_TOKEN },
+        body: JSON.stringify(payload),
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        // Check for rate limit at API level
+        if (res.status === 429) {
+          throw new Error('Daily analysis limit reached. Please try again tomorrow.');
+        }
+        
+        // Check for retryable Gemini errors
+        const errorMsg = data.error || data.details || '';
+        if (isRetryableError(errorMsg) && attempt < MAX_RETRIES) {
+          throw { retryable: true, message: errorMsg };
+        }
+        
+        throw new Error(errorMsg || 'Server failed to process request.');
+      }
+      
+      // Success!
+      hideRetryStatus();
+      window._lastAnalysis = data;
+      populateDashboard(data);
+      return; // Exit the retry loop
+      
+    } catch (err) {
+      hideRetryStatus();
+      
+      // Check if user cancelled
+      if (retryCancelled) {
+        hideLoading();
+        return;
+      }
+      
+      // Check if retryable
+      if (err.retryable && attempt < MAX_RETRIES) {
+        const waitTime = BASE_WAIT * attempt; // 30s, 60s, 90s
+        console.log(`[Engine] Retry ${attempt}/${MAX_RETRIES} in ${waitTime}s...`);
+        
+        showRetryStatus(attempt, MAX_RETRIES, waitTime);
+        
+        // Wait with countdown
+        await sleep(waitTime * 1000);
+        
+        // Check if cancelled during wait
+        if (retryCancelled) {
+          hideRetryStatus();
+          hideLoading();
+          return;
+        }
+        
+        hideRetryStatus();
+        continue; // Try again
+      }
+      
+      // Non-retryable error or max retries reached
+      hideLoading();
+      
+      const msg = err.message || err.retryable ? 'Service unavailable after multiple attempts.' : String(err);
+      
+      if (msg.includes('limit') && msg.includes('Daily')) {
+        alert('🚫 ' + msg);
+      } else if (isRetryableError(msg)) {
+        alert('⏳ AI service is busy. Please try again in a few minutes.');
+      } else {
+        alert('❌ Analysis Error: ' + msg);
+      }
+      return;
     }
-    window._lastAnalysis = data;
-    populateDashboard(data);
-  } catch (err) {
-    alert('Analysis Error: ' + err.message);
-  } finally {
-    hideLoading();
   }
+  
+  // Should not reach here, but just in case
+  hideLoading();
+  alert('❌ Analysis failed after multiple attempts. Please try again later.');
 }
 
 // ── Dashboard Population ─────────────────────────────────────────────
@@ -802,31 +937,55 @@ function populateDashboard(data) {
   renderSubgroups(view.subgroups);
 
   // ── Charts ──
+  // Destroy any existing charts
   if (currentChart)  { currentChart.destroy();  currentChart  = null; }
   if (currentChart2) { currentChart2.destroy(); currentChart2 = null; }
 
-  const endpoints    = view.interactive_data?.endpoints || [];
-  const chartSection = document.getElementById('chartSection');
+  const endpoints     = view.interactive_data?.endpoints || [];
+  const chartSection  = document.getElementById('chartSection');
   const chart2Section = document.getElementById('chart2Section');
+
+  // ALWAYS clear chart2 content first to prevent stale data
+  document.getElementById('chartTitle2').innerText   = '';
+  document.getElementById('ui-synthesis2').innerText = '';
+  chart2Section.classList.add('hidden');
 
   if (endpoints.length > 0) {
     chartSection.style.display = 'block';
     const ep1 = endpoints[0];
-    document.getElementById('chartTitle').innerText   = ep1.label;
-    document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis;
+    document.getElementById('chartTitle').innerText   = ep1.label || '';
+    document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis || '';
     currentChart = renderChart('endpointChart', ep1);
+    
+    // If chart failed to render, hide the section
+    if (!currentChart) {
+      console.warn('Chart 1 failed to render');
+      chartSection.style.display = 'none';
+    }
   } else {
     chartSection.style.display = 'none';
   }
 
+  // Only show chart2 if there's a valid second endpoint WITH data
   if (endpoints.length > 1) {
-    chart2Section.classList.remove('hidden');
     const ep2 = endpoints[1];
-    document.getElementById('chartTitle2').innerText   = ep2.label;
-    document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis;
-    currentChart2 = renderChart('endpointChart2', ep2);
-  } else {
-    if (chart2Section) chart2Section.classList.add('hidden');
+    // Validate that ep2 has actual data before rendering
+    const hasValidData = ep2?.arms?.some(arm => arm.data_points?.length > 0);
+    
+    if (hasValidData) {
+      document.getElementById('chartTitle2').innerText   = ep2.label || '';
+      document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis || '';
+      currentChart2 = renderChart('endpointChart2', ep2);
+      
+      // Only show if chart actually rendered
+      if (currentChart2) {
+        chart2Section.classList.remove('hidden');
+      } else {
+        console.warn('Chart 2 failed to render despite having data');
+      }
+    } else {
+      console.log('Chart 2 skipped: no valid data points');
+    }
   }
 
   // ── Patient view ──
@@ -843,6 +1002,69 @@ function populateDashboard(data) {
 window.populateDashboard = populateDashboard;
 
 // ── Adverse Events Table ─────────────────────────────────────────────
+
+// Extract a meaningful short name from PICO intervention/control text
+function extractArmName(picoText, fallback = 'Arm') {
+  if (!picoText) return fallback;
+  
+  const text = picoText.trim();
+  
+  // Common patterns to extract drug/treatment names
+  // Pattern 1: "Drug Name (dose)" or "Drug Name dose"
+  // Pattern 2: "Perioperative chemotherapy..." -> "Chemotherapy"
+  // Pattern 3: "Surgery alone" -> "Surgery"
+  // Pattern 4: "Matching placebo" or "Placebo" -> "Placebo"
+  
+  const lowerText = text.toLowerCase();
+  
+  // Check for placebo first
+  if (lowerText.includes('placebo')) return 'Placebo';
+  
+  // Check for surgery
+  if (lowerText.includes('surgery alone')) return 'Surgery';
+  if (lowerText.startsWith('surgery')) return 'Surgery';
+  
+  // Check for common drug names (add more as needed)
+  const drugPatterns = [
+    /tranexamic\s*acid/i,
+    /chemotherapy/i,
+    /cisplatin/i,
+    /fluorouracil/i,
+    /nivolumab/i,
+    /pembrolizumab/i,
+    /docetaxel/i,
+    /paclitaxel/i,
+    /oxaliplatin/i,
+    /irinotecan/i,
+    /bevacizumab/i,
+    /trastuzumab/i,
+    /cetuximab/i,
+  ];
+  
+  for (const pattern of drugPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      // Capitalize first letter of each word
+      return match[0].split(/\s+/).map(w => 
+        w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+      ).join(' ');
+    }
+  }
+  
+  // Fallback: take first 2-3 meaningful words (skip doses like "1g", "100mg")
+  const words = text.split(/\s+/).filter(w => 
+    w.length > 2 && !/^\d+\s*(mg|g|ml|mcg|iu)/i.test(w)
+  );
+  
+  if (words.length >= 2) {
+    return words.slice(0, 2).join(' ');
+  } else if (words.length === 1) {
+    return words[0];
+  }
+  
+  return fallback;
+}
+
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
@@ -854,11 +1076,14 @@ function renderAETable(ae, pico) {
 
   section.classList.remove('hidden');
 
-  // Set column headers from PICO arm names
+  // Set column headers from PICO arm names (with smart extraction)
   const intHeader = document.getElementById('ae-header-intervention');
   const conHeader = document.getElementById('ae-header-control');
-  if (intHeader) intHeader.textContent = pico?.intervention?.split(' ')[0] || 'Intervention';
-  if (conHeader) conHeader.textContent = ae.rows[0]?.control_pct === null ? '—' : (pico?.control?.split(' ')[0] || 'Control');
+  if (intHeader) intHeader.textContent = extractArmName(pico?.intervention, 'Intervention');
+  if (conHeader) {
+    const hasControlData = ae.rows.some(r => r.control_pct != null);
+    conHeader.textContent = hasControlData ? extractArmName(pico?.control, 'Control') : '—';
+  }
 
   const tbody = document.getElementById('ae-table-body');
   tbody.innerHTML = ae.rows.map((row, i) => `
@@ -1001,7 +1226,7 @@ function renderChart(canvasId, endpointData) {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
-          devicePixelRatio: 3, // Higher resolution for print
+          devicePixelRatio: 4, // Higher resolution for print
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -1090,7 +1315,7 @@ function renderChart(canvasId, endpointData) {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        devicePixelRatio: 3, // Higher resolution for print
+        devicePixelRatio: 4, // Higher resolution for print
         plugins: {
           legend: {
             display: true,
