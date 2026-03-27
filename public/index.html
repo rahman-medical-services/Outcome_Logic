@@ -22,11 +22,16 @@
       body * { visibility: hidden; }
       #reportContainer, #reportContainer * { visibility: visible; }
       
+<<<<<<< Updated upstream
       /* Position report at top */
       #reportContainer {
         position: absolute;
         left: 0;
         top: 0;
+=======
+      /* Report container */
+      #reportContainer {
+>>>>>>> Stashed changes
         width: 100%;
         background: white !important;
         box-shadow: none !important;
@@ -228,6 +233,22 @@
       .text-green-800 { color: #166534 !important; }
       .text-yellow-800 { color: #854d0e !important; }
       .text-red-800 { color: #991b1b !important; }
+<<<<<<< Updated upstream
+=======
+
+      /* === EVIDENCE CONTEXT === */
+      #expertContextSection { page-break-inside: avoid !important; break-inside: avoid !important; margin-top: 10pt !important; margin-bottom: 8pt !important; }
+      #expertContextSection h3 { font-size: 9pt !important; margin-bottom: 4pt !important; }
+      #expert-synthesis { font-size: 8pt !important; line-height: 1.35 !important; margin-bottom: 6pt !important; }
+      #expert-items > div { padding: 3pt 5pt !important; margin-bottom: 3pt !important; }
+      #expert-items .text-xs { font-size: 7pt !important; }
+      #expert-items a { color: #334155 !important; text-decoration: none !important; }
+      #expertContextSection > p:last-child, #expert-recency-note, #expert-not-found-note { display: none !important; }
+      .bg-amber-100 { background: #fef3c7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-teal-100  { background: #ccfbf1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-purple-100 { background: #f3e8ff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-blue-100  { background: #dbeafe !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+>>>>>>> Stashed changes
     }
   </style>
 
@@ -526,6 +547,21 @@
                 </div>
               </div>
             </div>
+<<<<<<< Updated upstream
+=======
+<!-- Evidence Context (Node 4) -->
+<div id="expertContextSection" class="mb-8 hidden">
+  <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
+    Evidence Context
+    <span id="expert-context-refresh-ts" class="text-[10px] font-normal text-slate-400 ml-2"></span>
+  </h3>
+  <p id="expert-synthesis" class="text-sm text-slate-700 leading-relaxed mb-4 hidden"></p>
+  <div id="expert-items" class="space-y-2"></div>
+  <p id="expert-recency-note" class="text-xs text-slate-400 mt-2 hidden">This trial was published recently — citation data may not yet be fully indexed.</p>
+  <p id="expert-not-found-note" class="text-xs text-slate-400 mt-2 hidden">No post-publication commentary indexed yet.</p>
+</div>
+
+>>>>>>> Stashed changes
 <!-- Adverse Events Table -->
 <div id="aeSection" class="mb-8 hidden">
   <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
@@ -592,7 +628,7 @@
 // ==========================================
 
 // ── Config ──────────────────────────────────────────────────────────
-const API_BASE_URL       = window.ENV?.API_BASE_URL       || 'https://outcome-logic.vercel.app/api';
+const API_BASE_URL       = window.ENV?.API_BASE_URL       || '/api';
 const INTERNAL_API_TOKEN = window.ENV?.INTERNAL_API_TOKEN || 'surgeon-secure-key-99';
 
 let currentChart  = null;
@@ -942,6 +978,7 @@ function populateDashboard(data) {
   document.getElementById('ui-limitations').innerText   = ca.limitations            || '';
 
   // ── Adverse Events Table ──
+  renderExpertContext(view.expert_context);
   renderAETable(view.adverse_events, view.pico);
 
   // ── Subgroups ──
@@ -1080,6 +1117,67 @@ function extractArmName(picoText, fallback = 'Arm') {
   return fallback;
 }
 
+<<<<<<< Updated upstream
+=======
+function renderExpertContext(expertContext) {
+  const section    = document.getElementById('expertContextSection');
+  const synthesis  = document.getElementById('expert-synthesis');
+  const recencyNote   = document.getElementById('expert-recency-note');
+  const notFoundNote  = document.getElementById('expert-not-found-note');
+  const itemsEl    = document.getElementById('expert-items');
+  const refreshTs  = document.getElementById('expert-context-refresh-ts');
+  if (!section) return;
+
+  if (!expertContext || expertContext.status === 'pmid_unresolved' || expertContext.status === 'error') {
+    section.classList.add('hidden'); return;
+  }
+  section.classList.remove('hidden');
+
+  if (refreshTs && expertContext.expert_context_refreshed_at) {
+    const d = new Date(expertContext.expert_context_refreshed_at);
+    refreshTs.textContent = `· Last refreshed ${d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}`;
+  }
+
+  if (expertContext.status === 'not_found') {
+    synthesis.classList.add('hidden');
+    itemsEl.innerHTML = '';
+    if (expertContext.recency_note) { recencyNote.classList.remove('hidden'); notFoundNote.classList.add('hidden'); }
+    else { notFoundNote.classList.remove('hidden'); recencyNote.classList.add('hidden'); }
+    return;
+  }
+
+  notFoundNote.classList.add('hidden');
+  recencyNote.classList.add('hidden');
+  if (expertContext.synthesis) { synthesis.textContent = expertContext.synthesis; synthesis.classList.remove('hidden'); }
+  else { synthesis.classList.add('hidden'); }
+
+  const TYPE_BADGE = {
+    critique: 'bg-amber-100 text-amber-800', supporting_commentary: 'bg-teal-100 text-teal-800',
+    meta_analysis: 'bg-purple-100 text-purple-800', related_trial: 'bg-blue-100 text-blue-800',
+    guideline_citation: 'bg-green-100 text-green-800', reanalysis: 'bg-orange-100 text-orange-800',
+    other: 'bg-slate-100 text-slate-600',
+  };
+  const TYPE_LABEL = {
+    critique: 'Critique', supporting_commentary: 'Commentary', meta_analysis: 'Meta-analysis',
+    related_trial: 'Related trial', guideline_citation: 'Guideline', reanalysis: 'Reanalysis', other: 'Other',
+  };
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  itemsEl.innerHTML = (expertContext.items||[]).slice(0,3).map(item => {
+    const badge = TYPE_BADGE[item.type] || TYPE_BADGE.other;
+    const label = TYPE_LABEL[item.type] || 'Other';
+    const url   = item.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/` : '#';
+    return `<div class="flex items-start gap-3 p-3 bg-slate-50 rounded border border-slate-100">
+      <span class="text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 mt-0.5 ${badge}">${label}</span>
+      <div class="min-w-0">
+        <a href="${esc(url)}" target="_blank" class="text-xs font-medium text-slate-800 hover:text-blue-600 hover:underline leading-snug block">${esc(item.title)}</a>
+        <p class="text-xs text-slate-500 mt-0.5">${esc(item.authors)} · ${esc(item.journal)} ${esc(item.year)}</p>
+        <p class="text-xs text-slate-600 mt-1">${esc(item.summary)}</p>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+>>>>>>> Stashed changes
 function renderAETable(ae, pico) {
   const section = document.getElementById('aeSection');
   if (!section) return;
