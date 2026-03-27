@@ -12,11 +12,171 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  <!-- html2pdf -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
   <!-- Supabase JS client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Print Styles for PDF Export -->
+  <style>
+    @media print {
+      /* === COLLAPSE EVERYTHING — display:none removes layout height, preventing blank pages === */
+      #auth-modal-root,
+      #app-shell > header,
+      #app-shell > footer,
+      footer,
+      #ui-controls,
+      #loadingState,
+      #exportBar,
+      [data-tab-panel="library"],
+      #tab-panel-library { display: none !important; }
+
+      /* Strip wrapper padding/margins */
+      body, html { margin: 0 !important; padding: 0 !important; background: white !important; }
+      #app-shell { min-height: 0 !important; background: white !important; }
+      #app-shell > main { padding: 0 !important; }
+      [data-tab-panel="analyse"] { padding: 0 !important; }
+      #outcomelogic-app { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+
+      /* Hide edit hint */
+      #trialTitle + span { display: none !important; }
+
+      /* Report container — let it flow normally, no position:absolute needed */
+      #reportContainer {
+        display: block !important;
+        background: white !important;
+        box-shadow: none !important;
+        border: none !important;
+        padding: 4mm 0 !important;
+        margin: 0 !important;
+      }
+
+      /* === PAGE SETUP === */
+      @page { size: A4; margin: 12mm 15mm; }
+
+      /* === TYPOGRAPHY === */
+      #reportContainer { font-size: 10pt; line-height: 1.4; color: black; }
+      #reportContainer h1, .text-2xl { font-size: 14pt !important; }
+      #reportContainer h2, .text-lg  { font-size: 11pt !important; }
+      #reportContainer h3            { font-size: 10pt !important; }
+      #reportContainer p, #reportContainer li { font-size: 9pt; line-height: 1.35; }
+      #reportContainer .text-sm { font-size: 8pt !important; }
+      #reportContainer .text-xs { font-size: 7pt !important; }
+
+      /* === SPACING === */
+      #reportContainer .mb-8 { margin-bottom: 8pt !important; }
+      #reportContainer .mb-6 { margin-bottom: 6pt !important; }
+      #reportContainer .p-5  { padding: 8pt !important; }
+      #reportContainer .p-4  { padding: 6pt !important; }
+      #reportContainer .gap-8 { gap: 8pt !important; }
+      .border-b-2 { border-bottom-width: 1pt !important; padding-bottom: 6pt !important; margin-bottom: 10pt !important; }
+
+      /* === RESEARCH IN CONTEXT === */
+      .bg-blue-50\/50 {
+        background: #f0f7ff !important;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+
+      /* === PICO GRID === */
+      #mdtSection .grid { gap: 10pt !important; }
+      #mdtSection .bg-slate-50 {
+        background: #f8fafc !important;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        padding: 8pt !important;
+      }
+
+      /* === CHARTS — PAGE 2 === */
+      #chartSection:not(.chart-visible) { display: none !important; }
+      #chartSection.chart-visible {
+        page-break-before: always !important; break-before: page !important;
+        display: block !important;
+        padding-top: 0 !important; margin-top: 0 !important; margin-bottom: 10pt !important;
+      }
+      .chart-unit { page-break-inside: avoid !important; break-inside: avoid !important; margin-bottom: 20pt !important; }
+      #chartSection .h-72, #chartSection .relative {
+        height: 240pt !important; min-height: 240pt !important;
+        page-break-inside: avoid !important; break-inside: avoid !important;
+      }
+      #chart2Section.hidden { display: none !important; }
+      #chart2Section:not(.hidden) { display: block !important; margin-top: 25pt !important; }
+      #chart2Section .h-72 { height: 240pt !important; min-height: 240pt !important; }
+      #chartTitle, #chartTitle2, #chartSection h2, #chart2Section h2 {
+        font-size: 12pt !important; font-weight: bold !important;
+        border-bottom-width: 1px !important; padding-bottom: 4pt !important;
+        margin-bottom: 10pt !important;
+        page-break-after: avoid !important; break-after: avoid !important;
+      }
+      #reportContainer canvas {
+        max-width: 100% !important; width: 100% !important; height: 100% !important;
+        page-break-inside: avoid !important; break-inside: avoid !important;
+      }
+      #ui-synthesis, #ui-synthesis2 {
+        font-size: 9pt !important; font-style: italic !important;
+        text-align: center !important; margin-top: 8pt !important; margin-bottom: 0 !important;
+      }
+      #riskTable1, #riskTable2 { font-size: 7pt !important; }
+
+      /* === ROB/GRADE BOX === */
+      #appraisalSection {
+        page-break-inside: avoid !important; break-inside: avoid !important;
+        margin-top: 12pt !important; padding: 8pt !important;
+        background: #f8fafc !important;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      #appraisalSection .grid { gap: 10pt !important; }
+      #appraisalSection p { font-size: 8pt !important; }
+      #appraisalSection .bg-slate-800, #appraisalSection .bg-slate-300 {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+
+      /* === EVIDENCE CONTEXT === */
+      #expertContextSection {
+        page-break-inside: avoid !important; break-inside: avoid !important;
+        margin-top: 10pt !important; margin-bottom: 8pt !important;
+      }
+      #expertContextSection h3 { font-size: 9pt !important; margin-bottom: 4pt !important; }
+      #expert-synthesis { font-size: 8pt !important; line-height: 1.35 !important; margin-bottom: 6pt !important; }
+      #expert-items > div { padding: 3pt 5pt !important; margin-bottom: 3pt !important; }
+      #expert-items .text-xs { font-size: 7pt !important; }
+      #expert-items a { color: #334155 !important; text-decoration: none !important; }
+      #expertContextSection > p:last-child,
+      #expert-recency-note,
+      #expert-not-found-note { display: none !important; }
+
+      /* === AE TABLE === */
+      #aeSection { page-break-inside: avoid !important; break-inside: avoid !important; margin-top: 10pt !important; }
+      #aeSection table { font-size: 8pt !important; width: 100% !important; }
+      #aeSection th, #aeSection td { padding: 3pt 5pt !important; }
+
+      /* === SUBGROUPS === */
+      #subgroupSection { page-break-inside: avoid !important; break-inside: avoid !important; }
+
+      /* === PATIENT SUMMARY === */
+      #patientSection {
+        page-break-inside: avoid !important; break-inside: avoid !important;
+        margin-top: 12pt !important;
+      }
+      #patientSection .bg-emerald-50 {
+        background: #ecfdf5 !important;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      #patientSection p { font-size: 8pt !important; line-height: 1.3 !important; }
+
+      /* === BADGE COLOURS === */
+      .bg-green-100  { background: #dcfce7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-yellow-100 { background: #fef9c3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-red-100    { background: #fee2e2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-amber-100  { background: #fef3c7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-teal-100   { background: #ccfbf1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-purple-100 { background: #f3e8ff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .bg-blue-100   { background: #dbeafe !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .text-slate-900  { color: #0f172a !important; }
+      .text-slate-700  { color: #334155 !important; }
+      .text-slate-500  { color: #64748b !important; }
+      .text-green-800  { color: #166534 !important; }
+      .text-yellow-800 { color: #854d0e !important; }
+      .text-red-800    { color: #991b1b !important; }
+      .border-slate-200 { border-color: #e2e8f0 !important; }
+    }
+  </style>
 
   <!--
     Environment variables injected at deploy time by Vercel.
@@ -27,7 +187,7 @@
     window.ENV = {
       SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
       SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
-      API_BASE_URL: '/api',
+      API_BASE_URL:      '/api',
       INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
     };
   </script>
@@ -260,6 +420,11 @@
   <canvas id="endpointChart"></canvas>
 </div>
 <p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+<div id="riskTable1" class="hidden mt-3 overflow-x-auto">
+  <table class="w-full text-xs text-slate-500 border-collapse">
+    <tbody id="riskTable1Body"></tbody>
+  </table>
+</div>
 
 <!-- Second chart (conditional) -->
 <div id="chart2Section" class="hidden mt-8">
@@ -268,6 +433,11 @@
     <canvas id="endpointChart2"></canvas>
   </div>
   <p id="ui-synthesis2" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+  <div id="riskTable2" class="hidden mt-3 overflow-x-auto">
+    <table class="w-full text-xs text-slate-500 border-collapse">
+      <tbody id="riskTable2Body"></tbody>
+    </table>
+  </div>
 </div>
               </div>
 
@@ -330,6 +500,8 @@
   <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
     Grade ≥3 Adverse Events
   </h3>
+  <p id="ae-population-note" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+  </p>
   <div class="overflow-x-auto">
     <table class="w-full text-sm border-collapse">
       <thead>
@@ -637,6 +809,7 @@ function populateDashboard(data) {
     document.getElementById('chartTitle').innerText   = ep1.label;
     document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis;
     currentChart = renderChart('endpointChart', ep1);
+    renderRiskTable('riskTable1Body', 'riskTable1', ep1);
   } else {
     chartSection.style.display = 'none';
   }
@@ -647,6 +820,7 @@ function populateDashboard(data) {
     document.getElementById('chartTitle2').innerText   = ep2.label;
     document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis;
     currentChart2 = renderChart('endpointChart2', ep2);
+    renderRiskTable('riskTable2Body', 'riskTable2', ep2);
   } else {
     if (chart2Section) chart2Section.classList.add('hidden');
   }
@@ -675,6 +849,17 @@ function renderAETable(ae, pico) {
   }
 
   section.classList.remove('hidden');
+
+  // Population note — shown for organ-sparing trials
+  const noteEl = document.getElementById('ae-population-note');
+  if (noteEl) {
+    if (ae.ae_population_note) {
+      noteEl.textContent = ae.ae_population_note;
+      noteEl.classList.remove('hidden');
+    } else {
+      noteEl.classList.add('hidden');
+    }
+  }
 
   // Set column headers from PICO arm names
   const intHeader = document.getElementById('ae-header-intervention');
@@ -818,7 +1003,7 @@ function renderExpertContext(expertContext) {
     other:                 'Other',
   };
 
-  itemsEl.innerHTML = (expertContext.items || []).map(item => {
+  itemsEl.innerHTML = (expertContext.items || []).slice(0, 3).map(item => {
     const badgeCls  = TYPE_BADGE[item.type]  || TYPE_BADGE.other;
     const typeLabel = TYPE_LABEL[item.type] || 'Other';
     const pubmedUrl = item.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/` : '#';
@@ -842,60 +1027,262 @@ function renderExpertContext(expertContext) {
   }).join('');
 }
 
-// ── Chart renderer ───────────────────────────────────────────────────
-function renderChart(canvasId, endpointData) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas || !endpointData.arms?.length) return null;
-  const ctx   = canvas.getContext('2d');
-  const isKM  = endpointData.recommended_chart_type === 'stepped-line';
-  return new Chart(ctx, {
-    type: isKM ? 'line' : 'bar',
-    data: {
-      labels:   endpointData.arms[0].data_points.map(dp => dp.x),
-      datasets: endpointData.arms.map((arm, i) => ({
-        label:           arm.group_name,
-        data:            arm.data_points.map(dp => dp.y),
-        backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)'   : 'rgba(14,165,233,0.1)',
-        borderColor:     i === 0 ? '#0f172a'               : '#0ea5e9',
-        borderWidth: 2, stepped: false, tension: isKM ? 0.3 : 0,
-        fill: !isKM, pointRadius: isKM ? 4 : 0,
-      })),
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      scales: {
-        y: { beginAtZero: !isKM, max: isKM ? 1 : undefined, title: { display: true, text: endpointData.axes?.y_label || '' } },
-        x: { title: { display: true, text: endpointData.axes?.x_label || '' } },
-      },
-    },
+// ── Numbers at Risk Table ─────────────────────────────────────────────
+function renderRiskTable(tbodyId, containerId, endpointData) {
+  const container = document.getElementById(containerId);
+  const tbody     = document.getElementById(tbodyId);
+  if (!container || !tbody) return;
+
+  const nar = endpointData.numbers_at_risk;
+  if (!nar?.length) { container.classList.add('hidden'); return; }
+
+  // Build header row: timepoints
+  const times    = nar.map(r => r.time);
+  const armNames = nar[0].arms?.map(a => a.name) || [];
+
+  let html = `<tr><td class="pr-3 font-medium text-slate-600 text-right whitespace-nowrap">Time</td>
+    ${times.map(t => `<td class="px-2 text-center">${t}</td>`).join('')}</tr>`;
+
+  armNames.forEach((name, ai) => {
+    html += `<tr>
+      <td class="pr-3 font-medium text-slate-600 text-right whitespace-nowrap">${name}</td>
+      ${nar.map(r => {
+        const arm = r.arms?.[ai];
+        if (!arm) return '<td class="px-2 text-center">—</td>';
+        const cens = arm.censored != null ? ` <span class="text-slate-300">(${arm.censored})</span>` : '';
+        return `<td class="px-2 text-center">${arm.n}${cens}</td>`;
+      }).join('')}
+    </tr>`;
   });
+
+  tbody.innerHTML = html;
+  container.classList.remove('hidden');
+}
+function renderChart(canvasId, endpointData) {
+  try {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !endpointData.arms?.length) return null;
+    const ctx  = canvas.getContext('2d');
+    const type = endpointData.recommended_chart_type;
+
+    // ── POINT ESTIMATE — survival endpoints ──────────────────────────
+    // Plots text-stated survival percentages with CI error bars.
+    // Single timepoint → grouped bar chart (x = arm names, CI as error bars)
+    // Multiple timepoints → line chart with CI bands
+    if (type === 'point-estimate') {
+      const colors = [
+        { border: '#0f172a', bg: 'rgba(15,23,42,0.75)' },
+        { border: '#0ea5e9', bg: 'rgba(14,165,233,0.75)' },
+      ];
+
+      // Collect all valid data points per arm
+      const armData = endpointData.arms.map((arm, i) => ({
+        name:   arm.group_name || `Arm ${i + 1}`,
+        points: (arm.data_points || []).filter(dp => dp.y != null),
+        color:  colors[i % colors.length],
+      }));
+
+      // Count unique timepoints across all arms
+      const allTimepoints = [...new Set(armData.flatMap(a => a.points.map(p => String(p.x))))];
+
+      // ── SINGLE TIMEPOINT: grouped bar with CI whiskers ──────────────
+      if (allTimepoints.length <= 1) {
+        const label   = allTimepoints[0] || endpointData.axes?.x_label || 'Outcome';
+        const barData = armData.map(a => a.points[0]);
+
+        // Custom CI error bar plugin
+        const errorBarPlugin = {
+          id: 'ciErrorBars',
+          afterDatasetsDraw(chart) {
+            const { ctx: c, scales: { y } } = chart;
+            chart.data.datasets.forEach((ds, di) => {
+              const meta = chart.getDatasetMeta(di);
+              const pt   = meta.data[0];
+              const val  = ds.data[0];
+              const eb   = ds._ci;
+              if (!pt || val == null || !eb) return;
+              c.save();
+              c.strokeStyle = ds.borderColor;
+              c.lineWidth   = 2;
+              if (eb.lower != null) {
+                const yLow = y.getPixelForValue(eb.lower);
+                c.beginPath(); c.moveTo(pt.x, pt.y); c.lineTo(pt.x, yLow);
+                c.moveTo(pt.x - 8, yLow); c.lineTo(pt.x + 8, yLow);
+                c.stroke();
+              }
+              if (eb.upper != null) {
+                const yHigh = y.getPixelForValue(eb.upper);
+                c.beginPath(); c.moveTo(pt.x, pt.y); c.lineTo(pt.x, yHigh);
+                c.moveTo(pt.x - 8, yHigh); c.lineTo(pt.x + 8, yHigh);
+                c.stroke();
+              }
+              c.restore();
+            });
+          },
+        };
+
+        const datasets = armData.map((arm, i) => {
+          const pt = arm.points[0];
+          return {
+            label:           arm.name,
+            data:            [pt?.y ?? null],
+            backgroundColor: arm.color.bg,
+            borderColor:     arm.color.border,
+            borderWidth:     2,
+            borderRadius:    4,
+            _ci: pt ? { lower: pt.ci_lower, upper: pt.ci_upper } : null,
+          };
+        });
+
+        const yMin = Math.max(0, Math.min(...barData.map(p => p?.ci_lower ?? p?.y ?? 100)) - 10);
+
+        return new Chart(ctx, {
+          type: 'bar',
+          plugins: [errorBarPlugin],
+          data: { labels: [label], datasets },
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            devicePixelRatio: 4,
+            plugins: {
+              legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 15 } },
+              tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}%` } },
+            },
+            scales: {
+              y: {
+                beginAtZero: false, min: yMin, max: 100,
+                title: { display: true, text: endpointData.axes?.y_label || 'Survival (%)' },
+                ticks: { callback: v => v + '%' },
+              },
+              x: { title: { display: true, text: 'Treatment Arm' } },
+            },
+          },
+        });
+      }
+
+      // ── MULTIPLE TIMEPOINTS: line chart with CI error bars ──────────
+      const errorBarPlugin = {
+        id: 'errorBars',
+        afterDatasetsDraw(chart) {
+          const { ctx: c, scales: { x, y } } = chart;
+          chart.data.datasets.forEach((dataset, di) => {
+            if (!dataset.errorBars) return;
+            const meta = chart.getDatasetMeta(di);
+            dataset.errorBars.forEach((eb, pi) => {
+              if (!eb || (eb.lower == null && eb.upper == null)) return;
+              const pt = meta.data[pi];
+              if (!pt) return;
+              c.save();
+              c.strokeStyle = dataset.borderColor;
+              c.lineWidth   = 1.5;
+              if (eb.lower != null) {
+                const yLow = y.getPixelForValue(eb.lower);
+                c.beginPath(); c.moveTo(pt.x, pt.y); c.lineTo(pt.x, yLow);
+                c.moveTo(pt.x - 5, yLow); c.lineTo(pt.x + 5, yLow);
+                c.stroke();
+              }
+              if (eb.upper != null) {
+                const yHigh = y.getPixelForValue(eb.upper);
+                c.beginPath(); c.moveTo(pt.x, pt.y); c.lineTo(pt.x, yHigh);
+                c.moveTo(pt.x - 5, yHigh); c.lineTo(pt.x + 5, yHigh);
+                c.stroke();
+              }
+              c.restore();
+            });
+          });
+        },
+      };
+
+      const datasets = armData.map((arm) => ({
+        label:       arm.name,
+        data:        arm.points.map(dp => dp.y),
+        borderColor: arm.color.border,
+        backgroundColor: arm.color.bg,
+        borderWidth: 2,
+        pointRadius: 6,
+        pointBackgroundColor: arm.color.border,
+        pointBorderColor: '#fff', pointBorderWidth: 2,
+        errorBars: arm.points.map(dp => ({
+          lower: dp.ci_lower != null ? dp.y - dp.ci_lower : null,
+          upper: dp.ci_upper != null ? dp.ci_upper - dp.y : null,
+        })),
+        type: 'line', showLine: true, tension: 0,
+      }));
+
+      const labels = armData[0].points.map(dp => dp.x);
+      const allY   = armData.flatMap(a => a.points.flatMap(p => [p.ci_lower ?? p.y, p.y])).filter(v => v != null);
+
+      return new Chart(ctx, {
+        type: 'line',
+        plugins: [errorBarPlugin],
+        data: { labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          devicePixelRatio: 4,
+          plugins: {
+            legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 15 } },
+          },
+          scales: {
+            y: {
+              beginAtZero: false,
+              min: Math.max(0, Math.min(...allY) - 10),
+              max: 100,
+              title: { display: true, text: endpointData.axes?.y_label || 'Survival (%)' },
+              ticks: { callback: v => v + '%' },
+            },
+            x: { title: { display: true, text: endpointData.axes?.x_label || '' } },
+          },
+        },
+      });
+    }
+
+    // ── BAR CHART — rates, proportions, response data ─────────────────
+    const allX = new Set();
+    endpointData.arms.forEach(arm => (arm.data_points || []).forEach(dp => allX.add(String(dp.x))));
+    const xLabels = [...allX];
+
+    const processedArms = endpointData.arms.map(arm => ({
+      ...arm,
+      data_points: xLabels.map(x => {
+        const found = (arm.data_points || []).find(dp => String(dp.x) === x);
+        return { x, y: found ? found.y : null };
+      }),
+    }));
+
+    return new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels:   xLabels,
+        datasets: processedArms.map((arm, i) => ({
+          label:           arm.group_name || `Arm ${i + 1}`,
+          data:            (arm.data_points || []).map(dp => dp.y),
+          backgroundColor: i === 0 ? 'rgba(15,23,42,0.8)'   : 'rgba(14,165,233,0.8)',
+          borderColor:     i === 0 ? '#0f172a'               : '#0ea5e9',
+          borderWidth: 2, borderRadius: 4,
+        })),
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        devicePixelRatio: 4,
+        plugins: {
+          legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 15 } },
+        },
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: endpointData.axes?.y_label || '' } },
+          x: { title: { display: true, text: endpointData.axes?.x_label || '' } },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('renderChart error:', err);
+    return null;
+  }
 }
 
-// ── PDF Export — single unified report ──────────────────────────────
+// ── PDF Export — native print ────────────────────────────────────────
 function exportReport() {
-  // Brief delay to ensure all sections are visible
   document.getElementById('mdtSection').style.display    = 'block';
   document.getElementById('patientSection').style.display = 'block';
-
-  const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
-  const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
-
-  // Fix chart width before export
-  const charts = document.querySelectorAll('canvas');
-  const origWidths = [];
-  charts.forEach((c, i) => { origWidths[i] = c.style.width; c.style.width = '700px'; });
-
-  html2pdf().set({
-    margin:      [10, 10, 10, 10],
-    filename,
-    image:       { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, scrollY: 0, useCORS: true, width: 794 },
-    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] },
-  }).from(document.getElementById('reportContainer')).save().then(() => {
-    // Restore chart widths
-    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
-  });
+  window.print();
 }
   </script>
 
