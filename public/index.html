@@ -12,202 +12,25 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+  <!-- html2pdf -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
   <!-- Supabase JS client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Print Styles for PDF Export -->
-  <style>
-    @media print {
-      /* === HIDE EVERYTHING EXCEPT REPORT === */
-      body * { visibility: hidden; }
-      #reportContainer, #reportContainer * { visibility: visible; }
-      
-      /* Position report at top */
-      #reportContainer {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        background: white !important;
-        box-shadow: none !important;
-        border: none !important;
-      }
-      
-      /* Hide UI elements */
-      #app-shell > header,
-      #ui-controls,
-      #loadingState,
-      #exportBar,
-      footer,
-      #auth-modal-root,
-      [data-tab-panel="library"],
-      .html2pdf__page-break { display: none !important; }
-      
-      /* Hide edit hint */
-      #trialTitle + span { display: none !important; }
-      
-      /* === PAGE SETUP === */
-      @page {
-        size: A4;
-        margin: 12mm 15mm;
-      }
-      
-      /* === TYPOGRAPHY === */
-      #reportContainer { font-size: 10pt; line-height: 1.4; color: black; }
-      #reportContainer h1, .text-2xl { font-size: 14pt !important; }
-      #reportContainer h2, .text-lg { font-size: 11pt !important; }
-      #reportContainer h3 { font-size: 10pt !important; }
-      #reportContainer p, #reportContainer li { font-size: 9pt; line-height: 1.35; }
-      #reportContainer .text-sm { font-size: 8pt !important; }
-      #reportContainer .text-xs { font-size: 7pt !important; }
-      
-      /* === SPACING === */
-      #reportContainer .mb-8 { margin-bottom: 8pt !important; }
-      #reportContainer .mb-6 { margin-bottom: 6pt !important; }
-      #reportContainer .p-5 { padding: 8pt !important; }
-      #reportContainer .p-4 { padding: 6pt !important; }
-      #reportContainer .gap-8 { gap: 8pt !important; }
-      
-      /* === HEADER === */
-      .border-b-2 { border-bottom-width: 1pt !important; padding-bottom: 6pt !important; margin-bottom: 10pt !important; }
-      
-      /* === RESEARCH IN CONTEXT === */
-      .bg-blue-50\/50 {
-        background: #f0f7ff !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      
-      /* === PICO GRID === */
-      #mdtSection .grid { gap: 10pt !important; }
-      #mdtSection .bg-slate-50 {
-        background: #f8fafc !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-        padding: 8pt !important;
-      }
-      
-      /* === CHARTS === */
-      #chartSection:not(.chart-visible) {
-        display: none !important;
-        page-break-before: auto !important;
-        break-before: auto !important;
-      }
-      #chartSection.chart-visible {
-        page-break-before: always !important;
-        break-before: page !important;
-        display: block !important;
-        padding-top: 0 !important;
-        margin-top: 0 !important;
-        margin-bottom: 10pt !important;
-      }
-      .chart-unit {
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-        margin-bottom: 20pt !important;
-      }
-      #chartSection .h-72,
-      #chartSection .relative {
-        height: 240pt !important;
-        min-height: 240pt !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-      }
-      #chart2Section.hidden { display: none !important; }
-      #chart2Section:not(.hidden) {
-        display: block !important;
-        margin-top: 25pt !important;
-      }
-      #chart2Section .h-72 {
-        height: 240pt !important;
-        min-height: 240pt !important;
-      }
-      #chartTitle, #chartTitle2,
-      #chartSection h2, #chart2Section h2 {
-        font-size: 12pt !important;
-        font-weight: bold !important;
-        border-bottom-width: 1px !important;
-        padding-bottom: 4pt !important;
-        margin-bottom: 10pt !important;
-        page-break-after: avoid !important;
-        break-after: avoid !important;
-      }
-      #reportContainer canvas {
-        max-width: 100% !important;
-        width: 100% !important;
-        height: 100% !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-      }
-      #ui-synthesis, #ui-synthesis2 {
-        font-size: 9pt !important;
-        font-style: italic !important;
-        text-align: center !important;
-        margin-top: 8pt !important;
-        margin-bottom: 0 !important;
-      }
-      
-      /* === ROB/GRADE BOX === */
-      #appraisalSection {
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-        margin-top: 12pt !important;
-        padding: 8pt !important;
-        background: #f8fafc !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      #appraisalSection .grid { gap: 10pt !important; }
-      #appraisalSection p { font-size: 8pt !important; }
-      #appraisalSection .bg-slate-800,
-      #appraisalSection .bg-slate-300 {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      
-      /* === AE TABLE === */
-      #aeSection {
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-        margin-top: 10pt !important;
-      }
-      #aeSection table { font-size: 8pt !important; width: 100% !important; }
-      #aeSection th, #aeSection td { padding: 3pt 5pt !important; }
-      
-      /* === PATIENT SUMMARY === */
-      #patientSection {
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-        margin-top: 12pt !important;
-      }
-      #patientSection .bg-emerald-50 {
-        background: #ecfdf5 !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      #patientSection p { font-size: 8pt !important; line-height: 1.3 !important; }
-      
-      /* === COLORS FOR PRINT === */
-      .bg-slate-900, .bg-slate-800 {
-        background: #1e293b !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      .text-slate-900 { color: #0f172a !important; }
-      .text-slate-700 { color: #334155 !important; }
-      .text-slate-500 { color: #64748b !important; }
-      .border-slate-200 { border-color: #e2e8f0 !important; }
-      .bg-green-100 { background: #dcfce7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .bg-yellow-100 { background: #fef9c3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .bg-red-100 { background: #fee2e2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .text-green-800 { color: #166534 !important; }
-      .text-yellow-800 { color: #854d0e !important; }
-      .text-red-800 { color: #991b1b !important; }
-    }
-  </style>
-
-  <!-- Environment config — keys live in env.js, never inline -->
-  <script src="/env.js"></script>
+  <!--
+    Environment variables injected at deploy time by Vercel.
+    SUPABASE_URL and SUPABASE_ANON_KEY are safe to expose in the browser.
+    INTERNAL_API_TOKEN and SERVICE_ROLE_KEY must NEVER appear here.
+  -->
+  <script>
+    window.ENV = {
+      SUPABASE_URL:      'https://qsaxtelxrvfelinafult.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzYXh0ZWx4cnZmZWxpbmFmdWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzY5ODgsImV4cCI6MjA4OTY1Mjk4OH0.KpMIMeZwn033IwWICEpb3Ye89hX5KwvJJmf_ZTEWhYE',
+      API_BASE_URL:      'https://app.rahmanmedical.co.uk/api',
+      INTERNAL_API_TOKEN: 'surgeon-secure-key-99',
+    };
+  </script>
 </head>
 
 <body class="bg-slate-50 text-slate-900 font-sans">
@@ -349,8 +172,6 @@
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
 
 <div id="loadingState" class="hidden mt-6">
   <div class="flex flex-col items-center gap-3">
@@ -363,20 +184,6 @@
         <span id="stage-dot-3" class="w-2 h-2 rounded-full bg-slate-300"></span>
       </div>
       <p class="text-xs text-slate-400 font-mono">3-Node Consensus Pipeline</p>
-
-      <!-- Retry status (hidden by default) -->
-      <div id="retry-status" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-        <p class="text-amber-700 text-sm font-medium">
-          <span id="retry-message">AI service busy. Retrying...</span>
-        </p>
-        <p class="text-amber-600 text-xs mt-1">
-          Attempt <span id="retry-attempt">1</span> of 3 — waiting <span id="retry-countdown">30</span>s
-        </p>
-        <button id="retry-cancel-btn"
-          class="mt-2 px-3 py-1 text-xs bg-amber-100 text-amber-800 rounded hover:bg-amber-200 transition">
-          Cancel
-        </button>
-      </div>
     </div>
   </div>
 </div>
@@ -399,6 +206,7 @@
             class="hidden bg-white rounded-md shadow-sm border border-slate-200 p-4 sm:p-8">
 
             <!-- Header -->
+<!-- Header -->
 <div class="border-b-2 border-slate-800 pb-4 mb-6">
   <div class="flex items-start gap-2">
     <h2 id="trialTitle"
@@ -416,15 +224,15 @@
     <span id="studyDesign" class="text-sm font-mono text-slate-500"></span>
     <span id="reportJournal" class="text-sm text-slate-500 italic"></span>
     <span id="reportYear" class="text-sm text-slate-500"></span>
-    <span id="dataSourceBadge" class="text-xs bg-slate-100 text-slate-500 py-1 px-2 rounded"></span>
-    <a id="pubmedLink"  href="#" target="_blank" class="hidden text-xs bg-blue-50 text-blue-700 border border-blue-200 py-1 px-2 rounded hover:bg-blue-100 transition">PubMed ↗</a>
-    <a id="pmcLink"     href="#" target="_blank" class="hidden text-xs bg-green-50 text-green-700 border border-green-200 py-1 px-2 rounded hover:bg-green-100 transition">Free Full Text ↗</a>
-    <a id="doiLink"     href="#" target="_blank" class="hidden text-xs bg-slate-50 text-slate-600 border border-slate-200 py-1 px-2 rounded hover:bg-slate-100 transition">DOI ↗</a>
-  </div>
-  <div id="extractionWarning" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-    ⚠️ <strong>Source warning:</strong> <span id="extractionWarningText"></span>
-  </div>
-</div>
+                <span id="dataSourceBadge" class="text-xs bg-slate-100 text-slate-500 py-1 px-2 rounded"></span>
+                <a id="pubmedLink"  href="#" target="_blank" class="hidden text-xs bg-blue-50 text-blue-700 border border-blue-200 py-1 px-2 rounded hover:bg-blue-100 transition">PubMed ↗</a>
+                <a id="pmcLink"     href="#" target="_blank" class="hidden text-xs bg-green-50 text-green-700 border border-green-200 py-1 px-2 rounded hover:bg-green-100 transition">Free Full Text ↗</a>
+                <a id="doiLink"     href="#" target="_blank" class="hidden text-xs bg-slate-50 text-slate-600 border border-slate-200 py-1 px-2 rounded hover:bg-slate-100 transition">DOI ↗</a>
+              </div>
+              <div id="extractionWarning" class="hidden mt-3 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                ⚠️ <strong>Source warning:</strong> <span id="extractionWarningText"></span>
+              </div>
+            </div>
 
             <!-- MDT Section -->
             <div id="mdtSection">
@@ -447,26 +255,23 @@
               </div>
 
               <div id="chartSection" class="mb-8">
-                <!-- Chart 1 wrapper -->
-                <div class="chart-unit">
-                  <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
-                  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
-                    <canvas id="endpointChart"></canvas>
-                  </div>
-                  <p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
-                </div>
+                <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
+<div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
+  <canvas id="endpointChart"></canvas>
+</div>
+<p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
 
-                <!-- Chart 2 wrapper (conditional) -->
-                <div id="chart2Section" class="hidden mt-8 chart-unit">
-                  <h2 id="chartTitle2" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4"></h2>
-                  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
-                    <canvas id="endpointChart2"></canvas>
-                  </div>
-                  <p id="ui-synthesis2" class="text-slate-700 text-sm mt-4 text-center italic"></p>
-                </div>
+<!-- Second chart (conditional) -->
+<div id="chart2Section" class="hidden mt-8">
+  <h2 id="chartTitle2" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4"></h2>
+  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
+    <canvas id="endpointChart2"></canvas>
+  </div>
+  <p id="ui-synthesis2" class="text-slate-700 text-sm mt-4 text-center italic"></p>
+</div>
               </div>
 
-              <div id="appraisalSection" class="mb-8 p-4 bg-slate-50 border border-slate-200 rounded text-sm">
+              <div class="mb-8 p-4 bg-slate-50 border border-slate-200 rounded text-sm">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <span class="font-bold text-slate-500 text-xs uppercase block mb-2">Risk of Bias</span>
@@ -488,6 +293,37 @@
                 </div>
               </div>
             </div>
+<!-- Evidence Context (Node 4 — expert commentary & synthesis) -->
+<div id="expertContextSection" class="mb-8 hidden">
+  <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-3">
+    Evidence Context
+  </h3>
+
+  <!-- Synthesis paragraph — shown when status: found and synthesis is non-null -->
+  <p id="expert-synthesis"
+     class="text-sm text-slate-700 leading-relaxed mb-4"></p>
+
+  <!-- Recency note — shown when not_found and trial is very recent -->
+  <p id="expert-recency-note"
+     class="hidden text-sm text-slate-400 italic mb-2">
+    Trial published recently — commentary may not yet be indexed.
+  </p>
+
+  <!-- Not found note — shown when not_found and not recent -->
+  <p id="expert-not-found-note"
+     class="hidden text-sm text-slate-400 italic mb-2">
+    No indexed post-publication commentary identified for this trial.
+  </p>
+
+  <!-- Categorised citation items -->
+  <div id="expert-items" class="space-y-2 mb-3"></div>
+
+  <!-- Provenance note -->
+  <p class="text-[10px] text-slate-300">
+    Commentary retrieved from indexed citations only. Non-indexed responses may not appear.
+    <span id="expert-context-refresh-ts" class="ml-1"></span>
+  </p>
+</div>
 
 <!-- Adverse Events Table -->
 <div id="aeSection" class="mb-8 hidden">
@@ -516,7 +352,6 @@
   </h3>
   <div id="subgroup-content" class="space-y-3 text-sm"></div>
 </div>
-
             <!-- Patient Section -->
             <div id="patientSection" class="border-t-2 border-emerald-500 pt-6 mt-6">
               <h3 class="font-bold text-emerald-800 uppercase tracking-wide mb-4 text-sm">Patient Summary (Shared Decision Making)</h3>
@@ -545,10 +380,526 @@
 
   </div>
 
-  <!-- Analyse tab — search, engine, dashboard, charts, PDF export -->
-  <script src="/analyse.js"></script>
+  <!-- ===================== ANALYSE TAB SCRIPTS ===================== -->
+  <script>
+// ==========================================
+// ANALYSE TAB SCRIPTS
+// Replace the contents of the large <script> block in index.html
+// (the one starting with "// ── Config ──")
+// ==========================================
 
-  <!-- App boot (ES module) -->
+// ── Config ──────────────────────────────────────────────────────────
+const API_BASE_URL       = window.ENV?.API_BASE_URL       || 'https://outcome-logic.vercel.app/api';
+const INTERNAL_API_TOKEN = window.ENV?.INTERNAL_API_TOKEN || 'surgeon-secure-key-99';
+
+let currentChart  = null;
+let currentChart2 = null;
+window._lastAnalysis = null;
+
+// ── Loading stage helpers ────────────────────────────────────────────
+const LOADING_STAGES = [
+  { label: 'Retrieving source…',    dots: [1,0,0] },
+  { label: 'Extracting data…',      dots: [1,1,0] },
+  { label: 'Synthesising report…',  dots: [1,1,1] },
+];
+let _stageTimer = null;
+
+function showLoading() {
+  const el = document.getElementById('loadingState');
+  if (!el) return;
+  el.classList.remove('hidden');
+  let stage = 0;
+  _setStage(stage);
+  _stageTimer = setInterval(() => {
+    stage = Math.min(stage + 1, LOADING_STAGES.length - 1);
+    _setStage(stage);
+  }, 8000);
+}
+
+function hideLoading() {
+  const el = document.getElementById('loadingState');
+  if (el) el.classList.add('hidden');
+  if (_stageTimer) { clearInterval(_stageTimer); _stageTimer = null; }
+}
+
+function _setStage(i) {
+  const s = LOADING_STAGES[i];
+  const lbl = document.getElementById('loading-stage');
+  if (lbl) lbl.textContent = s.label;
+  [1,2,3].forEach(n => {
+    const dot = document.getElementById(`stage-dot-${n}`);
+    if (dot) dot.className = `w-2 h-2 rounded-full ${s.dots[n-1] ? 'bg-slate-900' : 'bg-slate-300'}`;
+  });
+}
+
+// ── Enum helpers ────────────────────────────────────────────────────
+const ROB_CONFIG = {
+  'Low':      { bg: 'bg-green-100',  text: 'text-green-800',  label: 'Low Risk'      },
+  'Moderate': { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Moderate Risk' },
+  'High':     { bg: 'bg-red-100',    text: 'text-red-800',    label: 'High Risk'     },
+  'Unclear':  { bg: 'bg-slate-100',  text: 'text-slate-600',  label: 'Unclear'       },
+};
+const GRADE_CONFIG = {
+  'High':     { bg: 'bg-green-100',  text: 'text-green-800',  bars: 4, colour: 'bg-green-500'  },
+  'Moderate': { bg: 'bg-blue-100',   text: 'text-blue-800',   bars: 3, colour: 'bg-blue-500'   },
+  'Low':      { bg: 'bg-yellow-100', text: 'text-yellow-800', bars: 2, colour: 'bg-yellow-500' },
+  'Very Low': { bg: 'bg-red-100',    text: 'text-red-800',    bars: 1, colour: 'bg-red-500'    },
+};
+const PUB_TYPE_CONFIG = {
+  'RCT':               { bg: 'bg-green-100',  text: 'text-green-800'  },
+  'Clinical Trial':    { bg: 'bg-blue-100',   text: 'text-blue-800'   },
+  'Meta-analysis':     { bg: 'bg-purple-100', text: 'text-purple-800' },
+  'Systematic Review': { bg: 'bg-purple-50',  text: 'text-purple-700' },
+  'Cohort Study':      { bg: 'bg-yellow-100', text: 'text-yellow-800' },
+  'Publication':       { bg: 'bg-slate-100',  text: 'text-slate-500'  },
+};
+
+function robBadge(rob) {
+  const c = ROB_CONFIG[rob] || ROB_CONFIG['Unclear'];
+  const el = document.getElementById('ui-rob-badge');
+  if (el) { el.className = `text-xs font-bold px-2 py-1 rounded uppercase tracking-wide ${c.bg} ${c.text}`; el.innerText = c.label; }
+}
+function gradeBadge(grade) {
+  const c = GRADE_CONFIG[grade] || GRADE_CONFIG['Very Low'];
+  const el = document.getElementById('ui-grade-badge');
+  if (el) { el.className = `text-xs font-bold px-2 py-1 rounded uppercase tracking-wide ${c.bg} ${c.text}`; el.innerText = grade; }
+  for (let i = 1; i <= 4; i++) {
+    const bar = document.getElementById(`grade-bar-${i}`);
+    if (bar) bar.className = `h-2 flex-1 rounded ${i <= c.bars ? c.colour : 'bg-slate-200'}`;
+  }
+}
+function setLink(id, href, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (href) { el.href = href; if (label) el.innerText = label; el.classList.remove('hidden'); }
+  else el.classList.add('hidden');
+}
+
+// ── Search ──────────────────────────────────────────────────────────
+async function searchDatabase() {
+  const query = document.getElementById('searchInput').value.trim();
+  if (!query) return alert('Enter a search term.');
+  const resultsBox = document.getElementById('searchResults');
+  resultsBox.innerHTML = '<div class="text-sm text-slate-500 p-2">Searching…</div>';
+  resultsBox.classList.remove('hidden');
+  resultsBox.classList.add('flex');
+  try {
+    const res  = await fetch(`${API_BASE_URL}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-token': INTERNAL_API_TOKEN },
+      body:    JSON.stringify({ query }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error.');
+    if (!data.results?.length) { resultsBox.innerHTML = '<div class="text-sm text-slate-500 p-2">No trials found.</div>'; return; }
+    resultsBox.innerHTML = '';
+    data.results.forEach(trial => {
+      const ftBadge = trial.has_free_full_text
+        ? `<span class="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Free Full Text</span>` : '';
+      const ptCfg   = PUB_TYPE_CONFIG[trial.pub_type] || PUB_TYPE_CONFIG['Publication'];
+      const ptBadge = trial.pub_type
+        ? `<span class="${ptCfg.bg} ${ptCfg.text} text-[10px] font-bold px-2 py-0.5 rounded uppercase">${trial.pub_type}</span>` : '';
+      const pmUrl   = trial.pubmed_url || `https://pubmed.ncbi.nlm.nih.gov/${trial.id}/`;
+      const item    = document.createElement('div');
+      item.className = 'p-3 bg-white border border-slate-200 rounded hover:border-slate-400 cursor-pointer transition';
+      item.innerHTML = `
+        <div class="flex justify-between items-start gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-sm text-slate-800 leading-snug">${trial.title}</div>
+            <div class="text-xs text-slate-500 mt-1">${trial.authors} • ${trial.journal} (${trial.year || '—'})</div>
+            <div class="flex flex-wrap gap-1 mt-1.5">${ftBadge}${ptBadge}</div>
+          </div>
+          <div class="flex flex-col gap-1 shrink-0">
+            <button class="bg-slate-900 text-white text-xs px-3 py-1.5 rounded font-bold hover:bg-slate-700 transition">Extract</button>
+            <a href="${pmUrl}" target="_blank" onclick="event.stopPropagation()"
+               class="text-center bg-slate-100 text-slate-600 text-xs px-3 py-1.5 rounded font-medium hover:bg-slate-200 transition">PubMed ↗</a>
+          </div>
+        </div>`;
+      item.querySelector('button').onclick = (e) => { e.stopPropagation(); executeEngine({ inputPayload: trial.id, isPdf: false }); };
+      resultsBox.appendChild(item);
+    });
+  } catch (err) {
+    resultsBox.innerHTML = `<div class="text-sm text-red-500 p-2">Search failed: ${err.message}</div>`;
+  }
+}
+
+// ── PDF Upload ──────────────────────────────────────────────────────
+async function analyzePdf() {
+  const file = document.getElementById('pdfInput').files[0];
+  if (!file) return alert('Please select a PDF file first.');
+  const base64 = await new Promise((res, rej) => {
+    const r = new FileReader(); r.readAsDataURL(file);
+    r.onload = () => res(r.result.split(',')[1]); r.onerror = rej;
+  });
+  executeEngine({ inputPayload: base64, isPdf: true });
+}
+
+// ── Core Engine ─────────────────────────────────────────────────────
+async function executeEngine(payload) {
+  document.getElementById('searchResults').classList.add('hidden');
+  showLoading();
+  document.getElementById('reportContainer').classList.add('hidden');
+  document.getElementById('exportBar').classList.add('hidden');
+  try {
+    const res  = await fetch(`${API_BASE_URL}/analyze`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-token': INTERNAL_API_TOKEN },
+      body:    JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 429) throw new Error('Rate limit exceeded. Try again tomorrow.');
+      throw new Error(data.error || data.details || 'Server failed to process request.');
+    }
+    window._lastAnalysis = data;
+    populateDashboard(data);
+  } catch (err) {
+    alert('Analysis Error: ' + err.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+// ── Dashboard Population ─────────────────────────────────────────────
+function populateDashboard(data) {
+  const rm   = data.reportMeta || {};
+  const view = data.clinician_view;
+
+  // ── Header ──
+  const titleEl = document.getElementById('trialTitle');
+  if (titleEl) titleEl.innerText = data.metadata?.trial_identification || rm.trial_identification || 'Trial Synthesis';
+
+  document.getElementById('studyDesign').innerText   = rm.study_design || data.metadata?.study_design || '';
+
+  // Authors, journal, year
+  const authorsEl = document.getElementById('reportAuthors');
+  if (authorsEl) authorsEl.innerText = rm.authors || '';
+
+  const journalEl = document.getElementById('reportJournal');
+  if (journalEl) {
+    const parts = [rm.journal, rm.year].filter(Boolean);
+    journalEl.innerText = parts.length ? parts.join(' · ') : '';
+  }
+
+  document.getElementById('dataSourceBadge').innerText = rm.source_type ? `Source: ${rm.source_type}` : '';
+
+  setLink('pubmedLink', rm.pubmed_link, 'PubMed ↗');
+  setLink('pmcLink',    rm.pmc_link,    'Free Full Text ↗');
+  if (rm.doi) { setLink('doiLink', `https://doi.org/${rm.doi}`, 'DOI ↗'); }
+
+  const warningEl = document.getElementById('extractionWarning');
+  if (rm.extraction_warning) {
+    document.getElementById('extractionWarningText').innerText = rm.extraction_warning;
+    warningEl.classList.remove('hidden');
+  } else warningEl.classList.add('hidden');
+
+  // ── PICO ──
+  document.getElementById('ui-known').innerText    = view.context.already_known;
+  document.getElementById('ui-adds').innerText     = view.context.what_this_adds;
+  document.getElementById('ui-pop').innerText      = view.pico.population;
+  document.getElementById('ui-baseline').innerText = view.baseline_characteristics;
+  document.getElementById('ui-int-con').innerText  = `${view.pico.intervention} vs ${view.pico.control}`;
+  document.getElementById('ui-out').innerText      = view.pico.primary_outcome;
+
+  const secOutUl = document.getElementById('ui-sec-out');
+  secOutUl.innerHTML = '';
+  (view.pico.secondary_outcomes || []).forEach(o => {
+    const li = document.createElement('li'); li.innerText = o; secOutUl.appendChild(li);
+  });
+
+  // ── Critical appraisal ──
+  const ca = view.critical_appraisal;
+  robBadge(ca.risk_of_bias || 'Unclear');
+  gradeBadge(ca.grade_certainty || 'Very Low');
+  document.getElementById('ui-rob-rationale').innerText = ca.risk_of_bias_rationale || '';
+  document.getElementById('ui-limitations').innerText   = ca.limitations            || '';
+
+  // ── Expert context (Node 4 commentary) ──
+  renderExpertContext(view.expert_context);
+
+  // ── Adverse Events Table ──
+  renderAETable(view.adverse_events, view.pico);
+
+  // ── Subgroups ──
+  renderSubgroups(view.subgroups);
+
+  // ── Charts ──
+  if (currentChart)  { currentChart.destroy();  currentChart  = null; }
+  if (currentChart2) { currentChart2.destroy(); currentChart2 = null; }
+
+  const endpoints    = view.interactive_data?.endpoints || [];
+  const chartSection = document.getElementById('chartSection');
+  const chart2Section = document.getElementById('chart2Section');
+
+  if (endpoints.length > 0) {
+    chartSection.style.display = 'block';
+    const ep1 = endpoints[0];
+    document.getElementById('chartTitle').innerText   = ep1.label;
+    document.getElementById('ui-synthesis').innerText = ep1.clinical_synthesis;
+    currentChart = renderChart('endpointChart', ep1);
+  } else {
+    chartSection.style.display = 'none';
+  }
+
+  if (endpoints.length > 1) {
+    chart2Section.classList.remove('hidden');
+    const ep2 = endpoints[1];
+    document.getElementById('chartTitle2').innerText   = ep2.label;
+    document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis;
+    currentChart2 = renderChart('endpointChart2', ep2);
+  } else {
+    if (chart2Section) chart2Section.classList.add('hidden');
+  }
+
+  // ── Patient view ──
+  document.getElementById('ui-lay').innerText = data.patient_view.lay_summary;
+  document.getElementById('ui-sdm').innerText = data.patient_view.shared_decision_making_takeaway;
+
+  document.getElementById('reportContainer').classList.remove('hidden');
+  document.getElementById('exportBar').classList.remove('hidden');
+  document.getElementById('mdtSection').style.display    = 'block';
+  document.getElementById('patientSection').style.display = 'block';
+}
+
+// Expose for library load
+window.populateDashboard = populateDashboard;
+
+// ── Adverse Events Table ─────────────────────────────────────────────
+function renderAETable(ae, pico) {
+  const section = document.getElementById('aeSection');
+  if (!section) return;
+
+  if (!ae?.has_data || !ae.rows?.length) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+
+  // Set column headers from PICO arm names
+  const intHeader = document.getElementById('ae-header-intervention');
+  const conHeader = document.getElementById('ae-header-control');
+  if (intHeader) intHeader.textContent = pico?.intervention?.split(' ')[0] || 'Intervention';
+  if (conHeader) conHeader.textContent = ae.rows[0]?.control_pct === null ? '—' : (pico?.control?.split(' ')[0] || 'Control');
+
+  const tbody = document.getElementById('ae-table-body');
+  tbody.innerHTML = ae.rows.map((row, i) => `
+    <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
+      <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1">(${row.note})</span>` : ''}</td>
+      <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
+      <td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>
+    </tr>
+  `).join('');
+
+  // Footer — discontinuation and mortality
+  const tfoot = document.getElementById('ae-table-foot');
+  const footRows = [];
+  if (ae.discontinuation?.intervention_pct != null) {
+    footRows.push(`
+      <tr class="border-t border-slate-200">
+        <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>
+      </tr>
+    `);
+  }
+  if (ae.treatment_related_mortality?.intervention_pct != null) {
+    footRows.push(`
+      <tr>
+        <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
+        <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>
+      </tr>
+    `);
+  }
+  if (tfoot) tfoot.innerHTML = footRows.join('');
+}
+
+// ── Subgroups ────────────────────────────────────────────────────────
+function renderSubgroups(subgroups) {
+  const section = document.getElementById('subgroupSection');
+  const content = document.getElementById('subgroup-content');
+  if (!section || !content) return;
+
+  if (!subgroups?.has_significant_interactions || !subgroups.items?.length) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  content.innerHTML = subgroups.items.map(item => `
+    <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-semibold text-slate-700">${item.variable}</span>
+        <span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+          Interaction ${item.interaction_p}
+        </span>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        ${(item.arms || []).map(arm => `
+          <div class="text-xs text-slate-600">
+            <span class="font-medium">${arm.subgroup_name}:</span>
+            HR ${arm.hr} (95% CI ${arm.ci_95})
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Expert Context (Node 4 commentary) ───────────────────────────────
+function renderExpertContext(expertContext) {
+  const section      = document.getElementById('expertContextSection');
+  const synthesis    = document.getElementById('expert-synthesis');
+  const recencyNote  = document.getElementById('expert-recency-note');
+  const notFoundNote = document.getElementById('expert-not-found-note');
+  const itemsEl      = document.getElementById('expert-items');
+  const refreshTs    = document.getElementById('expert-context-refresh-ts');
+  if (!section) return;
+
+  // Silent states — section stays hidden, no message shown
+  if (!expertContext ||
+      expertContext.status === 'pmid_unresolved' ||
+      expertContext.status === 'error') {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+
+  // Refresh timestamp
+  if (refreshTs && expertContext.expert_context_refreshed_at) {
+    const d = new Date(expertContext.expert_context_refreshed_at);
+    refreshTs.textContent = `· Last refreshed ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  }
+
+  // not_found — show soft note, no items
+  if (expertContext.status === 'not_found') {
+    synthesis.classList.add('hidden');
+    itemsEl.innerHTML = '';
+    if (expertContext.recency_note) {
+      recencyNote.classList.remove('hidden');
+      notFoundNote.classList.add('hidden');
+    } else {
+      notFoundNote.classList.remove('hidden');
+      recencyNote.classList.add('hidden');
+    }
+    return;
+  }
+
+  // found — render synthesis and items
+  notFoundNote.classList.add('hidden');
+  recencyNote.classList.add('hidden');
+
+  if (expertContext.synthesis) {
+    synthesis.textContent = expertContext.synthesis;
+    synthesis.classList.remove('hidden');
+  } else {
+    synthesis.classList.add('hidden');
+  }
+
+  const TYPE_BADGE = {
+    critique:              'bg-amber-100 text-amber-800',
+    supporting_commentary: 'bg-teal-100 text-teal-800',
+    meta_analysis:         'bg-purple-100 text-purple-800',
+    related_trial:         'bg-blue-100 text-blue-800',
+    guideline_citation:    'bg-green-100 text-green-800',
+    reanalysis:            'bg-orange-100 text-orange-800',
+    other:                 'bg-slate-100 text-slate-600',
+  };
+
+  const TYPE_LABEL = {
+    critique:              'Critique',
+    supporting_commentary: 'Commentary',
+    meta_analysis:         'Meta-analysis',
+    related_trial:         'Related trial',
+    guideline_citation:    'Guideline',
+    reanalysis:            'Reanalysis',
+    other:                 'Other',
+  };
+
+  itemsEl.innerHTML = (expertContext.items || []).map(item => {
+    const badgeCls  = TYPE_BADGE[item.type]  || TYPE_BADGE.other;
+    const typeLabel = TYPE_LABEL[item.type] || 'Other';
+    const pubmedUrl = item.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/` : '#';
+    const escStr    = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return `
+      <div class="flex items-start gap-3 p-3 bg-slate-50 rounded border border-slate-100">
+        <span class="text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 mt-0.5 ${badgeCls}">
+          ${typeLabel}
+        </span>
+        <div class="min-w-0">
+          <a href="${escStr(pubmedUrl)}" target="_blank"
+             class="text-xs font-medium text-slate-800 hover:text-blue-600 hover:underline leading-snug block">
+            ${escStr(item.title)}
+          </a>
+          <p class="text-xs text-slate-500 mt-0.5">
+            ${escStr(item.authors)} · ${escStr(item.journal)} ${escStr(item.year)}
+          </p>
+          <p class="text-xs text-slate-600 mt-1">${escStr(item.summary)}</p>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Chart renderer ───────────────────────────────────────────────────
+function renderChart(canvasId, endpointData) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !endpointData.arms?.length) return null;
+  const ctx   = canvas.getContext('2d');
+  const isKM  = endpointData.recommended_chart_type === 'stepped-line';
+  return new Chart(ctx, {
+    type: isKM ? 'line' : 'bar',
+    data: {
+      labels:   endpointData.arms[0].data_points.map(dp => dp.x),
+      datasets: endpointData.arms.map((arm, i) => ({
+        label:           arm.group_name,
+        data:            arm.data_points.map(dp => dp.y),
+        backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)'   : 'rgba(14,165,233,0.1)',
+        borderColor:     i === 0 ? '#0f172a'               : '#0ea5e9',
+        borderWidth: 2, stepped: false, tension: isKM ? 0.3 : 0,
+        fill: !isKM, pointRadius: isKM ? 4 : 0,
+      })),
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      scales: {
+        y: { beginAtZero: !isKM, max: isKM ? 1 : undefined, title: { display: true, text: endpointData.axes?.y_label || '' } },
+        x: { title: { display: true, text: endpointData.axes?.x_label || '' } },
+      },
+    },
+  });
+}
+
+// ── PDF Export — single unified report ──────────────────────────────
+function exportReport() {
+  // Brief delay to ensure all sections are visible
+  document.getElementById('mdtSection').style.display    = 'block';
+  document.getElementById('patientSection').style.display = 'block';
+
+  const title    = document.getElementById('trialTitle')?.innerText || 'OutcomeLogic_Report';
+  const filename = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').slice(0, 60) + '.pdf';
+
+  // Fix chart width before export
+  const charts = document.querySelectorAll('canvas');
+  const origWidths = [];
+  charts.forEach((c, i) => { origWidths[i] = c.style.width; c.style.width = '700px'; });
+
+  html2pdf().set({
+    margin:      [10, 10, 10, 10],
+    filename,
+    image:       { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, scrollY: 0, useCORS: true, width: 794 },
+    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] },
+  }).from(document.getElementById('reportContainer')).save().then(() => {
+    // Restore chart widths
+    charts.forEach((c, i) => { c.style.width = origWidths[i]; });
+  });
+}
+  </script>
+
+  <!-- ===================== APP BOOT ===================== -->
   <script type="module">
     import { boot } from './app.js';
     boot();
