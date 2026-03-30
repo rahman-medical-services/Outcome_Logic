@@ -3,8 +3,8 @@
 // Called by the frontend AFTER analysis when the user clicks "Load Expert Commentary".
 // Node 4 no longer fires automatically on every analysis run.
 
-import { Ratelimit }     from '@upstash/ratelimit';
-import { Redis }         from '@upstash/redis';
+import { Ratelimit }          from '@upstash/ratelimit';
+import { Redis }              from '@upstash/redis';
 import { fetchExpertContext } from '../lib/commentary.js';
 
 export const config = {
@@ -51,23 +51,27 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log(`[Commentary] On-demand — pmid:${pmid} trial:"${trial_name}"`);
+    // Strip full URL prefix if present — commentary.js expects bare DOI
+    // e.g. "https://doi.org/10.1016/S1470-2045(25)00027-0" -> "10.1016/S1470-2045(25)00027-0"
+    const bareDoi = doi
+      ? doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').trim()
+      : null;
 
-    // Construct sourceMeta from the identifiers the frontend already has
-    // from the completed analysis. Pass empty string for reportA — PMID
-    // resolution falls through to sourceMeta directly.
+    console.log(`[Commentary] On-demand — pmid:${pmid} doi:${bareDoi} trial:"${trial_name}"`);
+
     const sourceMeta = {
       pmid:       pmid                      || null,
       pmcid:      pmcid                     || null,
-      doi:        doi                       || null,
-      trialName:  trial_name               || null,  // commentary.js reads sourceMeta.trialName
-      trialTitle: full_title || trial_name || null,  // commentary.js reads sourceMeta.trialTitle
+      doi:        bareDoi                   || null,
+      trialName:  trial_name               || null,
+      trialTitle: full_title || trial_name || null,
       year:       year                      || null,
       sourceType: 'on-demand',
     };
 
     const result = await fetchExpertContext(sourceMeta, '');
     return res.status(200).json(result);
+
   } catch (err) {
     console.error('[Commentary] Error:', err.message);
     return res.status(500).json({

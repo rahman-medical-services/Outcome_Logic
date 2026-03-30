@@ -1070,8 +1070,19 @@ function renderAETable(ae, pico) {
   const conHeader = document.getElementById('ae-header-control');
   if (intHeader) intHeader.textContent = extractArmName(pico?.intervention, 'Intervention');
   if (conHeader) {
-    const hasControlData = ae.rows.some(r => r.control_pct != null);
+    const hasControlData = ae.rows.some(r => r.control_pct != null && r.control_pct > 0);
     conHeader.textContent = hasControlData ? extractArmName(pico?.control, 'Control') : '—';
+  }
+
+  // If control arm has 0% for everything but intervention has values,
+  // it's almost certainly not-applicable rather than genuinely zero.
+  const controlAllZeroOrNull = ae.rows.every(r => !r.control_pct);
+
+  function fmtControlPct(controlPct, interventionPct) {
+    if (controlAllZeroOrNull) return '—';
+    if (controlPct == null) return '—';
+    if (controlPct === 0 && interventionPct > 0) return '—';
+    return controlPct + '%';
   }
 
   const tbody = document.getElementById('ae-table-body');
@@ -1079,7 +1090,7 @@ function renderAETable(ae, pico) {
     <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}">
       <td class="p-2 text-slate-700">${row.event}${row.note ? `<span class="text-[10px] text-slate-400 ml-1">(${row.note})</span>` : ''}</td>
       <td class="p-2 text-center font-semibold text-slate-800">${row.intervention_pct != null ? row.intervention_pct + '%' : '—'}</td>
-      <td class="p-2 text-center text-slate-600">${row.control_pct != null ? row.control_pct + '%' : '—'}</td>
+      <td class="p-2 text-center text-slate-600">${fmtControlPct(row.control_pct, row.intervention_pct)}</td>
     </tr>
   `).join('');
 
@@ -1089,14 +1100,14 @@ function renderAETable(ae, pico) {
     footRows.push(`<tr class="border-t border-slate-200">
       <td class="p-2 text-slate-500 text-xs italic">Discontinuation due to AE</td>
       <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.intervention_pct}%</td>
-      <td class="p-2 text-center text-slate-500 text-xs">${ae.discontinuation.control_pct != null ? ae.discontinuation.control_pct + '%' : '—'}</td>
+      <td class="p-2 text-center text-slate-500 text-xs">${fmtControlPct(ae.discontinuation.control_pct, ae.discontinuation.intervention_pct)}</td>
     </tr>`);
   }
   if (ae.treatment_related_mortality?.intervention_pct != null) {
     footRows.push(`<tr>
       <td class="p-2 text-slate-500 text-xs italic">Treatment-related mortality</td>
       <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.intervention_pct}%</td>
-      <td class="p-2 text-center text-slate-500 text-xs">${ae.treatment_related_mortality.control_pct != null ? ae.treatment_related_mortality.control_pct + '%' : '—'}</td>
+      <td class="p-2 text-center text-slate-500 text-xs">${fmtControlPct(ae.treatment_related_mortality.control_pct, ae.treatment_related_mortality.intervention_pct)}</td>
     </tr>`);
   }
   if (tfoot) tfoot.innerHTML = footRows.join('');
