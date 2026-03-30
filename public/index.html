@@ -1115,28 +1115,71 @@ function renderChart(canvasId, endpointData) {
     const hasValidData = endpointData.arms.some(arm => arm.data_points?.length > 0);
     if (!hasValidData) return null;
 
-    const ctx    = canvas.getContext('2d');
-    const isKM   = endpointData.recommended_chart_type === 'stepped-line';
-    const isBar  = endpointData.recommended_chart_type === 'bar';
-    const isSinglePoint = endpointData.arms.every(arm => (arm.data_points?.length || 0) <= 1);
-    const useBar = isBar || (!isKM && isSinglePoint);
+    const ctx   = canvas.getContext('2d');
+    const isKM  = endpointData.recommended_chart_type === 'stepped-line';
+    const isBar = endpointData.recommended_chart_type === 'bar';
+    const isSinglePointPerArm = endpointData.arms.every(arm => (arm.data_points?.length || 0) <= 1);
+
+    // ── KM override: if pipeline recommends KM but data is actually interval
+    // summary points (e.g. % survival at 6/12/24 months from a censored trial),
+    // the curve is misleading. Detect flat/clustered curves and force bar chart.
+    let forceBarChart = false;
+    if (isKM && !isSinglePointPerArm) {
+      const allPoints = endpointData.arms.flatMap(arm => (arm.data_points || []).map(p => p.y));
+      if (allPoints.length > 0) {
+        const minY   = Math.min(...allPoints);
+        const maxY   = Math.max(...allPoints);
+        const range  = maxY - minY;
+        const isFlat = (minY > 0.85 || maxY < 0.15) && range < 0.1;
+        const finalPoints = endpointData.arms
+          .map(arm => { const pts = arm.data_points || []; return pts.length ? pts[pts.length - 1].y : null; })
+          .filter(v => v !== null);
+        const armDiff = finalPoints.length >= 2 ? Math.abs(finalPoints[0] - finalPoints[1]) : 1;
+        if (isFlat && armDiff < 0.05) {
+          forceBarChart = true;
+          console.log('[Chart] Overriding KM → bar (flat curve, small arm difference)');
+        }
+      }
+    }
+
+    const useBar = isBar || (!isKM && isSinglePointPerArm) || forceBarChart;
+
+    const colors = [
+      { bg: 'rgba(15,23,42,0.8)',   border: '#0f172a' },
+      { bg: 'rgba(14,165,233,0.8)', border: '#0ea5e9' },
+      { bg: 'rgba(34,197,94,0.8)',  border: '#22c55e' },
+      { bg: 'rgba(249,115,22,0.8)', border: '#f97316' },
+    ];
 
     if (useBar) {
       const labels = endpointData.arms.map(arm => arm.group_name || 'Unknown');
-      const values = endpointData.arms.map(arm => arm.data_points?.[0]?.y ?? 0);
-      const colors = [
-        { bg: 'rgba(15,23,42,0.8)', border: '#0f172a' },
-        { bg: 'rgba(14,165,233,0.8)', border: '#0ea5e9' },
-        { bg: 'rgba(34,197,94,0.8)', border: '#22c55e' },
-        { bg: 'rgba(249,115,22,0.8)', border: '#f97316' },
-      ];
+      let values   = endpointData.arms.map(arm => {
+        const pts = arm.data_points || [];
+        if (!pts.length) return 0;
+        // For forced bar from KM data use the last (final outcome) point
+        return forceBarChart && pts.length > 1 ? pts[pts.length - 1].y : pts[0].y;
+      });
+
+      let yLabel = endpointData.axes?.y_label || 'Percentage (%)';
+
+      if (forceBarChart) {
+        // KM data is survival proportions (0–1). Convert to event rate %.
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        if (avg > 0.5) {
+          values = values.map(v => (1 - v) * 100);
+          yLabel = 'Event Rate (%)';
+        } else if (Math.max(...values) <= 1) {
+          values = values.map(v => v * 100);
+        }
+      }
+
       return new Chart(ctx, {
         type: 'bar',
         data: {
           labels,
           datasets: [{
             label: endpointData.label || 'Rate',
-            data: values,
+            data:  values,
             backgroundColor: endpointData.arms.map((_, i) => colors[i % colors.length].bg),
             borderColor:     endpointData.arms.map((_, i) => colors[i % colors.length].border),
             borderWidth: 2, borderRadius: 4, barPercentage: 0.7, categoryPercentage: 0.8,
@@ -1144,16 +1187,21 @@ function renderChart(canvasId, endpointData) {
         },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false, devicePixelRatio: 4,
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1) + '%' } } },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1) + '%' } },
+          },
           scales: {
-            y: { beginAtZero: true, title: { display: true, text: endpointData.axes?.y_label || 'Percentage (%)' }, ticks: { callback: v => v.toFixed(1) + '%' } },
+            y: { beginAtZero: true, title: { display: true, text: yLabel }, ticks: { callback: v => v.toFixed(1) + '%' } },
             x: { title: { display: true, text: endpointData.axes?.x_label || 'Treatment Arm' }, grid: { display: false } },
           },
         },
       });
     }
 
+    // ── Time-series (true KM / line chart) ──────────────────────────
     if (!endpointData.arms[0].data_points?.length) return null;
+
     const processedArms = endpointData.arms.map(arm => {
       let points = [...(arm.data_points || [])].sort((a, b) => (Number(a.x)||0) - (Number(b.x)||0));
       if (isKM) {
@@ -1162,19 +1210,20 @@ function renderChart(canvasId, endpointData) {
       }
       return { ...arm, data_points: points };
     });
+
     const xLabels = processedArms[0].data_points.map(dp => dp.x);
 
     return new Chart(ctx, {
-      type: isKM ? 'line' : 'bar',
+      type: 'line',
       data: {
         labels: xLabels,
         datasets: processedArms.map((arm, i) => ({
-          label: arm.group_name || `Arm ${i + 1}`,
-          data: arm.data_points.map(dp => dp.y),
-          backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)' : 'rgba(14,165,233,0.1)',
-          borderColor:     i === 0 ? '#0f172a' : '#0ea5e9',
+          label:           arm.group_name || `Arm ${i + 1}`,
+          data:            arm.data_points.map(dp => dp.y),
+          backgroundColor: i === 0 ? 'rgba(15,23,42,0.1)'   : 'rgba(14,165,233,0.1)',
+          borderColor:     i === 0 ? '#0f172a'               : '#0ea5e9',
           borderWidth: 2.5, stepped: false, tension: 0, fill: false,
-          pointRadius: isKM ? 4 : 0,
+          pointRadius: 4,
           pointBackgroundColor: i === 0 ? '#0f172a' : '#0ea5e9',
           pointBorderColor: '#fff', pointBorderWidth: 1,
         })),
