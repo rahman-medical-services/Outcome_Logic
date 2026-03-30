@@ -9,6 +9,7 @@
 .env.production
 .env.production.local
 *.env
+public/env.js
 
 # ─────────────────────────────────────────────
 # Node
@@ -40,3 +41,4 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
