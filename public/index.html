@@ -824,20 +824,37 @@ async function loadExpertCommentary() {
       }),
     });
 
+    loadingEl.classList.add('hidden');
     const data = await res.json();
+
     if (!res.ok) throw new Error(data.error || 'Commentary request failed.');
 
-    loadingEl.classList.add('hidden');
+    // Handle graceful failure statuses from the API
+    if (data.status === 'pmid_unresolved') {
+      _showCommentaryMessage('Could not identify this trial in citation databases. Try searching by PMID directly.');
+      return;
+    }
+    if (data.status === 'error') {
+      _showCommentaryMessage(data.reason || 'Commentary search failed. Please try again.');
+      return;
+    }
+
     renderExpertContext(data);
 
   } catch (err) {
     loadingEl.classList.add('hidden');
-    btnEl.classList.remove('hidden');
     console.error('[Commentary]', err.message);
-    const ecContent = document.getElementById('expert-items');
-    if (ecContent) ecContent.innerHTML =
-      `<p class="text-sm text-red-500">Could not load commentary: ${err.message}</p>`;
+    _showCommentaryMessage(`Could not load commentary: ${err.message}`);
   }
+}
+
+function _showCommentaryMessage(msg) {
+  // Re-show the load button so user can retry, plus show the error inline
+  const btnEl    = document.getElementById('expertContextLoadBtn');
+  const itemsEl  = document.getElementById('expert-items');
+  if (btnEl)   btnEl.classList.remove('hidden');
+  if (itemsEl) itemsEl.innerHTML =
+    `<p class="text-sm text-slate-400 italic">${msg}</p>`;
 }
 
 // ── Dashboard Population ─────────────────────────────────────────────
@@ -991,13 +1008,13 @@ function renderExpertContext(expertContext) {
   const refreshTs     = document.getElementById('expert-context-refresh-ts');
   if (!section) return;
 
-  if (!expertContext || expertContext.status === 'pmid_unresolved' || expertContext.status === 'error' || expertContext.status === 'not_loaded') {
-    return; // Section already visible with load button — don't hide
-  }
+  // Only skip rendering if we have nothing at all
+  if (!expertContext || expertContext.status === 'not_loaded') return;
 
-  // Hide load button once content is rendered
+  // Hide load button — content is being rendered
   const loadBtn = document.getElementById('expertContextLoadBtn');
   if (loadBtn) loadBtn.classList.add('hidden');
+  document.getElementById('expertContextLoading')?.classList.add('hidden');
 
   if (refreshTs && expertContext.expert_context_refreshed_at) {
     const d = new Date(expertContext.expert_context_refreshed_at);
