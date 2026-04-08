@@ -106,7 +106,42 @@ export default async function handler(req, res) {
       if (error) throw error;
       if (!data) return res.status(404).json({ error: 'Trial not found.' });
 
+      // Tier check: free users can only view landmark trials
+      const userTier = getTier(user);
+      if (userTier === 'free' && !data.is_landmark) {
+        return res.status(403).json({
+          error:   'This trial requires a paid subscription.',
+          message: 'Free access is limited to landmark trials. Upgrade to view all analyses.',
+          tier:    userTier,
+        });
+      }
+
       return res.status(200).json({ trial: data });
+    }
+
+    // ────────────────────────────────────────
+    // MODE: export — return full trial data (analysis_json included) in one query
+    // Admin/pro only. Used by export.js to avoid N+1 single-mode calls.
+    // ────────────────────────────────────────
+    if (mode === 'export') {
+      // Tier check — only admin and pro can export
+      if (!requireTier(user, ['admin', 'pro'], res)) return;
+
+      let exportQuery = supabase
+        .from('trials')
+        .select('*')
+        .is('superseded_by', null)
+        .order('display_title', { ascending: true });
+
+      if (domain)      exportQuery = exportQuery.eq('domain', domain);
+      if (specialty)   exportQuery = exportQuery.eq('specialty', specialty);
+      if (subspecialty) exportQuery = exportQuery.eq('subspecialty', subspecialty);
+      if (validated_only) exportQuery = exportQuery.eq('validated', true);
+
+      const { data: exportData, error: exportError } = await exportQuery;
+      if (exportError) throw exportError;
+
+      return res.status(200).json({ trials: exportData || [] });
     }
 
     // ────────────────────────────────────────
@@ -159,7 +194,10 @@ export default async function handler(req, res) {
     // analysis_json is only fetched in single mode
     // ────────────────────────────────────────
 
-    // Card fields — deliberately excludes analysis_json for performance
+    // Card fields — includes analysis_json so we can extract appraisal badges
+    // and links server-side, then strip the full blob before returning.
+    // This keeps response payloads small while making rob/grade/links available
+    // on every card without a separate single-mode fetch.
     const CARD_FIELDS = [
       'id',
       'pmid',
@@ -180,6 +218,7 @@ export default async function handler(req, res) {
       'validated_at',
       'version',
       'superseded_by',
+      'analysis_json',
     ].join(', ');
 
     let query = supabase
@@ -220,13 +259,29 @@ export default async function handler(req, res) {
     const { data, error } = await query;
     if (error) throw error;
 
+    // ── Extract appraisal badges + links, then strip full analysis_json ──
+    // Keeps card payload small while making rob/grade/links available to
+    // trialCard.js without requiring a separate single-mode fetch.
+    const cards = (data || []).map(row => {
+      const ca = row.analysis_json?.clinician_view?.critical_appraisal;
+      const rm = row.analysis_json?.reportMeta;
+      const { analysis_json: _, ...rest } = row;   // strip blob
+      return {
+        ...rest,
+        rob:          ca?.risk_of_bias   || null,
+        grade:        ca?.grade_certainty || null,
+        pubmed_link:  rm?.pubmed_link    || null,
+        pmc_link:     rm?.pmc_link       || null,
+      };
+    });
+
     // ── Summary stats for the validation queue badge ──
-    const total     = data.length;
-    const validated = data.filter(t => t.validated).length;
+    const total     = cards.length;
+    const validated = cards.filter(t => t.validated).length;
     const pending   = total - validated;
 
     return res.status(200).json({
-      trials:  data || [],
+      trials:  cards,
       summary: { total, validated, pending },
     });
 

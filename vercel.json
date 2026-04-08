@@ -3,5 +3,11 @@
   "buildCommand": "node scripts/generate-env.js",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }
-  ]
+  ],
+  "functions": {
+    "api/analyze.js":                      { "maxDuration": 60  },
+    "api/commentary.js":                   { "maxDuration": 60  },
+    "api/library-commentary-refresh.js":   { "maxDuration": 60  },
+    "api/library-batch.js":                { "maxDuration": 300 }
+  }
 }

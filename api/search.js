@@ -3,13 +3,23 @@
 //   Call 1 — Gemini constructs optimal PubMed query from user input
 //   PubMed  — esearch + esummary fetches 25 results
 //   Call 2 — Gemini re-ranks results by clinical relevance
-// Daily Gemini call limit: 100 (shared with analysis calls)
+// Rate limit: 50 searches per IP per 24h (each search = 2 Gemini calls)
+
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis }     from '@upstash/redis';
 
 const NCBI_TOOL  = 'rahmanmedical-trial-visualiser';
 const NCBI_EMAIL = 'saqib@rahmanmedical.co.uk';
 const NCBI_BASE  = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const ratelimit = new Ratelimit({
+  redis:     Redis.fromEnv(),
+  limiter:   Ratelimit.slidingWindow(50, '24 h'),
+  analytics: true,
+  prefix:    'search',
+});
 
 export default async function handler(req, res) {
 
@@ -23,6 +33,13 @@ export default async function handler(req, res) {
   const authToken = req.headers['x-api-token'];
   if (!authToken || authToken !== process.env.INTERNAL_API_TOKEN) {
     return res.status(401).json({ error: 'Unauthorised.' });
+  }
+
+  // Rate limit by IP
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ?? '127.0.0.1';
+  const { success } = await ratelimit.limit(ip);
+  if (!success) {
+    return res.status(429).json({ error: 'Search rate limit reached. Please try again later.' });
   }
 
   try {

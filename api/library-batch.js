@@ -45,6 +45,27 @@ function getAnonClient() {
 }
 
 // ─────────────────────────────────────────────
+// DUPLICATE CHECK
+// Returns existing trial if PMID or DOI already in library, else null.
+// ─────────────────────────────────────────────
+async function findDuplicate(supabase, pmid, doi) {
+  if (!pmid && !doi) return null;
+
+  let query = supabase
+    .from('trials')
+    .select('id, display_title')
+    .is('superseded_by', null)
+    .limit(1);
+
+  if (pmid && doi) query = query.or(`pmid.eq.${pmid},doi.eq.${doi}`);
+  else if (pmid)   query = query.eq('pmid', pmid);
+  else             query = query.eq('doi', doi);
+
+  const { data } = await query;
+  return data?.[0] || null;
+}
+
+// ─────────────────────────────────────────────
 // SAVE ONE RESULT TO SUPABASE
 // ─────────────────────────────────────────────
 async function saveToLibrary(supabase, analysis, userId) {
@@ -190,6 +211,18 @@ export default async function handler(req, res) {
         // Run shared pipeline
         const analysis = await runPipeline(sourceContext, sourceMeta);
 
+        // ── Duplicate detection — skip if PMID/DOI already in library ──
+        const reportMeta = analysis.reportMeta || {};
+        const pmid       = reportMeta.pubmed_id || null;
+        const doi        = reportMeta.doi       || null;
+        const existing   = await findDuplicate(supabase, pmid, doi);
+
+        if (existing) {
+          jobs[i].status = 'skipped';
+          jobs[i].error  = `Already in library: "${existing.display_title}"`;
+          continue;
+        }
+
         // Save to library
         const saved = await saveToLibrary(supabase, analysis, user.id);
 
@@ -209,12 +242,13 @@ export default async function handler(req, res) {
 
     const completed = jobs.filter(j => j.status === 'complete').length;
     const failed    = jobs.filter(j => j.status === 'failed').length;
+    const skipped   = jobs.filter(j => j.status === 'skipped').length;
 
     return res.status(200).json({
       success: true,
-      message: `Batch complete. ${completed} saved, ${failed} failed.`,
+      message: `Batch complete. ${completed} saved, ${skipped} skipped (duplicates), ${failed} failed.`,
       jobs,
-      summary: { total: files.length, completed, failed },
+      summary: { total: files.length, completed, skipped, failed },
     });
 
   } catch (error) {

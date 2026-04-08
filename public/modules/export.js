@@ -204,48 +204,27 @@ function _chapterHtml(trial, chapterNum) {
 
 // ─────────────────────────────────────────────
 // FETCH ALL TRIALS (with full analysis_json)
-// Calls library-get in single mode for each trial to get analysis_json
-// For export we need the full data — we fetch browse first then full records
+// Uses the bulk 'export' mode — single API call returns all trials with
+// analysis_json included. Avoids the N+1 pattern of calling single mode
+// for every trial.
 // ─────────────────────────────────────────────
 async function _fetchAllTrials(filters) {
   const token = getAccessToken();
   if (!token) throw new Error('No active session. Please sign in.');
 
-  // Step 1: get card list
-  const browseRes = await fetch(`${getApiUrl()}/library-get`, {
+  const res = await fetch(`${getApiUrl()}/library-get`, {
     method:  'POST',
     headers: {
       'Content-Type':  'application/json',
-      'x-api-token': getApiToken(),
+      'x-api-token':   getApiToken(),
       'Authorization': `Bearer ${token}`,
     },
-    body: JSON.stringify({ mode: 'browse', ...filters }),
+    body: JSON.stringify({ mode: 'export', ...filters }),
   });
 
-  if (!browseRes.ok) throw new Error('Failed to fetch library.');
-  const browseData = await browseRes.json();
-  const cards      = browseData.trials || [];
-  if (!cards.length) return [];
-
-  // Step 2: fetch full records in parallel (analysis_json included)
-  const fullRecords = await Promise.all(
-    cards.map(async card => {
-      const r = await fetch(`${getApiUrl()}/library-get`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'x-api-token': getApiToken(),
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ mode: 'single', id: card.id }),
-      });
-      if (!r.ok) return null;
-      const d = await r.json();
-      return d.trial || null;
-    })
-  );
-
-  return fullRecords.filter(Boolean);
+  if (!res.ok) throw new Error('Failed to fetch library for export.');
+  const data = await res.json();
+  return data.trials || [];
 }
 
 // ─────────────────────────────────────────────

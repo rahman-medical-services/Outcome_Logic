@@ -145,10 +145,11 @@ export async function logout() {
 // ─────────────────────────────────────────────
 // GETTERS
 // ─────────────────────────────────────────────
-export function getUser()         { return _user; }
-export function getSession()      { return _session; }
-export function getAccessToken()  { return _session?.access_token ?? null; }
-export function isAuthenticated() { return !!_user; }
+export function getUser()           { return _user; }
+export function getSession()        { return _session; }
+export function getAccessToken()    { return _session?.access_token ?? null; }
+export function isAuthenticated()   { return !!_user; }
+export function getSupabaseClient() { return getClient(); }
 
 export function requireAuth() {
   if (!_user) throw new Error('You must be logged in to perform this action.');

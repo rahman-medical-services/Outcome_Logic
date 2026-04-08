@@ -1,7 +1,7 @@
 // modules/library.js
 // Library tab — browse, filter, load, validate, and export saved trials.
 
-import { getAccessToken }                         from './auth.js';
+import { getAccessToken, getSupabaseClient }       from './auth.js';
 import { LIBRARY_TABLE }                          from '../config/constants.js';
 import { renderCategoryPicker }                   from '../components/categoryPicker.js';
 import { renderTrialCards }                       from '../components/trialCard.js';
@@ -381,10 +381,9 @@ async function _deleteTrial(id, containerEl) {
   if (!confirm(`Delete "${title}" from the library? This cannot be undone.`)) return;
 
   try {
-    const token = getAccessToken();
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-    const supabase = createClient(window.ENV?.SUPABASE_URL, window.ENV?.SUPABASE_ANON_KEY);
-    await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+    // Use the auth.js singleton client — it holds the full live session
+    // including refresh_token, so it handles token expiry correctly.
+    const supabase = getSupabaseClient();
     const { error } = await supabase.from('trials').delete().eq('id', id);
     if (error) throw new Error(error.message);
 

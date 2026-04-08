@@ -93,9 +93,11 @@ export function trialCardHtml(trial, options = {}) {
   const { selectable = false, selected = false } = options;
 
   const validated     = trial.validated;
-  const robRaw        = trial.analysis_json?.clinician_view?.critical_appraisal?.risk_of_bias;
-  const gradeRaw      = trial.analysis_json?.clinician_view?.critical_appraisal?.grade_certainty;
-  const robCls        = ROB_BADGE[robRaw]   || '';
+  // rob/grade/links are denormalised flat fields returned by library-get browse mode.
+  // When viewing a full single-mode record (analysis_json present), fall back to nested path.
+  const robRaw        = trial.rob   ?? trial.analysis_json?.clinician_view?.critical_appraisal?.risk_of_bias   ?? null;
+  const gradeRaw      = trial.grade ?? trial.analysis_json?.clinician_view?.critical_appraisal?.grade_certainty ?? null;
+  const robCls        = ROB_BADGE[robRaw]    || '';
   const gradeCls      = GRADE_BADGE[gradeRaw] || '';
 
   const validatedBadge = validated
@@ -106,14 +108,17 @@ export function trialCardHtml(trial, options = {}) {
          Awaiting review
        </span>`;
 
-  const pubmedLink = trial.analysis_json?.reportMeta?.pubmed_link
-    ? `<a href="${escHtml(trial.analysis_json.reportMeta.pubmed_link)}" target="_blank"
+  const pubmedHref = trial.pubmed_link ?? trial.analysis_json?.reportMeta?.pubmed_link ?? null;
+  const pmcHref    = trial.pmc_link    ?? trial.analysis_json?.reportMeta?.pmc_link    ?? null;
+
+  const pubmedLink = pubmedHref
+    ? `<a href="${escHtml(pubmedHref)}" target="_blank"
           onclick="event.stopPropagation()"
           class="text-[10px] text-blue-600 hover:underline">PubMed ↗</a>`
     : '';
 
-  const pmcLink = trial.analysis_json?.reportMeta?.pmc_link
-    ? `<a href="${escHtml(trial.analysis_json.reportMeta.pmc_link)}" target="_blank"
+  const pmcLink = pmcHref
+    ? `<a href="${escHtml(pmcHref)}" target="_blank"
           onclick="event.stopPropagation()"
           class="text-[10px] text-green-600 hover:underline">Full Text ↗</a>`
     : '';

@@ -111,6 +111,8 @@ export default async function handler(req, res) {
 
     // ── Duplicate detection ───────────────────────────────────────────────
     // Check if a non-superseded trial with the same PMID or DOI already exists
+    let supersede_ids = [];
+
     if (pmid || doi) {
       let dupQuery = supabase
         .from('trials')
@@ -143,17 +145,15 @@ export default async function handler(req, res) {
         });
       }
 
-      // User confirmed overwrite — mark existing records as superseded
+      // User confirmed overwrite — collect IDs to supersede after insert
       if (duplicates && duplicates.length > 0 && confirm_overwrite) {
-        // We'll update superseded_by after inserting the new record
-        // Store IDs for now
-        req._supersede_ids = duplicates.map(d => d.id);
+        supersede_ids = duplicates.map(d => d.id);
       }
     }
 
     // ── Build the record ──────────────────────────────────────────────────
     const now     = new Date().toISOString();
-    const version = req._supersede_ids?.length
+    const version = supersede_ids.length
       ? ((await getMaxVersion(supabase, pmid, doi)) + 1)
       : 1;
 
@@ -201,11 +201,11 @@ export default async function handler(req, res) {
     if (insertError) throw insertError;
 
     // ── Mark old records as superseded ────────────────────────────────────
-    if (req._supersede_ids?.length) {
+    if (supersede_ids.length) {
       const { error: supError } = await supabase
         .from('trials')
         .update({ superseded_by: inserted.id })
-        .in('id', req._supersede_ids);
+        .in('id', supersede_ids);
       if (supError) console.error('[library-save] Supersede update failed:', supError.message);
     }
 
