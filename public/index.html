@@ -702,15 +702,17 @@ function analyzeByPmid() {
 // ── Retry State ──────────────────────────────────────────────────────
 let retryCancelled = false;
 
-function showRetryStatus(attempt, maxAttempts, waitSeconds) {
+function showRetryStatus(attempt, maxAttempts, waitSeconds, message) {
   const retryStatus    = document.getElementById('retry-status');
   const retryAttempt   = document.getElementById('retry-attempt');
   const retryCountdown = document.getElementById('retry-countdown');
+  const retryMessage   = document.getElementById('retry-message');
   const cancelBtn      = document.getElementById('retry-cancel-btn');
-  
+
   retryStatus.classList.remove('hidden');
   retryAttempt.textContent   = attempt;
   retryCountdown.textContent = waitSeconds;
+  if (retryMessage && message) retryMessage.textContent = message;
   
   cancelBtn.onclick = () => { retryCancelled = true; hideRetryStatus(); };
   
@@ -762,6 +764,7 @@ async function executeEngine(payload) {
       
       if (!res.ok) {
         if (res.status === 429) throw new Error('Daily analysis limit reached. Please try again tomorrow.');
+        if (res.status === 503) throw { retryable: true, message: 'Gemini AI service is experiencing high demand (Google 503). Retrying…' };
         const errorMsg = data.error || data.details || '';
         if (isRetryableError(errorMsg) && attempt < MAX_RETRIES) throw { retryable: true, message: errorMsg };
         throw new Error(errorMsg || 'Server failed to process request.');
@@ -778,24 +781,27 @@ async function executeEngine(payload) {
       
       if (err.retryable && attempt < MAX_RETRIES) {
         const waitTime = BASE_WAIT * attempt;
-        showRetryStatus(attempt, MAX_RETRIES, waitTime);
+        const retryMsg = err.message || 'AI service busy. Retrying…';
+        showRetryStatus(attempt, MAX_RETRIES, waitTime, retryMsg);
         await sleep(waitTime * 1000);
         if (retryCancelled) { hideRetryStatus(); hideLoading(); return; }
         hideRetryStatus();
         continue;
       }
-      
+
       hideLoading();
       const msg = err.message || 'Unknown error.';
       if (msg.includes('Daily')) alert('🚫 ' + msg);
+      else if (msg.includes('503') || msg.includes('high demand') || msg.includes('unavailable'))
+        alert('⏳ The Gemini AI service (Google) is temporarily unavailable due to high demand. This is not an issue with OutcomeLogic. Please wait 1–2 minutes and try again.');
       else if (isRetryableError(msg)) alert('⏳ AI service is busy. Please try again in a few minutes.');
       else alert('❌ Analysis Error: ' + msg);
       return;
     }
   }
-  
+
   hideLoading();
-  alert('❌ Analysis failed after multiple attempts. Please try again later.');
+  alert('❌ Gemini AI service remained unavailable after 3 attempts. This is a Google-side issue — please wait a few minutes and try again.');
 }
 
 // ── Expert Commentary (on-demand) ───────────────────────────────────

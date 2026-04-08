@@ -348,6 +348,16 @@ export default async function handler(req, res) {
         details: error.message,
       });
     }
+    const msg = error.message || '';
+    if (msg.startsWith('GEMINI_UNAVAILABLE:') ||
+        msg.toLowerCase().includes('503') ||
+        msg.toLowerCase().includes('service unavailable') ||
+        msg.toLowerCase().includes('high demand')) {
+      return res.status(503).json({
+        error:   'Gemini AI service unavailable.',
+        details: 'The Gemini AI service is experiencing high demand and is temporarily unavailable. This is a Google-side issue. Please wait 1–2 minutes and try again.',
+      });
+    }
     return res.status(500).json({ error: 'Processing failed.', details: error.message });
   }
 }
