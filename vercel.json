@@ -2,7 +2,8 @@
   "outputDirectory": "public",
   "buildCommand": "node scripts/generate-env.js",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/study",    "destination": "/study.html" }
   ],
   "functions": {
     "api/analyze.js":                      { "maxDuration": 60  },
