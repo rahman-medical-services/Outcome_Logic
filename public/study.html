@@ -114,7 +114,7 @@
         <span class="text-sm text-slate-400">Drop PDFs here or <span class="text-blue-400">click to select multiple</span></span>
         <span class="text-xs text-slate-600">Files will be matched to papers by filename — you can correct before running</span>
       </label>
-      <input id="batch-file-input" type="file" accept="application/pdf" multiple class="hidden" onchange="onBatchFilesSelected(this.files)">
+      <input id="batch-file-input" type="file" accept="application/pdf" multiple class="hidden">
     </div>
 
     <!-- Batch mapping panel (shown after files are selected) -->
@@ -548,7 +548,9 @@
   }
 
   // ── Batch PDF upload ──────────────────────────────────────────────────────
-  let batchFiles = [];   // [{ file, paperId }]
+  // Must be on window so inline onchange handlers in generated HTML can access it
+  window.batchFiles = [];
+  function setBatchPaperId(idx, value) { window.batchFiles[idx].paperId = value; }
 
   // Score how well a filename matches a paper title — simple word overlap
   function matchScore(filename, title) {
@@ -570,7 +572,7 @@
 
   function onBatchFilesSelected(fileList) {
     if (!fileList?.length) return;
-    batchFiles = Array.from(fileList).map(f => ({
+    window.batchFiles = Array.from(fileList).map(f => ({
       file:    f,
       paperId: bestMatch(f.name)?.id || '',
       status:  'pending',   // pending | running | done | error
@@ -583,7 +585,7 @@
 
   function renderBatchPanel() {
     const tbody = document.getElementById('batch-tbody');
-    tbody.innerHTML = batchFiles.map((item, idx) => {
+    tbody.innerHTML = window.batchFiles.map((item, idx) => {
       const opts = papersCache.map(p =>
         `<option value="${p.id}" ${p.id === item.paperId ? 'selected' : ''}>${p.title}</option>`
       ).join('');
@@ -599,7 +601,7 @@
         <tr class="border-b border-slate-700" id="batch-row-${idx}">
           <td class="px-4 py-2 text-slate-300 text-xs">${item.file.name}</td>
           <td class="px-4 py-2">
-            <select id="batch-select-${idx}" onchange="batchFiles[${idx}].paperId=this.value"
+            <select id="batch-select-${idx}" onchange="setBatchPaperId(${idx}, this.value)"
               class="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none">
               <option value="">— unassigned —</option>
               ${opts}
@@ -616,16 +618,15 @@
     btn.textContent = 'Running…';
 
     // Disable assignment dropdowns during run
-    batchFiles.forEach((_, i) => {
+    window.batchFiles.forEach((_, i) => {
       const sel = document.getElementById(`batch-select-${i}`);
       if (sel) sel.disabled = true;
     });
 
     let done = 0, errors = 0;
-    const total = batchFiles.filter(f => f.paperId).length;
 
-    for (let idx = 0; idx < batchFiles.length; idx++) {
-      const item = batchFiles[idx];
+    for (let idx = 0; idx < window.batchFiles.length; idx++) {
+      const item = window.batchFiles[idx];
       if (!item.paperId) {
         item.status  = 'error';
         item.message = 'No paper assigned';
@@ -637,7 +638,7 @@
       item.status = 'running';
       updateBatchRowStatus(idx, item);
       document.getElementById('batch-progress-text').textContent =
-        `Running ${idx + 1} of ${batchFiles.length}…`;
+        `Running ${idx + 1} of ${window.batchFiles.length}…`;
 
       try {
         const base64 = await readFileAsBase64(item.file);
@@ -679,7 +680,7 @@
   }
 
   function clearBatch() {
-    batchFiles = [];
+    window.batchFiles = [];
     document.getElementById('batch-panel').classList.add('hidden');
     document.getElementById('batch-zone').classList.remove('hidden');
     document.getElementById('batch-file-input').value = '';
@@ -697,14 +698,30 @@
     });
   }
 
-  // Drag-and-drop on the drop zone
+  // File input change listener (replaces inline onchange)
+  document.getElementById('batch-file-input').addEventListener('change', function() {
+    if (this.files?.length) onBatchFilesSelected(this.files);
+  });
+
+  // Drag-and-drop on the drop zone — must preventDefault on dragover AND dragenter
+  // to prevent the browser opening the file instead
   const batchZone = document.getElementById('batch-zone');
-  batchZone.addEventListener('dragover',  e => { e.preventDefault(); batchZone.classList.add('border-blue-400'); });
-  batchZone.addEventListener('dragleave', ()  => batchZone.classList.remove('border-blue-400'));
+  ['dragenter', 'dragover'].forEach(evt => {
+    batchZone.addEventListener(evt, e => {
+      e.preventDefault();
+      e.stopPropagation();
+      batchZone.classList.add('border-blue-400');
+    });
+  });
+  batchZone.addEventListener('dragleave', e => {
+    e.stopPropagation();
+    batchZone.classList.remove('border-blue-400');
+  });
   batchZone.addEventListener('drop', e => {
     e.preventDefault();
+    e.stopPropagation();
     batchZone.classList.remove('border-blue-400');
-    onBatchFilesSelected(e.dataTransfer.files);
+    if (e.dataTransfer.files?.length) onBatchFilesSelected(e.dataTransfer.files);
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
