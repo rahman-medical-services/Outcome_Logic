@@ -192,7 +192,7 @@ async function verifySource(sourceText, originalQuery) {
   }
 
   try {
-    const verifier = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const verifier = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     const result   = await verifier.generateContent({
       contents: [{ role: 'user', parts: [{ text:
         `Does this document describe a clinical trial relevant to: "${originalQuery}"?\nAnswer ONLY "YES" or "NO".\nExcerpt: ${sourceText.slice(0, 1500)}`
