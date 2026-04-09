@@ -11,7 +11,7 @@ import { Redis }     from '@upstash/redis';
 const NCBI_TOOL  = 'rahmanmedical-trial-visualiser';
 const NCBI_EMAIL = 'saqib@rahmanmedical.co.uk';
 const NCBI_BASE  = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
-const GEMINI_MODEL = 'gemini-2.0-flash';   // 2.5-flash experiencing persistent 503s (high demand April 2026)
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';  // lightweight model for query construction + re-ranking
 const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const ratelimit = new Ratelimit({
