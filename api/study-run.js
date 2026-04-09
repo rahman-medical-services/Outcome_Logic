@@ -3,20 +3,18 @@
 // Admin-only: requires INTERNAL_API_TOKEN + admin-tier JWT.
 //
 // POST /api/study-run
-//   Body: { paper_id: "<uuid>", version?: "v2" (default), force?: false }
+//   Body (PMID fetch):  { paper_id, version?: "v2", force?: false }
+//   Body (PDF upload):  { paper_id, version?: "v2", force?: false, pdf_base64: "<base64>" }
 //
-// Flow:
-//   1. Look up paper in study_papers (get PMID)
-//   2. Fetch full text via Europe PMC tiered fetch (mirrors analyze.js logic)
-//   3. Run runPipeline()
-//   4. Upsert to study_outputs (version = 'v2')
-//   5. Return { output_id, source_type, display_title }
+// If pdf_base64 is present, skips Europe PMC fetch and parses the PDF directly.
+// Source type is set to "full-text-pdf".
 
 import { createClient } from '@supabase/supabase-js';
+import pdfParse         from 'pdf-parse/lib/pdf-parse.js';
 import { runPipeline }  from '../lib/pipeline.js';
 
 export const config = {
-  api: { bodyParser: { sizeLimit: '2mb' } }
+  api: { bodyParser: { sizeLimit: '8mb' } }   // large enough for typical paper PDFs
 };
 
 // ─────────────────────────────────────────────
@@ -64,8 +62,28 @@ async function requireAdmin(req, res) {
 }
 
 // ─────────────────────────────────────────────
-// SOURCE FETCHING (mirrors analyze.js Tier 1–4)
-// Duplicated here to keep analyze.js untouched.
+// SOURCE: PDF (base64)
+// ─────────────────────────────────────────────
+async function sourceFromPdf(pdf_base64, paper) {
+  const buf  = Buffer.from(pdf_base64, 'base64');
+  const data = await pdfParse(buf);
+  const text = data.text;
+  if (!text || text.length < 500) {
+    throw new Error('PDF appears to be empty or image-only — could not extract text.');
+  }
+  console.log(`[study-run PDF] Extracted ${text.length} chars from PDF`);
+  return {
+    text,
+    sourceType: 'full-text-pdf',
+    pmid:    paper.pmid    || null,
+    pmcid:   null,
+    doi:     null,
+    authors: paper.authors || null,
+  };
+}
+
+// ─────────────────────────────────────────────
+// SOURCE: Europe PMC tiered fetch (PMID → PMC XML → Jina → abstract)
 // ─────────────────────────────────────────────
 const MIN_CHARS = { FULLTEXT: 2000, ABSTRACT: 200 };
 
@@ -131,9 +149,7 @@ async function fetchAbstract(pmid) {
   }
 }
 
-// Tiered fetch: Tier 1 (PMC XML) → Tier 2 (Jina/PMC) → Tier 4 (abstract)
 async function fetchTrialByPmid(pmid) {
-  // Resolve PMCID via Europe PMC metadata
   let meta = { pmid, pmcid: null, doi: null, authors: null };
   try {
     const url  = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`ext_id:${pmid}`)}&resultType=core&format=json`;
@@ -183,7 +199,7 @@ export default async function handler(req, res) {
   const user = await requireAdmin(req, res);
   if (!user) return;
 
-  const { paper_id, version = 'v2', force = false } = req.body;
+  const { paper_id, version = 'v2', force = false, pdf_base64 } = req.body;
   if (!paper_id) return res.status(400).json({ error: 'paper_id required.' });
   if (version !== 'v2') return res.status(400).json({ error: 'Only version v2 supported for now.' });
 
@@ -197,36 +213,53 @@ export default async function handler(req, res) {
     .single();
 
   if (paperErr || !paper) return res.status(404).json({ error: 'Paper not found.' });
-  if (!paper.pmid)        return res.status(400).json({ error: 'Paper has no PMID — add one before running analysis.' });
+
+  // If no PDF supplied we need a PMID to fetch from Europe PMC
+  if (!pdf_base64 && !paper.pmid) {
+    return res.status(400).json({
+      error: 'No PMID on record.',
+      message: 'Add a PMID first, or upload a PDF directly.',
+    });
+  }
 
   // ── Guard: don't re-run unless force=true ────────────────────────────────
   if (!force) {
     const { data: existing } = await supabase
       .from('study_outputs')
-      .select('id, generated_at')
+      .select('id, generated_at, source_type')
       .eq('paper_id', paper_id)
       .eq('version', version)
       .maybeSingle();
 
     if (existing) {
       return res.status(409).json({
-        error: 'Analysis already exists.',
-        message: 'Pass force: true to overwrite the existing output.',
-        output_id: existing.id,
+        error:        'Analysis already exists.',
+        message:      'Pass force: true to overwrite.',
+        output_id:    existing.id,
+        source_type:  existing.source_type,
         generated_at: existing.generated_at,
       });
     }
   }
 
-  // ── Fetch source text ─────────────────────────────────────────────────────
-  console.log(`[study-run] Fetching source for PMID ${paper.pmid} (${paper.title})`);
-  const source = await fetchTrialByPmid(paper.pmid);
-
-  if (!source) {
-    return res.status(422).json({
-      error: 'Source fetch failed.',
-      message: `Could not retrieve content for PMID ${paper.pmid}. Check the PMID is correct and the paper is indexed on Europe PMC.`,
-    });
+  // ── Resolve source ────────────────────────────────────────────────────────
+  let source;
+  if (pdf_base64) {
+    console.log(`[study-run] Using uploaded PDF for paper ${paper_id} (${paper.title})`);
+    try {
+      source = await sourceFromPdf(pdf_base64, paper);
+    } catch (err) {
+      return res.status(422).json({ error: err.message });
+    }
+  } else {
+    console.log(`[study-run] Fetching source for PMID ${paper.pmid} (${paper.title})`);
+    source = await fetchTrialByPmid(paper.pmid);
+    if (!source) {
+      return res.status(422).json({
+        error:   'Source fetch failed.',
+        message: `Could not retrieve content for PMID ${paper.pmid}. Upload a PDF instead.`,
+      });
+    }
   }
 
   console.log(`[study-run] Source: ${source.sourceType}, ${source.text.length} chars`);
@@ -237,11 +270,11 @@ export default async function handler(req, res) {
     pipelineResult = await runPipeline(
       source.text,
       {
-        sourceType:        source.sourceType,
-        pmid:              source.pmid   || paper.pmid,
-        pmcid:             source.pmcid  || null,
-        doi:               source.doi    || null,
-        authors:           source.authors || paper.authors || null,
+        sourceType: source.sourceType,
+        pmid:       source.pmid    || paper.pmid    || null,
+        pmcid:      source.pmcid   || null,
+        doi:        source.doi     || null,
+        authors:    source.authors || paper.authors || null,
       }
     );
   } catch (err) {

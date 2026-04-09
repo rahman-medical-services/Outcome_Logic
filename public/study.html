@@ -17,6 +17,10 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .modal-bg       { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
     pre             { white-space: pre-wrap; word-break: break-word; }
+    input[type=file]::file-selector-button {
+      background: #334155; color: #cbd5e1; border: none;
+      padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -266,6 +270,13 @@
       ? `<button onclick="viewOutput('${p.id}')" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded hover:bg-slate-700">View</button>`
       : '';
 
+    // Hidden file input + PDF button — always visible so you can override with a PDF at any time
+    const pdfBtn = `
+      <input type="file" id="pdf-${p.id}" accept="application/pdf" class="hidden" onchange="runV2FromPdf('${p.id}')">
+      <button onclick="document.getElementById('pdf-${p.id}').click()"
+        class="text-xs text-slate-400 hover:text-green-400 px-2 py-1 rounded hover:bg-slate-700"
+        title="Upload PDF to run analysis">PDF</button>`;
+
     return `
       <td class="px-4 py-3">
         <div class="font-medium text-slate-200 leading-tight">${p.title}${pilotTag}</div>
@@ -281,10 +292,63 @@
       <td class="px-4 py-3 text-right">
         <div class="flex items-center justify-end gap-1">
           ${viewBtn}
+          ${pdfBtn}
           ${runBtn}
         </div>
       </td>
     `;
+  }
+
+  // ── Run V2 from PDF ───────────────────────────────────────────────────────
+  async function runV2FromPdf(paperId) {
+    const input = document.getElementById(`pdf-${paperId}`);
+    const file  = input?.files?.[0];
+    if (!file) return;
+
+    // Confirm overwrite if output already exists
+    const paper = papersCache.find(p => p.id === paperId);
+    if (paper?.v2_output) {
+      if (!confirm(`"${paper.title}" already has a V2 analysis.\n\nOverwrite with this PDF?`)) {
+        input.value = '';
+        return;
+      }
+    }
+
+    const cell = document.getElementById(`v2-cell-${paperId}`);
+    const row  = document.getElementById(`row-${paperId}`);
+    cell.innerHTML = `<svg class="spinner w-4 h-4 text-green-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+    row.querySelectorAll('button').forEach(b => b.disabled = true);
+
+    try {
+      // Read file as base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload  = () => resolve(reader.result.split(',')[1]); // strip data:...;base64,
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+      });
+
+      const r   = await fetch(`${API}/study-run`, {
+        method:  'POST',
+        headers: authHeaders(),
+        body:    JSON.stringify({ paper_id: paperId, version: 'v2', force: true, pdf_base64: base64 }),
+      });
+      const data = await r.json();
+
+      if (!r.ok) {
+        cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium" title="${data.error || 'error'}">Error</span>`;
+        alert('PDF run failed: ' + (data.error || data.message || r.statusText));
+      } else {
+        cell.innerHTML = `<span class="badge-done px-2 py-0.5 rounded text-xs font-medium">Done</span>`;
+        await loadPapers();
+      }
+    } catch (err) {
+      cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium">Error</span>`;
+      alert('Error: ' + err.message);
+    } finally {
+      input.value = '';
+      row.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
   }
 
   // ── Run V2 ────────────────────────────────────────────────────────────────
