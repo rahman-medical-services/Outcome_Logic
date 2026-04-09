@@ -197,7 +197,7 @@ async function verifySource(sourceText, originalQuery) {
       contents: [{ role: 'user', parts: [{ text:
         `Does this document describe a clinical trial relevant to: "${originalQuery}"?\nAnswer ONLY "YES" or "NO".\nExcerpt: ${sourceText.slice(0, 1500)}`
       }] }],
-      generationConfig: { temperature: 0.0, maxOutputTokens: 10 }
+      generationConfig: { temperature: 0.0, maxOutputTokens: 10, thinkingConfig: { thinkingBudget: 0 } }
     });
     const answer   = result.response.text().trim().toUpperCase();
     const verified = answer.startsWith('YES');
