@@ -105,6 +105,45 @@
       </div>
     </details>
 
+    <!-- Batch PDF upload -->
+    <div id="batch-zone" class="mb-6 border-2 border-dashed border-slate-600 hover:border-blue-500 rounded-lg transition-colors">
+      <label for="batch-file-input" class="flex flex-col items-center justify-center py-8 cursor-pointer gap-2">
+        <svg class="w-8 h-8 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+        </svg>
+        <span class="text-sm text-slate-400">Drop PDFs here or <span class="text-blue-400">click to select multiple</span></span>
+        <span class="text-xs text-slate-600">Files will be matched to papers by filename — you can correct before running</span>
+      </label>
+      <input id="batch-file-input" type="file" accept="application/pdf" multiple class="hidden" onchange="onBatchFilesSelected(this.files)">
+    </div>
+
+    <!-- Batch mapping panel (shown after files are selected) -->
+    <div id="batch-panel" class="hidden mb-6 bg-slate-800 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+        <span class="font-medium text-white text-sm">Batch Run — Confirm Assignments</span>
+        <button onclick="clearBatch()" class="text-xs text-slate-400 hover:text-white">✕ Clear</button>
+      </div>
+
+      <table class="w-full text-sm">
+        <thead class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wide">
+          <tr>
+            <th class="px-4 py-2 text-left">PDF file</th>
+            <th class="px-4 py-2 text-left">Assigned to paper</th>
+            <th class="px-4 py-2 text-center w-24">Status</th>
+          </tr>
+        </thead>
+        <tbody id="batch-tbody"></tbody>
+      </table>
+
+      <div class="px-4 py-3 border-t border-slate-700 flex items-center gap-3">
+        <div id="batch-progress-text" class="text-xs text-slate-400 flex-1"></div>
+        <button id="batch-run-btn" onclick="runBatch()"
+          class="px-5 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded font-medium">
+          Run all
+        </button>
+      </div>
+    </div>
+
     <!-- Papers table -->
     <div class="bg-slate-800 rounded-lg overflow-hidden">
       <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
@@ -507,6 +546,166 @@
       status.textContent = 'Error: ' + err.message;
     }
   }
+
+  // ── Batch PDF upload ──────────────────────────────────────────────────────
+  let batchFiles = [];   // [{ file, paperId }]
+
+  // Score how well a filename matches a paper title — simple word overlap
+  function matchScore(filename, title) {
+    const norm  = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+    const words = norm(filename).split(/\s+/).filter(w => w.length > 2);
+    const tWords= norm(title).split(/\s+/).filter(w => w.length > 2);
+    if (!words.length) return 0;
+    return words.filter(w => tWords.includes(w)).length / words.length;
+  }
+
+  function bestMatch(filename) {
+    let best = null, bestScore = 0;
+    for (const p of papersCache) {
+      const s = matchScore(filename, p.title);
+      if (s > bestScore) { bestScore = s; best = p; }
+    }
+    return bestScore > 0 ? best : papersCache[0] || null;
+  }
+
+  function onBatchFilesSelected(fileList) {
+    if (!fileList?.length) return;
+    batchFiles = Array.from(fileList).map(f => ({
+      file:    f,
+      paperId: bestMatch(f.name)?.id || '',
+      status:  'pending',   // pending | running | done | error
+      message: '',
+    }));
+    renderBatchPanel();
+    document.getElementById('batch-panel').classList.remove('hidden');
+    document.getElementById('batch-zone').classList.add('hidden');
+  }
+
+  function renderBatchPanel() {
+    const tbody = document.getElementById('batch-tbody');
+    tbody.innerHTML = batchFiles.map((item, idx) => {
+      const opts = papersCache.map(p =>
+        `<option value="${p.id}" ${p.id === item.paperId ? 'selected' : ''}>${p.title}</option>`
+      ).join('');
+
+      const statusHtml = {
+        pending: `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
+        running: `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+        done:    `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
+        error:   `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
+      }[item.status];
+
+      return `
+        <tr class="border-b border-slate-700" id="batch-row-${idx}">
+          <td class="px-4 py-2 text-slate-300 text-xs">${item.file.name}</td>
+          <td class="px-4 py-2">
+            <select id="batch-select-${idx}" onchange="batchFiles[${idx}].paperId=this.value"
+              class="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none">
+              <option value="">— unassigned —</option>
+              ${opts}
+            </select>
+          </td>
+          <td class="px-4 py-2 text-center" id="batch-status-${idx}">${statusHtml}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  async function runBatch() {
+    const btn = document.getElementById('batch-run-btn');
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+
+    // Disable assignment dropdowns during run
+    batchFiles.forEach((_, i) => {
+      const sel = document.getElementById(`batch-select-${i}`);
+      if (sel) sel.disabled = true;
+    });
+
+    let done = 0, errors = 0;
+    const total = batchFiles.filter(f => f.paperId).length;
+
+    for (let idx = 0; idx < batchFiles.length; idx++) {
+      const item = batchFiles[idx];
+      if (!item.paperId) {
+        item.status  = 'error';
+        item.message = 'No paper assigned';
+        updateBatchRowStatus(idx, item);
+        errors++;
+        continue;
+      }
+
+      item.status = 'running';
+      updateBatchRowStatus(idx, item);
+      document.getElementById('batch-progress-text').textContent =
+        `Running ${idx + 1} of ${batchFiles.length}…`;
+
+      try {
+        const base64 = await readFileAsBase64(item.file);
+        const r      = await fetch(`${API}/study-run`, {
+          method:  'POST',
+          headers: authHeaders(),
+          body:    JSON.stringify({ paper_id: item.paperId, version: 'v2', force: true, pdf_base64: base64 }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || data.message || r.statusText);
+        item.status = 'done';
+        done++;
+      } catch (err) {
+        item.status  = 'error';
+        item.message = err.message;
+        errors++;
+      }
+
+      updateBatchRowStatus(idx, item);
+    }
+
+    document.getElementById('batch-progress-text').textContent =
+      `Complete — ${done} succeeded${errors ? ', ' + errors + ' failed' : ''}.`;
+    btn.textContent = 'Done';
+
+    // Refresh table to show new source badges / done states
+    await loadPapers();
+  }
+
+  function updateBatchRowStatus(idx, item) {
+    const cell = document.getElementById(`batch-status-${idx}`);
+    if (!cell) return;
+    cell.innerHTML = {
+      pending: `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
+      running: `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+      done:    `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
+      error:   `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
+    }[item.status];
+  }
+
+  function clearBatch() {
+    batchFiles = [];
+    document.getElementById('batch-panel').classList.add('hidden');
+    document.getElementById('batch-zone').classList.remove('hidden');
+    document.getElementById('batch-file-input').value = '';
+    document.getElementById('batch-run-btn').disabled = false;
+    document.getElementById('batch-run-btn').textContent = 'Run all';
+    document.getElementById('batch-progress-text').textContent = '';
+  }
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader  = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror= () => reject(new Error('Failed to read ' + file.name));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Drag-and-drop on the drop zone
+  const batchZone = document.getElementById('batch-zone');
+  batchZone.addEventListener('dragover',  e => { e.preventDefault(); batchZone.classList.add('border-blue-400'); });
+  batchZone.addEventListener('dragleave', ()  => batchZone.classList.remove('border-blue-400'));
+  batchZone.addEventListener('drop', e => {
+    e.preventDefault();
+    batchZone.classList.remove('border-blue-400');
+    onBatchFilesSelected(e.dataTransfer.files);
+  });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
