@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Study Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+    .badge-pilot    { background: #1e3a5f; color: #93c5fd; }
+    .badge-done     { background: #14532d; color: #86efac; }
+    .badge-pending  { background: #292524; color: #a8a29e; }
+    .badge-error    { background: #450a0a; color: #fca5a5; }
+    .spinner        { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal-bg       { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+    pre             { white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/" class="text-slate-400 hover:text-white text-sm">← App</a>
+      <span class="text-slate-600">|</span>
+      <span class="font-semibold text-white">OutcomeLogic</span>
+      <span class="text-slate-500 text-sm">Study Admin</span>
+      <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-900 text-amber-300">Phase 0 — Pilot</span>
+    </div>
+    <div id="user-info" class="text-xs text-slate-400"></div>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main class="max-w-6xl mx-auto px-6 py-8">
+
+    <!-- Stats bar -->
+    <div id="stats-bar" class="grid grid-cols-4 gap-4 mb-8">
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-total" class="text-2xl font-bold text-white">—</div>
+        <div class="text-xs text-slate-400 mt-1">Papers registered</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-v2-done" class="text-2xl font-bold text-green-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">V2 analyses complete</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-v2-pending" class="text-2xl font-bold text-amber-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">V2 pending</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-source-types" class="text-sm font-medium text-slate-300">—</div>
+        <div class="text-xs text-slate-400 mt-1">Source coverage</div>
+      </div>
+    </div>
+
+    <!-- Add paper form -->
+    <details class="mb-6 bg-slate-800 rounded-lg">
+      <summary class="px-4 py-3 cursor-pointer text-sm font-medium text-slate-300 hover:text-white select-none">
+        + Add paper
+      </summary>
+      <div class="px-4 pb-4 pt-2">
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <label class="block text-slate-400 mb-1">Title *</label>
+            <input id="add-title" type="text" placeholder="ORBITA trial" class="w-full bg-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">PMID</label>
+            <input id="add-pmid" type="text" placeholder="29031853" class="w-full bg-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Authors</label>
+            <input id="add-authors" type="text" placeholder="Al-Lamee R, Thompson D et al." class="w-full bg-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Journal</label>
+            <input id="add-journal" type="text" placeholder="The Lancet" class="w-full bg-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Year</label>
+            <input id="add-year" type="text" placeholder="2018" class="w-full bg-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Specialty</label>
+            <input id="add-specialty" type="text" placeholder="Cardiology" class="w-full bg-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 border border-slate-600 focus:border-blue-500 outline-none">
+          </div>
+        </div>
+        <div class="flex items-center gap-3 mt-3">
+          <label class="flex items-center gap-2 text-sm text-slate-300">
+            <input id="add-pilot" type="checkbox" checked class="accent-blue-500">
+            Phase 0 pilot
+          </label>
+          <button onclick="addPaper()" class="ml-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-medium">
+            Add paper
+          </button>
+        </div>
+        <div id="add-status" class="mt-2 text-xs text-slate-400"></div>
+      </div>
+    </details>
+
+    <!-- Papers table -->
+    <div class="bg-slate-800 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+        <span class="font-medium text-white text-sm">Registered Papers</span>
+        <button onclick="loadPapers()" class="text-xs text-slate-400 hover:text-white">↻ Refresh</button>
+      </div>
+
+      <div id="table-loading" class="p-8 text-center text-slate-500 text-sm">Loading papers…</div>
+      <div id="table-error"   class="hidden p-8 text-center text-red-400 text-sm"></div>
+
+      <table id="papers-table" class="hidden w-full text-sm">
+        <thead class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wide">
+          <tr>
+            <th class="px-4 py-2 text-left w-1/3">Trial</th>
+            <th class="px-4 py-2 text-left">Specialty</th>
+            <th class="px-4 py-2 text-left">PMID</th>
+            <th class="px-4 py-2 text-center">V2</th>
+            <th class="px-4 py-2 text-center">Source</th>
+            <th class="px-4 py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="papers-tbody"></tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <!-- ── Output Modal ─────────────────────────────────────────────────────── -->
+  <div id="output-modal" class="hidden fixed inset-0 modal-bg z-50 flex items-start justify-center pt-12 px-4 pb-4 overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl shadow-2xl">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+        <div>
+          <h2 id="modal-title" class="font-semibold text-white"></h2>
+          <div id="modal-meta" class="text-xs text-slate-400 mt-0.5"></div>
+        </div>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+      </div>
+      <div id="modal-body" class="p-6"></div>
+    </div>
+  </div>
+
+  <!-- ── Edit PMID Modal ──────────────────────────────────────────────────── -->
+  <div id="pmid-modal" class="hidden fixed inset-0 modal-bg z-50 flex items-center justify-center px-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm shadow-2xl p-6">
+      <h3 class="font-semibold text-white mb-4">Edit PMID</h3>
+      <input id="pmid-input" type="text" placeholder="e.g. 29031853"
+        class="w-full bg-slate-700 rounded px-3 py-2 text-white border border-slate-600 focus:border-blue-500 outline-none mb-4">
+      <div class="flex gap-3">
+        <button onclick="savePmid()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-medium">Save</button>
+        <button onclick="closePmidModal()" class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded">Cancel</button>
+      </div>
+      <div id="pmid-status" class="mt-2 text-xs text-slate-400"></div>
+    </div>
+  </div>
+
+  <script>
+  // ── Config ────────────────────────────────────────────────────────────────
+  const ENV     = window.ENV || {};
+  const API     = ENV.API_BASE_URL || '/api';
+  const TOKEN   = ENV.INTERNAL_API_TOKEN || '';
+  const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+
+  let authToken   = null;
+  let papersCache = [];
+  let editingId   = null;
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  async function init() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = '/'; return; }
+    const tier = session.user?.user_metadata?.tier || 'free';
+    if (tier !== 'admin') { window.location.href = '/'; return; }
+    authToken = session.access_token;
+    document.getElementById('user-info').textContent = session.user.email + ' · admin';
+    await loadPapers();
+  }
+
+  function authHeaders() {
+    return {
+      'Content-Type':  'application/json',
+      'x-api-token':   TOKEN,
+      'Authorization': `Bearer ${authToken}`,
+    };
+  }
+
+  // ── Load papers ───────────────────────────────────────────────────────────
+  async function loadPapers() {
+    document.getElementById('table-loading').classList.remove('hidden');
+    document.getElementById('papers-table').classList.add('hidden');
+    document.getElementById('table-error').classList.add('hidden');
+
+    try {
+      const r    = await fetch(`${API}/study-papers`, { headers: authHeaders() });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      papersCache = data.papers || [];
+      renderTable(papersCache);
+      updateStats(papersCache);
+    } catch (err) {
+      document.getElementById('table-loading').classList.add('hidden');
+      const el = document.getElementById('table-error');
+      el.textContent = 'Failed to load papers: ' + err.message;
+      el.classList.remove('hidden');
+    }
+  }
+
+  // ── Update stats bar ──────────────────────────────────────────────────────
+  function updateStats(papers) {
+    const total    = papers.length;
+    const v2Done   = papers.filter(p => p.v2_output).length;
+    const v2Pend   = total - v2Done;
+    const srcTypes = papers
+      .filter(p => p.v2_output?.source_type)
+      .map(p => p.v2_output.source_type)
+      .reduce((acc, t) => { acc[t] = (acc[t] || 0) + 1; return acc; }, {});
+    const srcStr   = Object.entries(srcTypes)
+      .map(([k, v]) => `${v}× ${k.replace('full-text-', '').replace('abstract-only', 'abstract')}`)
+      .join(', ') || '—';
+
+    document.getElementById('stat-total').textContent    = total;
+    document.getElementById('stat-v2-done').textContent  = v2Done;
+    document.getElementById('stat-v2-pending').textContent = v2Pend;
+    document.getElementById('stat-source-types').textContent = srcStr;
+  }
+
+  // ── Render table ──────────────────────────────────────────────────────────
+  function renderTable(papers) {
+    const tbody = document.getElementById('papers-tbody');
+    tbody.innerHTML = '';
+    papers.forEach(p => {
+      const tr = document.createElement('tr');
+      tr.id    = `row-${p.id}`;
+      tr.className = 'border-b border-slate-700 hover:bg-slate-750';
+      tr.innerHTML = rowHtml(p);
+      tbody.appendChild(tr);
+    });
+    document.getElementById('table-loading').classList.add('hidden');
+    document.getElementById('papers-table').classList.remove('hidden');
+  }
+
+  function rowHtml(p) {
+    const v2Badge = p.v2_output
+      ? `<span class="badge-done px-2 py-0.5 rounded text-xs font-medium">Done</span>`
+      : `<span class="badge-pending px-2 py-0.5 rounded text-xs font-medium">—</span>`;
+
+    const srcBadge = p.v2_output?.source_type
+      ? `<span class="text-xs text-slate-400">${p.v2_output.source_type.replace('full-text-', '').replace('abstract-only', 'abstract')}</span>`
+      : `<span class="text-xs text-slate-600">—</span>`;
+
+    const pmidEl = p.pmid
+      ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/" target="_blank" class="text-blue-400 hover:underline">${p.pmid}</a>`
+      : `<span class="text-slate-600">—</span>`;
+
+    const pilotTag = p.is_pilot
+      ? `<span class="badge-pilot px-1.5 py-0.5 rounded text-xs ml-1">pilot</span>`
+      : '';
+
+    const runBtn = p.v2_output
+      ? `<button onclick="runV2('${p.id}', true)" class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700">Re-run</button>`
+      : `<button onclick="runV2('${p.id}', false)" class="text-xs bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded font-medium">Run V2</button>`;
+
+    const viewBtn = p.v2_output
+      ? `<button onclick="viewOutput('${p.id}')" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded hover:bg-slate-700">View</button>`
+      : '';
+
+    return `
+      <td class="px-4 py-3">
+        <div class="font-medium text-slate-200 leading-tight">${p.title}${pilotTag}</div>
+        <div class="text-xs text-slate-500 mt-0.5">${p.authors || ''} ${p.year ? '(' + p.year + ')' : ''}</div>
+      </td>
+      <td class="px-4 py-3 text-slate-400">${p.specialty || '—'}</td>
+      <td class="px-4 py-3">
+        ${pmidEl}
+        <button onclick="editPmid('${p.id}', '${p.pmid || ''}')" class="ml-1 text-slate-600 hover:text-slate-400 text-xs">✎</button>
+      </td>
+      <td class="px-4 py-3 text-center" id="v2-cell-${p.id}">${v2Badge}</td>
+      <td class="px-4 py-3 text-center">${srcBadge}</td>
+      <td class="px-4 py-3 text-right">
+        <div class="flex items-center justify-end gap-1">
+          ${viewBtn}
+          ${runBtn}
+        </div>
+      </td>
+    `;
+  }
+
+  // ── Run V2 ────────────────────────────────────────────────────────────────
+  async function runV2(paperId, force) {
+    const cell = document.getElementById(`v2-cell-${paperId}`);
+    const row  = document.getElementById(`row-${paperId}`);
+
+    // Spinner
+    cell.innerHTML = `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+    row.querySelectorAll('button').forEach(b => b.disabled = true);
+
+    try {
+      const r   = await fetch(`${API}/study-run`, {
+        method:  'POST',
+        headers: authHeaders(),
+        body:    JSON.stringify({ paper_id: paperId, version: 'v2', force }),
+      });
+      const data = await r.json();
+
+      if (r.status === 409) {
+        // Already exists but force=false — shouldn't reach here since button says Re-run
+        cell.innerHTML = `<span class="badge-done px-2 py-0.5 rounded text-xs font-medium">Done</span>`;
+      } else if (!r.ok) {
+        cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium" title="${data.error || 'error'}">Error</span>`;
+        alert('Run failed: ' + (data.error || data.message || r.statusText));
+      } else {
+        cell.innerHTML = `<span class="badge-done px-2 py-0.5 rounded text-xs font-medium">Done</span>`;
+        // Reload row
+        await loadPapers();
+      }
+    } catch (err) {
+      cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium">Error</span>`;
+      alert('Network error: ' + err.message);
+    } finally {
+      row.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+  }
+
+  // ── View output ───────────────────────────────────────────────────────────
+  async function viewOutput(paperId) {
+    const paper = papersCache.find(p => p.id === paperId);
+    if (!paper?.v2_output) return;
+
+    // Fetch full output from study_outputs via Supabase directly (service role not available client-side)
+    // Instead, pass the output_id to a small fetch endpoint
+    // For now, we do a quick GET with the output id embedded
+    const r    = await fetch(`${API}/study-papers?output_id=${paper.v2_output.id}`, { headers: authHeaders() });
+    // The study-papers endpoint doesn't support output fetching yet — show what we have
+    // Actually, let's fetch via a dedicated query
+    showOutputModal(paper);
+  }
+
+  async function showOutputModal(paper) {
+    // Fetch the full output JSON — reuse study-papers with a special param, or fetch directly
+    // Since service role isn't available client-side, we'll do a lightweight fetch via the papers endpoint
+    // For Phase 0 we just show the key sections from what we can get
+
+    document.getElementById('modal-title').textContent = paper.title;
+    document.getElementById('modal-meta').textContent  =
+      `${paper.authors || ''} · ${paper.journal || ''} ${paper.year || ''} · PMID ${paper.pmid || '—'}`;
+
+    const body = document.getElementById('modal-body');
+
+    if (!paper.v2_output) {
+      body.innerHTML = `<p class="text-slate-400">No V2 output yet.</p>`;
+    } else {
+      body.innerHTML = `
+        <p class="text-slate-400 text-sm mb-4">
+          Analysed: ${new Date(paper.v2_output.generated_at).toLocaleString()} ·
+          Source: ${paper.v2_output.source_type || '—'}
+        </p>
+        <p class="text-slate-500 text-sm italic mb-4">
+          Full output JSON is stored in Supabase → study_outputs table.
+          Use the Supabase dashboard to query and review the output_json field for output ID:
+        </p>
+        <code class="block bg-slate-800 text-blue-300 px-4 py-2 rounded text-xs mb-4">${paper.v2_output.id}</code>
+        <p class="text-slate-500 text-xs">
+          To view the full structured analysis, open Supabase → Table Editor → study_outputs →
+          filter by id = above UUID → inspect the output_json column.
+        </p>
+      `;
+    }
+
+    document.getElementById('output-modal').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    document.getElementById('output-modal').classList.add('hidden');
+  }
+
+  // ── Edit PMID ─────────────────────────────────────────────────────────────
+  function editPmid(paperId, currentPmid) {
+    editingId = paperId;
+    document.getElementById('pmid-input').value = currentPmid || '';
+    document.getElementById('pmid-status').textContent = '';
+    document.getElementById('pmid-modal').classList.remove('hidden');
+    document.getElementById('pmid-input').focus();
+  }
+
+  function closePmidModal() {
+    editingId = null;
+    document.getElementById('pmid-modal').classList.add('hidden');
+  }
+
+  async function savePmid() {
+    const pmid   = document.getElementById('pmid-input').value.trim();
+    const status = document.getElementById('pmid-status');
+    if (!pmid) { status.textContent = 'Enter a PMID.'; return; }
+
+    status.textContent = 'Saving…';
+    try {
+      const r    = await fetch(`${API}/study-papers?id=${editingId}`, {
+        method:  'PATCH',
+        headers: authHeaders(),
+        body:    JSON.stringify({ pmid }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      closePmidModal();
+      await loadPapers();
+    } catch (err) {
+      status.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  // ── Add paper ─────────────────────────────────────────────────────────────
+  async function addPaper() {
+    const title     = document.getElementById('add-title').value.trim();
+    const status    = document.getElementById('add-status');
+    if (!title) { status.textContent = 'Title is required.'; return; }
+
+    status.textContent = 'Adding…';
+    try {
+      const r = await fetch(`${API}/study-papers`, {
+        method:  'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          title,
+          pmid:      document.getElementById('add-pmid').value.trim()     || null,
+          authors:   document.getElementById('add-authors').value.trim()  || null,
+          journal:   document.getElementById('add-journal').value.trim()  || null,
+          year:      document.getElementById('add-year').value.trim()     || null,
+          specialty: document.getElementById('add-specialty').value.trim() || null,
+          phase:     0,
+          is_pilot:  document.getElementById('add-pilot').checked,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      status.textContent = 'Paper added.';
+      ['add-title','add-pmid','add-authors','add-journal','add-year','add-specialty'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      await loadPapers();
+    } catch (err) {
+      status.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(); closePmidModal(); }
+    if (e.key === 'Enter' && !document.getElementById('pmid-modal').classList.contains('hidden')) {
+      savePmid();
+    }
+  });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  init();
+  </script>
+
+</body>
+</html>
