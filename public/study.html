@@ -174,14 +174,24 @@
   </main>
 
   <!-- ── Output Modal ─────────────────────────────────────────────────────── -->
-  <div id="output-modal" class="hidden fixed inset-0 modal-bg z-50 flex items-start justify-center pt-12 px-4 pb-4 overflow-y-auto">
+  <div id="output-modal" class="hidden fixed inset-0 modal-bg z-50 flex items-start justify-center pt-8 px-4 pb-8 overflow-y-auto">
     <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl shadow-2xl">
-      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700 sticky top-0 bg-slate-900 z-10 rounded-t-xl">
         <div>
           <h2 id="modal-title" class="font-semibold text-white"></h2>
           <div id="modal-meta" class="text-xs text-slate-400 mt-0.5"></div>
         </div>
-        <button onclick="closeModal()" class="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+        <div class="flex items-center gap-2">
+          <button onclick="downloadJson()" id="modal-dl-btn"
+            class="hidden text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded font-medium">
+            ↓ JSON
+          </button>
+          <button onclick="window.print()" id="modal-print-btn"
+            class="hidden text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded font-medium">
+            ⎙ Print / PDF
+          </button>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-white text-xl leading-none ml-2">✕</button>
+        </div>
       </div>
       <div id="modal-body" class="p-6"></div>
     </div>
@@ -431,55 +441,207 @@
   }
 
   // ── View output ───────────────────────────────────────────────────────────
+  let _currentOutputJson = null;
+
   async function viewOutput(paperId) {
     const paper = papersCache.find(p => p.id === paperId);
     if (!paper?.v2_output) return;
 
-    // Fetch full output from study_outputs via Supabase directly (service role not available client-side)
-    // Instead, pass the output_id to a small fetch endpoint
-    // For now, we do a quick GET with the output id embedded
-    const r    = await fetch(`${API}/study-papers?output_id=${paper.v2_output.id}`, { headers: authHeaders() });
-    // The study-papers endpoint doesn't support output fetching yet — show what we have
-    // Actually, let's fetch via a dedicated query
-    showOutputModal(paper);
-  }
-
-  async function showOutputModal(paper) {
-    // Fetch the full output JSON — reuse study-papers with a special param, or fetch directly
-    // Since service role isn't available client-side, we'll do a lightweight fetch via the papers endpoint
-    // For Phase 0 we just show the key sections from what we can get
-
+    // Show modal immediately with loading state
     document.getElementById('modal-title').textContent = paper.title;
     document.getElementById('modal-meta').textContent  =
-      `${paper.authors || ''} · ${paper.journal || ''} ${paper.year || ''} · PMID ${paper.pmid || '—'}`;
+      `${paper.authors || ''} · ${paper.journal || ''} ${paper.year ? '(' + paper.year + ')' : ''} · Source: ${paper.v2_output.source_type || '—'}`;
+    document.getElementById('modal-body').innerHTML =
+      `<div class="flex items-center gap-3 text-slate-400 text-sm"><svg class="spinner w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Loading output…</div>`;
+    document.getElementById('modal-dl-btn').classList.add('hidden');
+    document.getElementById('modal-print-btn').classList.add('hidden');
+    _currentOutputJson = null;
+    document.getElementById('output-modal').classList.remove('hidden');
 
-    const body = document.getElementById('modal-body');
+    try {
+      const r    = await fetch(`${API}/study-output?id=${paper.v2_output.id}`, { headers: authHeaders() });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      _currentOutputJson = data.output.output_json;
+      renderOutputBody(_currentOutputJson, paper);
+      document.getElementById('modal-dl-btn').classList.remove('hidden');
+      document.getElementById('modal-print-btn').classList.remove('hidden');
+    } catch (err) {
+      document.getElementById('modal-body').innerHTML =
+        `<p class="text-red-400 text-sm">Failed to load output: ${err.message}</p>`;
+    }
+  }
 
-    if (!paper.v2_output) {
-      body.innerHTML = `<p class="text-slate-400">No V2 output yet.</p>`;
-    } else {
-      body.innerHTML = `
-        <p class="text-slate-400 text-sm mb-4">
-          Analysed: ${new Date(paper.v2_output.generated_at).toLocaleString()} ·
-          Source: ${paper.v2_output.source_type || '—'}
-        </p>
-        <p class="text-slate-500 text-sm italic mb-4">
-          Full output JSON is stored in Supabase → study_outputs table.
-          Use the Supabase dashboard to query and review the output_json field for output ID:
-        </p>
-        <code class="block bg-slate-800 text-blue-300 px-4 py-2 rounded text-xs mb-4">${paper.v2_output.id}</code>
-        <p class="text-slate-500 text-xs">
-          To view the full structured analysis, open Supabase → Table Editor → study_outputs →
-          filter by id = above UUID → inspect the output_json column.
-        </p>
-      `;
+  function renderOutputBody(j, paper) {
+    const rm = j.reportMeta        || {};
+    const cv = j.clinician_view    || {};
+    const pv = j.patient_view      || {};
+    const lm = j.library_meta      || {};
+    const pico = cv.pico            || {};
+    const ca   = cv.critical_appraisal || {};
+    const ae   = cv.adverse_events  || {};
+    const sg   = cv.subgroups       || {};
+    const id   = cv.interactive_data?.endpoints || [];
+
+    function row(label, value) {
+      if (!value) return '';
+      return `<tr class="border-b border-slate-800">
+        <td class="py-2 pr-4 text-xs text-slate-500 whitespace-nowrap align-top w-36">${label}</td>
+        <td class="py-2 text-sm text-slate-200">${value}</td>
+      </tr>`;
+    }
+    function section(title, content) {
+      return `<div class="mb-6">
+        <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">${title}</h3>
+        ${content}
+      </div>`;
     }
 
-    document.getElementById('output-modal').classList.remove('hidden');
+    // ── Overview ────────────────────────────────────────────────────────────
+    const gradeBg = { High:'bg-green-900 text-green-300', Moderate:'bg-blue-900 text-blue-300',
+                      Low:'bg-amber-900 text-amber-300', 'Very Low':'bg-red-900 text-red-300' };
+    const robBg   = { Low:'bg-green-900 text-green-300', Moderate:'bg-amber-900 text-amber-300',
+                      High:'bg-red-900 text-red-300', Unclear:'bg-slate-700 text-slate-300' };
+
+    const overviewHtml = `<table class="w-full">
+      ${row('Design',     rm.study_design)}
+      ${row('Authors',    rm.authors)}
+      ${row('Journal',    rm.journal)}
+      ${row('Year',       rm.year)}
+      ${row('PMID',       rm.pubmed_id ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${rm.pubmed_id}/" target="_blank" class="text-blue-400 hover:underline">${rm.pubmed_id}</a>` : null)}
+      ${row('DOI',        rm.doi ? `<a href="https://doi.org/${rm.doi}" target="_blank" class="text-blue-400 hover:underline">${rm.doi}</a>` : null)}
+      ${row('Source',     rm.source_type)}
+      ${row('Domain',     lm.domain ? `${lm.domain} → ${lm.specialty || ''}` : null)}
+    </table>`;
+
+    // ── PICO ─────────────────────────────────────────────────────────────────
+    const picoHtml = `<table class="w-full">
+      ${row('Population',   pico.population)}
+      ${row('Intervention', pico.intervention)}
+      ${row('Control',      pico.control)}
+      ${row('Primary',      pico.primary_outcome)}
+    </table>` + (pico.secondary_outcomes?.length
+      ? `<div class="mt-3"><div class="text-xs text-slate-500 mb-1">Secondary endpoints</div>
+         <ul class="space-y-1">${(pico.secondary_outcomes).map(s =>
+           `<li class="text-sm text-slate-300 pl-3 border-l-2 border-slate-700">${s}</li>`
+         ).join('')}</ul></div>` : '');
+
+    // ── Endpoints / charts (rendered as bar-style tables) ─────────────────
+    let endpointsHtml = '';
+    if (id.length) {
+      endpointsHtml = id.map(ep => {
+        const arms = ep.arms || [];
+        // Collect all unique x labels
+        const xLabels = [...new Set(arms.flatMap(a => (a.data_points || []).map(d => d.x)))];
+        const thead = `<tr><th class="text-left text-xs text-slate-500 pb-1 pr-4">Arm</th>${xLabels.map(x =>
+          `<th class="text-right text-xs text-slate-500 pb-1 px-3">${x}</th>`).join('')}</tr>`;
+        const tbody = arms.map(arm => {
+          const cells = xLabels.map(x => {
+            const dp = (arm.data_points || []).find(d => d.x === x);
+            return `<td class="text-right text-sm text-slate-200 px-3">${dp != null ? dp.y + '%' : '—'}</td>`;
+          }).join('');
+          return `<tr class="border-b border-slate-800"><td class="py-1.5 pr-4 text-sm text-slate-300">${arm.group_name}</td>${cells}</tr>`;
+        }).join('');
+        return `<div class="mb-4">
+          <div class="text-sm font-medium text-slate-200 mb-1">${ep.label}</div>
+          ${ep.clinical_synthesis ? `<p class="text-xs text-slate-400 mb-2">${ep.clinical_synthesis}</p>` : ''}
+          <div class="overflow-x-auto"><table class="w-full"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+        </div>`;
+      }).join('');
+    }
+
+    // ── Critical appraisal ────────────────────────────────────────────────
+    const gradeClass = gradeBg[ca.grade_certainty] || 'bg-slate-700 text-slate-300';
+    const robClass   = robBg[ca.risk_of_bias]      || 'bg-slate-700 text-slate-300';
+    const caHtml = `
+      <div class="flex gap-3 mb-3">
+        <span class="px-2.5 py-1 rounded text-xs font-semibold ${gradeClass}">GRADE: ${ca.grade_certainty || '—'}</span>
+        <span class="px-2.5 py-1 rounded text-xs font-semibold ${robClass}">RoB: ${ca.risk_of_bias || '—'}</span>
+      </div>
+      <table class="w-full">
+        ${row('RoB rationale', ca.risk_of_bias_rationale)}
+        ${row('Limitations',   ca.limitations)}
+      </table>`;
+
+    // ── Adverse events ────────────────────────────────────────────────────
+    let aeHtml = '<p class="text-sm text-slate-500 italic">No AE data.</p>';
+    if (ae.has_data && ae.rows?.length) {
+      const hasControl = ae.rows.some(r => r.control_pct != null);
+      aeHtml = `<div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead><tr class="border-b border-slate-700 text-xs text-slate-500">
+          <th class="text-left pb-1 pr-4">Event</th>
+          <th class="text-right pb-1 px-3">Intervention</th>
+          ${hasControl ? '<th class="text-right pb-1 px-3">Control</th>' : ''}
+          <th class="text-left pb-1 pl-3">Note</th>
+        </tr></thead>
+        <tbody>${ae.rows.map(r => `<tr class="border-b border-slate-800">
+          <td class="py-1.5 pr-4 text-slate-300">${r.event}</td>
+          <td class="py-1.5 px-3 text-right text-slate-200">${r.intervention_pct != null ? r.intervention_pct + '%' : '—'}</td>
+          ${hasControl ? `<td class="py-1.5 px-3 text-right text-slate-200">${r.control_pct != null ? r.control_pct + '%' : '—'}</td>` : ''}
+          <td class="py-1.5 pl-3 text-slate-500 text-xs">${r.note || ''}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+      const disc = ae.discontinuation;
+      const trm  = ae.treatment_related_mortality;
+      if (disc?.intervention_pct != null) {
+        aeHtml += `<p class="text-xs text-slate-400 mt-2">Discontinuation due to AE: ${disc.intervention_pct}%${hasControl && disc.control_pct != null ? ' vs ' + disc.control_pct + '%' : ''}</p>`;
+      }
+      if (trm?.intervention_pct != null) {
+        aeHtml += `<p class="text-xs text-slate-400">Treatment-related mortality: ${trm.intervention_pct}%${hasControl && trm.control_pct != null ? ' vs ' + trm.control_pct + '%' : ''}${trm.note ? ' — ' + trm.note : ''}</p>`;
+      }
+    }
+
+    // ── Subgroups ─────────────────────────────────────────────────────────
+    let sgHtml = '<p class="text-sm text-slate-500 italic">No significant subgroup interactions.</p>';
+    if (sg.has_significant_interactions && sg.items?.length) {
+      sgHtml = sg.items.map(item => `
+        <div class="mb-3 p-3 bg-slate-800 rounded">
+          <div class="text-sm font-medium text-slate-200 mb-1">${item.variable} <span class="text-xs text-amber-400 ml-2">interaction ${item.interaction_p}</span></div>
+          ${(item.arms || []).map(a =>
+            `<div class="text-xs text-slate-400">${a.subgroup_name}: HR ${a.hr} (95% CI ${a.ci_95})</div>`
+          ).join('')}
+        </div>`).join('');
+    }
+
+    // ── Patient view ───────────────────────────────────────────────────────
+    const patientHtml = `
+      <p class="text-sm text-slate-300 leading-relaxed mb-3">${pv.lay_summary || '—'}</p>
+      ${pv.shared_decision_making_takeaway
+        ? `<div class="bg-slate-800 rounded p-3 text-sm text-slate-400 italic">${pv.shared_decision_making_takeaway}</div>`
+        : ''}`;
+
+    // ── Raw JSON toggle ────────────────────────────────────────────────────
+    const jsonHtml = `<details class="mt-2">
+      <summary class="cursor-pointer text-xs text-slate-500 hover:text-slate-300 select-none">Show raw JSON</summary>
+      <pre class="mt-2 text-xs text-green-300 bg-slate-950 rounded p-4 overflow-x-auto max-h-96 overflow-y-auto">${JSON.stringify(j, null, 2)}</pre>
+    </details>`;
+
+    document.getElementById('modal-body').innerHTML =
+      section('Overview',           overviewHtml) +
+      section('PICO',               picoHtml) +
+      (endpointsHtml ? section('Endpoints', endpointsHtml) : '') +
+      section('Critical Appraisal', caHtml) +
+      section('Adverse Events (Grade ≥3)', aeHtml) +
+      section('Subgroup Interactions', sgHtml) +
+      section('Patient View',       patientHtml) +
+      jsonHtml;
+  }
+
+  function downloadJson() {
+    if (!_currentOutputJson) return;
+    const blob = new Blob([JSON.stringify(_currentOutputJson, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const title = (_currentOutputJson.reportMeta?.trial_identification || 'output').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.href     = url;
+    a.download = `${title}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function closeModal() {
     document.getElementById('output-modal').classList.add('hidden');
+    _currentOutputJson = null;
   }
 
   // ── Edit PMID ─────────────────────────────────────────────────────────────
