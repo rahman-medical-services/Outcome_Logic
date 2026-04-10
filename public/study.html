@@ -114,6 +114,7 @@
         </div>
         <!-- Plain visible file input — no hidden/overlay tricks -->
         <input id="batch-file-input" type="file" accept="application/pdf" multiple
+               onchange="batchHandleFiles(this.files)"
                class="text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-700 file:text-white hover:file:bg-blue-600 file:cursor-pointer cursor-pointer">
       </div>
       <div id="batch-drop-hint" class="mt-3 text-xs text-slate-600 text-center">or drag and drop files onto this area</div>
@@ -572,6 +573,10 @@
     return bestScore > 0 ? best : papersCache[0] || null;
   }
 
+  // Also exposed as window.batchHandleFiles for the inline onchange attribute
+  function batchHandleFiles(fileList) { onBatchFilesSelected(fileList); }
+  window.batchHandleFiles = batchHandleFiles;
+
   function onBatchFilesSelected(fileList) {
     try {
       console.log('[batch] onBatchFilesSelected, count:', fileList?.length, 'papersCache:', papersCache.length);
@@ -586,6 +591,8 @@
       renderBatchPanel();
       document.getElementById('batch-panel').classList.remove('hidden');
       document.getElementById('batch-zone').classList.add('hidden');
+      // Scroll panel into view in case user is lower on the page
+      document.getElementById('batch-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
       console.error('[batch] onBatchFilesSelected error:', err);
       alert('Batch setup error: ' + err.message);
