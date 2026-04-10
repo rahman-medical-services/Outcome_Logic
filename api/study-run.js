@@ -200,63 +200,60 @@ export default async function handler(req, res) {
   if (!user) return;
 
   const { paper_id, version = 'v2', force = false, pdf_base64 } = req.body;
-  if (!paper_id) return res.status(400).json({ error: 'paper_id required.' });
   if (version !== 'v2') return res.status(400).json({ error: 'Only version v2 supported for now.' });
+  if (!paper_id && !pdf_base64) return res.status(400).json({ error: 'Provide paper_id or pdf_base64.' });
 
   const supabase = getAdminClient();
 
-  // ── Look up paper ─────────────────────────────────────────────────────────
-  const { data: paper, error: paperErr } = await supabase
-    .from('study_papers')
-    .select('*')
-    .eq('id', paper_id)
-    .single();
+  // ── Mode A: paper_id provided — look up existing paper ───────────────────
+  // ── Mode B: pdf_base64 only — auto-create paper from pipeline output ──────
+  let paper = null;
 
-  if (paperErr || !paper) return res.status(404).json({ error: 'Paper not found.' });
+  if (paper_id) {
+    const { data, error: paperErr } = await supabase
+      .from('study_papers')
+      .select('*')
+      .eq('id', paper_id)
+      .single();
+    if (paperErr || !data) return res.status(404).json({ error: 'Paper not found.' });
+    paper = data;
 
-  // If no PDF supplied we need a PMID to fetch from Europe PMC
-  if (!pdf_base64 && !paper.pmid) {
-    return res.status(400).json({
-      error: 'No PMID on record.',
-      message: 'Add a PMID first, or upload a PDF directly.',
-    });
-  }
+    if (!pdf_base64 && !paper.pmid) {
+      return res.status(400).json({ error: 'No PMID on record. Add a PMID first, or upload a PDF.' });
+    }
 
-  // ── Guard: don't re-run unless force=true ────────────────────────────────
-  if (!force) {
-    const { data: existing } = await supabase
-      .from('study_outputs')
-      .select('id, generated_at, source_type')
-      .eq('paper_id', paper_id)
-      .eq('version', version)
-      .maybeSingle();
-
-    if (existing) {
-      return res.status(409).json({
-        error:        'Analysis already exists.',
-        message:      'Pass force: true to overwrite.',
-        output_id:    existing.id,
-        source_type:  existing.source_type,
-        generated_at: existing.generated_at,
-      });
+    // Guard: don't re-run unless force=true
+    if (!force) {
+      const { data: existing } = await supabase
+        .from('study_outputs')
+        .select('id, generated_at, source_type')
+        .eq('paper_id', paper_id)
+        .eq('version', version)
+        .maybeSingle();
+      if (existing) {
+        return res.status(409).json({
+          error: 'Analysis already exists. Pass force: true to overwrite.',
+          output_id: existing.id, source_type: existing.source_type, generated_at: existing.generated_at,
+        });
+      }
     }
   }
 
   // ── Resolve source ────────────────────────────────────────────────────────
   let source;
   if (pdf_base64) {
-    console.log(`[study-run] Using uploaded PDF for paper ${paper_id} (${paper.title})`);
+    console.log(`[study-run] Parsing uploaded PDF`);
     try {
-      source = await sourceFromPdf(pdf_base64, paper);
+      source = await sourceFromPdf(pdf_base64, paper || {});
     } catch (err) {
       return res.status(422).json({ error: err.message });
     }
   } else {
-    console.log(`[study-run] Fetching source for PMID ${paper.pmid} (${paper.title})`);
+    console.log(`[study-run] Fetching PMID ${paper.pmid}`);
     source = await fetchTrialByPmid(paper.pmid);
     if (!source) {
       return res.status(422).json({
-        error:   'Source fetch failed.',
+        error: 'Source fetch failed.',
         message: `Could not retrieve content for PMID ${paper.pmid}. Upload a PDF instead.`,
       });
     }
@@ -271,27 +268,52 @@ export default async function handler(req, res) {
       source.text,
       {
         sourceType: source.sourceType,
-        pmid:       source.pmid    || paper.pmid    || null,
+        pmid:       source.pmid    || paper?.pmid    || null,
         pmcid:      source.pmcid   || null,
         doi:        source.doi     || null,
-        authors:    source.authors || paper.authors || null,
+        authors:    source.authors || paper?.authors || null,
       }
     );
   } catch (err) {
     console.error(`[study-run] Pipeline error:`, err.message);
-    const msg = err.message || '';
-    if (msg.startsWith('GEMINI_UNAVAILABLE')) {
+    if ((err.message || '').startsWith('GEMINI_UNAVAILABLE')) {
       return res.status(503).json({ error: err.message });
     }
     return res.status(500).json({ error: `Pipeline failed: ${err.message}` });
   }
 
-  // ── Upsert to study_outputs ───────────────────────────────────────────────
+  // ── Mode B: create study_papers row from pipeline output ─────────────────
+  if (!paper_id) {
+    const rm = pipelineResult.reportMeta   || {};
+    const lm = pipelineResult.library_meta || {};
+    const { data: newPaper, error: createErr } = await supabase
+      .from('study_papers')
+      .insert({
+        pmid:      rm.pubmed_id    || null,
+        title:     lm.display_title || rm.trial_identification || 'Unknown trial',
+        authors:   rm.authors      || null,
+        journal:   rm.journal      || null,
+        year:      rm.year         || null,
+        specialty: lm.specialty    || null,
+        phase:     0,
+        is_pilot:  true,
+      })
+      .select()
+      .single();
+    if (createErr) {
+      console.error(`[study-run] Paper create error:`, createErr.message);
+      return res.status(500).json({ error: `Failed to create paper record: ${createErr.message}` });
+    }
+    paper = newPaper;
+    console.log(`[study-run] Auto-created paper ${paper.id}: ${paper.title}`);
+  }
+
+  // ── Save to study_outputs ─────────────────────────────────────────────────
   const { data: output, error: saveErr } = await supabase
     .from('study_outputs')
     .upsert(
       {
-        paper_id,
+        paper_id:     paper.id,
         version,
         output_json:  pipelineResult,
         source_type:  source.sourceType,
@@ -307,10 +329,11 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: `Failed to save output: ${saveErr.message}` });
   }
 
-  console.log(`[study-run] Saved output ${output.id} for paper ${paper_id}`);
+  console.log(`[study-run] Saved output ${output.id} for paper ${paper.id}`);
 
   return res.status(200).json({
     ok:            true,
+    paper_id:      paper.id,
     output_id:     output.id,
     source_type:   source.sourceType,
     display_title: pipelineResult?.library_meta?.display_title || paper.title,

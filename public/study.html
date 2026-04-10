@@ -110,7 +110,7 @@
       <div class="flex items-center gap-4">
         <div class="flex-1">
           <p class="text-sm text-slate-300 font-medium mb-1">Batch upload PDFs</p>
-          <p class="text-xs text-slate-500">Select all PDFs at once — they'll be matched to papers by filename</p>
+          <p class="text-xs text-slate-500">Select all PDFs at once — each one will be analysed and auto-registered as a new paper</p>
         </div>
         <!-- Plain visible file input — no hidden/overlay tricks -->
         <input id="batch-file-input" type="file" accept="application/pdf" multiple
@@ -131,7 +131,6 @@
         <thead class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wide">
           <tr>
             <th class="px-4 py-2 text-left">PDF file</th>
-            <th class="px-4 py-2 text-left">Assigned to paper</th>
             <th class="px-4 py-2 text-center w-24">Status</th>
           </tr>
         </thead>
@@ -568,47 +567,28 @@
   }
 
   // ── Batch PDF upload ──────────────────────────────────────────────────────
-  // Must be on window so inline onchange handlers in generated HTML can access it
+  // Each PDF is sent without a paper_id — study-run auto-creates the paper record
+  // from the pipeline's reportMeta / library_meta output.
   window.batchFiles = [];
-  function setBatchPaperId(idx, value) { window.batchFiles[idx].paperId = value; }
 
-  // Score how well a filename matches a paper title — simple word overlap
-  function matchScore(filename, title) {
-    const norm  = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
-    const words = norm(filename).split(/\s+/).filter(w => w.length > 2);
-    const tWords= norm(title).split(/\s+/).filter(w => w.length > 2);
-    if (!words.length) return 0;
-    return words.filter(w => tWords.includes(w)).length / words.length;
-  }
-
-  function bestMatch(filename) {
-    let best = null, bestScore = 0;
-    for (const p of papersCache) {
-      const s = matchScore(filename, p.title);
-      if (s > bestScore) { bestScore = s; best = p; }
-    }
-    return bestScore > 0 ? best : papersCache[0] || null;
-  }
-
-  // Also exposed as window.batchHandleFiles for the inline onchange attribute
+  // Exposed on window for the inline onchange attribute
   function batchHandleFiles(fileList) { onBatchFilesSelected(fileList); }
   window.batchHandleFiles = batchHandleFiles;
 
   function onBatchFilesSelected(fileList) {
     try {
-      console.log('[batch] onBatchFilesSelected, count:', fileList?.length, 'papersCache:', papersCache.length);
+      console.log('[batch] onBatchFilesSelected, count:', fileList?.length);
       if (!fileList?.length) return;
       window.batchFiles = Array.from(fileList).map(f => ({
         file:    f,
-        paperId: bestMatch(f.name)?.id || '',
         status:  'pending',
         message: '',
+        title:   '',   // filled in after run from API response
       }));
       console.log('[batch] batchFiles built:', window.batchFiles.length);
       renderBatchPanel();
       document.getElementById('batch-panel').classList.remove('hidden');
       document.getElementById('batch-zone').classList.add('hidden');
-      // Scroll panel into view in case user is lower on the page
       document.getElementById('batch-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
       console.error('[batch] onBatchFilesSelected error:', err);
@@ -619,30 +599,28 @@
   function renderBatchPanel() {
     const tbody = document.getElementById('batch-tbody');
     tbody.innerHTML = window.batchFiles.map((item, idx) => {
-      const opts = papersCache.map(p =>
-        `<option value="${p.id}" ${p.id === item.paperId ? 'selected' : ''}>${p.title}</option>`
-      ).join('');
-
-      const statusHtml = {
-        pending: `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
-        running: `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
-        done:    `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
-        error:   `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
-      }[item.status];
-
+      const statusHtml = batchStatusHtml(item);
+      const titleEl = item.title
+        ? `<div class="text-xs text-slate-500 mt-0.5 truncate max-w-xs">${item.title}</div>`
+        : '';
       return `
         <tr class="border-b border-slate-700" id="batch-row-${idx}">
-          <td class="px-4 py-2 text-slate-300 text-xs">${item.file.name}</td>
           <td class="px-4 py-2">
-            <select id="batch-select-${idx}" onchange="setBatchPaperId(${idx}, this.value)"
-              class="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none">
-              <option value="">— unassigned —</option>
-              ${opts}
-            </select>
+            <div class="text-slate-300 text-xs">${item.file.name}</div>
+            ${titleEl}
           </td>
           <td class="px-4 py-2 text-center" id="batch-status-${idx}">${statusHtml}</td>
         </tr>`;
     }).join('');
+  }
+
+  function batchStatusHtml(item) {
+    return {
+      pending: `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
+      running: `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+      done:    `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
+      error:   `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
+    }[item.status] || '';
   }
 
   async function runBatch() {
@@ -650,23 +628,10 @@
     btn.disabled = true;
     btn.textContent = 'Running…';
 
-    // Disable assignment dropdowns during run
-    window.batchFiles.forEach((_, i) => {
-      const sel = document.getElementById(`batch-select-${i}`);
-      if (sel) sel.disabled = true;
-    });
-
     let done = 0, errors = 0;
 
     for (let idx = 0; idx < window.batchFiles.length; idx++) {
       const item = window.batchFiles[idx];
-      if (!item.paperId) {
-        item.status  = 'error';
-        item.message = 'No paper assigned';
-        updateBatchRowStatus(idx, item);
-        errors++;
-        continue;
-      }
 
       item.status = 'running';
       updateBatchRowStatus(idx, item);
@@ -678,11 +643,12 @@
         const r      = await fetch(`${API}/study-run`, {
           method:  'POST',
           headers: authHeaders(),
-          body:    JSON.stringify({ paper_id: item.paperId, version: 'v2', force: true, pdf_base64: base64 }),
+          body:    JSON.stringify({ version: 'v2', pdf_base64: base64 }),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || data.message || r.statusText);
         item.status = 'done';
+        item.title  = data.display_title || '';
         done++;
       } catch (err) {
         item.status  = 'error';
@@ -697,19 +663,25 @@
       `Complete — ${done} succeeded${errors ? ', ' + errors + ' failed' : ''}.`;
     btn.textContent = 'Done';
 
-    // Refresh table to show new source badges / done states
+    // Refresh table to show newly created papers
     await loadPapers();
   }
 
   function updateBatchRowStatus(idx, item) {
     const cell = document.getElementById(`batch-status-${idx}`);
     if (!cell) return;
-    cell.innerHTML = {
-      pending: `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
-      running: `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
-      done:    `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
-      error:   `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
-    }[item.status];
+    cell.innerHTML = batchStatusHtml(item);
+    // Also update the title sub-line once done
+    if (item.title) {
+      const row = document.getElementById(`batch-row-${idx}`);
+      const td  = row?.querySelector('td:first-child');
+      if (td && !td.querySelector('.batch-title')) {
+        const d = document.createElement('div');
+        d.className = 'batch-title text-xs text-slate-500 mt-0.5 truncate max-w-xs';
+        d.textContent = item.title;
+        td.appendChild(d);
+      }
+    }
   }
 
   function clearBatch() {
