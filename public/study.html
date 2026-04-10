@@ -6,6 +6,7 @@
   <title>OutcomeLogic — Study Admin</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="/env.js"></script>
   <style>
     body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
@@ -218,9 +219,10 @@
   const TOKEN   = ENV.INTERNAL_API_TOKEN || '';
   const _sb = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
 
-  let authToken   = null;
-  let papersCache = [];
-  let editingId   = null;
+  let authToken    = null;
+  let papersCache  = [];
+  let editingId    = null;
+  let _studyCharts = [];   // Chart.js instances in the output modal
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   async function init() {
@@ -526,28 +528,17 @@
            `<li class="text-sm text-slate-300 pl-3 border-l-2 border-slate-700">${s}</li>`
          ).join('')}</ul></div>` : '');
 
-    // ── Endpoints / charts (rendered as bar-style tables) ─────────────────
+    // ── Endpoints (canvas placeholders — charts initialised after innerHTML set) ──
     let endpointsHtml = '';
     if (id.length) {
-      endpointsHtml = id.map(ep => {
-        const arms = ep.arms || [];
-        // Collect all unique x labels
-        const xLabels = [...new Set(arms.flatMap(a => (a.data_points || []).map(d => d.x)))];
-        const thead = `<tr><th class="text-left text-xs text-slate-500 pb-1 pr-4">Arm</th>${xLabels.map(x =>
-          `<th class="text-right text-xs text-slate-500 pb-1 px-3">${x}</th>`).join('')}</tr>`;
-        const tbody = arms.map(arm => {
-          const cells = xLabels.map(x => {
-            const dp = (arm.data_points || []).find(d => d.x === x);
-            return `<td class="text-right text-sm text-slate-200 px-3">${dp != null ? dp.y + '%' : '—'}</td>`;
-          }).join('');
-          return `<tr class="border-b border-slate-800"><td class="py-1.5 pr-4 text-sm text-slate-300">${arm.group_name}</td>${cells}</tr>`;
-        }).join('');
-        return `<div class="mb-4">
+      endpointsHtml = id.map((ep, i) => `
+        <div class="mb-5">
           <div class="text-sm font-medium text-slate-200 mb-1">${ep.label}</div>
           ${ep.clinical_synthesis ? `<p class="text-xs text-slate-400 mb-2">${ep.clinical_synthesis}</p>` : ''}
-          <div class="overflow-x-auto"><table class="w-full"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
-        </div>`;
-      }).join('');
+          <div class="bg-white rounded-lg p-3" style="height:240px;position:relative;">
+            <canvas id="study-chart-${i}"></canvas>
+          </div>
+        </div>`).join('');
     }
 
     // ── Critical appraisal ────────────────────────────────────────────────
@@ -617,14 +608,111 @@
     </details>`;
 
     document.getElementById('modal-body').innerHTML =
-      section('Overview',           overviewHtml) +
-      section('PICO',               picoHtml) +
+      section('Overview',                  overviewHtml) +
+      section('PICO',                      picoHtml) +
       (endpointsHtml ? section('Endpoints', endpointsHtml) : '') +
-      section('Critical Appraisal', caHtml) +
+      section('Critical Appraisal',        caHtml) +
       section('Adverse Events (Grade ≥3)', aeHtml) +
-      section('Subgroup Interactions', sgHtml) +
-      section('Patient View',       patientHtml) +
+      section('Subgroup Interactions',     sgHtml) +
+      section('Patient View',              patientHtml) +
       jsonHtml;
+
+    // Destroy any previous charts then render new ones
+    _studyCharts.forEach(c => c.destroy());
+    _studyCharts = [];
+    id.forEach((ep, i) => {
+      const chart = renderChart(`study-chart-${i}`, ep);
+      if (chart) _studyCharts.push(chart);
+    });
+  }
+
+  // ── Chart renderer (mirrors index.html implementation) ───────────────────
+  function renderChart(canvasId, endpointData) {
+    try {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return null;
+      if (!endpointData?.arms?.length) return null;
+      const hasValidData = endpointData.arms.some(arm => arm.data_points?.length > 0);
+      if (!hasValidData) return null;
+
+      const ctx = canvas.getContext('2d');
+      const colors = [
+        { bg: 'rgba(15,23,42,0.85)',   border: '#0f172a' },
+        { bg: 'rgba(14,165,233,0.85)', border: '#0ea5e9' },
+        { bg: 'rgba(34,197,94,0.85)',  border: '#22c55e' },
+        { bg: 'rgba(249,115,22,0.85)', border: '#f97316' },
+      ];
+
+      const firstArm   = endpointData.arms[0];
+      const timePoints = (firstArm.data_points || []).map(dp => String(dp.x));
+      const isMultiTime = timePoints.length > 1;
+
+      if (isMultiTime) {
+        return new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels:   timePoints,
+            datasets: endpointData.arms.map((arm, i) => ({
+              label:           arm.group_name || `Arm ${i + 1}`,
+              data:            (arm.data_points || []).map(dp => dp.y),
+              backgroundColor: colors[i % colors.length].bg,
+              borderColor:     colors[i % colors.length].border,
+              borderWidth: 2, borderRadius: 3,
+              barPercentage: 0.8, categoryPercentage: 0.75,
+            })),
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: {
+              legend: { display: true, position: 'top', labels: { usePointStyle: true, padding: 12 } },
+              tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%` } },
+            },
+            scales: {
+              y: {
+                beginAtZero: false,
+                min: Math.max(0, Math.floor(Math.min(...endpointData.arms.flatMap(a => a.data_points.map(p => p.y))) / 10) * 10 - 10),
+                title: { display: true, text: endpointData.axes?.y_label || 'Survival (%)' },
+                ticks: { callback: v => v + '%' },
+              },
+              x: { title: { display: true, text: endpointData.axes?.x_label || 'Time' }, grid: { display: false } },
+            },
+          },
+        });
+      }
+
+      // Single time point — one bar per arm
+      return new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels:   endpointData.arms.map(arm => arm.group_name || 'Unknown'),
+          datasets: [{
+            label:           endpointData.label || 'Rate',
+            data:            endpointData.arms.map(arm => arm.data_points?.[0]?.y ?? 0),
+            backgroundColor: endpointData.arms.map((_, i) => colors[i % colors.length].bg),
+            borderColor:     endpointData.arms.map((_, i) => colors[i % colors.length].border),
+            borderWidth: 2, borderRadius: 4, barPercentage: 0.6, categoryPercentage: 0.8,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1) + '%' } },
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: endpointData.axes?.y_label || 'Percentage (%)' },
+              ticks: { callback: v => v + '%' },
+            },
+            x: { title: { display: true, text: endpointData.axes?.x_label || 'Treatment' }, grid: { display: false } },
+          },
+        },
+      });
+    } catch (err) {
+      console.error('renderChart error:', err);
+      return null;
+    }
   }
 
   function downloadJson() {
@@ -642,6 +730,8 @@
   function closeModal() {
     document.getElementById('output-modal').classList.add('hidden');
     _currentOutputJson = null;
+    _studyCharts.forEach(c => c.destroy());
+    _studyCharts = [];
   }
 
   // ── Edit PMID ─────────────────────────────────────────────────────────────
