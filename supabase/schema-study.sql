@@ -78,37 +78,49 @@ CREATE INDEX IF NOT EXISTS study_grades_output_id_idx ON study_grades(output_id)
 CREATE INDEX IF NOT EXISTS study_assignments_rater_id_idx ON study_assignments(rater_id);
 
 -- ── Phase 0 Pilot Papers ─────────────────────────────────────────────────────
--- PMIDs are best-effort — verify and update in the study admin page if needed.
--- All 10 papers are landmark surgical/medical RCTs used to validate OutcomeLogic.
+-- 10 papers selected to cover pipeline edge cases and commentary module stress-testing.
+-- PMIDs should be verified against PubMed before running analyses.
+-- To re-seed after clearing: DELETE FROM study_papers; then re-run this block.
 INSERT INTO study_papers (pmid, title, authors, journal, year, specialty, phase, is_pilot) VALUES
-  ('29031853', 'Percutaneous coronary intervention in stable angina (ORBITA)',
-   'Al-Lamee R, Thompson D, Dehbi HM et al.', 'The Lancet', '2018', 'Cardiology', 0, TRUE),
 
-  ('32061319', 'Accelerated surgery versus standard care in hip fracture (HIP ATTACK)',
-   'HIP ATTACK Investigators', 'The Lancet', '2020', 'Orthopaedics', 0, TRUE),
+  -- 1. Rate comparison (not survival), massive citation pool → commentary stress test
+  ('20554319', 'Effects of tranexamic acid on death, vascular occlusive events, and blood transfusion in trauma patients (CRASH-2)',
+   'CRASH-2 Trial Collaborators', 'The Lancet', '2010', 'Trauma Surgery', 0, TRUE),
 
-  ('16481637', 'Surgical versus nonoperative treatment for lumbar disk herniation (SPORT)',
-   'Weinstein JN, Tosteson TD, Lurie JD et al.', 'JAMA', '2006', 'Spine', 0, TRUE),
+  -- 2. Composite rate outcome, stopped early, very high citations
+  ('26551272', 'A randomized trial of intensive versus standard blood-pressure control (SPRINT)',
+   'SPRINT Research Group', 'New England Journal of Medicine', '2015', 'Cardiology', 0, TRUE),
 
-  ('29679972', 'Arthroscopic surgery versus physiotherapy for femoroacetabular impingement (UK FASHIoN)',
-   'Griffin DR, Dickenson EJ, Wall PD et al.', 'The Lancet', '2018', 'Orthopaedics', 0, TRUE),
+  -- 3. Survival data with explicit multiple time points → KM chart rendering
+  ('29562145', 'Nivolumab plus ipilimumab versus sunitinib in advanced renal-cell carcinoma (CheckMate 214)',
+   'Motzer RJ, Tannir NM, McDermott DF et al.', 'New England Journal of Medicine', '2018', 'Oncology', 0, TRUE),
 
-  ('26488691', 'A randomized, controlled trial of total knee replacement (Skou 2015)',
-   'Skou ST, Roos EM, Laursen MB et al.', 'New England Journal of Medicine', '2015', 'Orthopaedics', 0, TRUE),
+  -- 4. Single-arm trial — no comparator, control_pct should be null throughout
+  ('31825192', 'Trastuzumab deruxtecan in previously treated HER2-positive breast cancer (DESTINY-Breast01)',
+   'Modi S, Saura C, Yamashita T et al.', 'New England Journal of Medicine', '2020', 'Oncology', 0, TRUE),
 
-  ('22077679', 'Coronary-artery bypass surgery in patients with left ventricular dysfunction (STICH)',
-   'Velazquez EJ, Lee KL, Deja MA et al.', 'New England Journal of Medicine', '2011', 'Cardiac Surgery', 0, TRUE),
+  -- 5. Null primary endpoint (p=0.14), post-hoc geographic subgroup controversy
+  ('25119509', 'Spironolactone for heart failure with preserved ejection fraction (TOPCAT)',
+   'Pitt B, Pfeffer MA, Assmann SF et al.', 'New England Journal of Medicine', '2014', 'Cardiology', 0, TRUE),
 
-  ('27733897', 'Everolimus-eluting stents or bypass surgery for left main coronary artery disease (EXCEL)',
-   'Stone GW, Sabik JF, Serruys PW et al.', 'New England Journal of Medicine', '2016', 'Cardiac Surgery', 0, TRUE),
+  -- 6. Pre-specified subgroup interaction by respiratory support; ~10,000 citations
+  ('32678530', 'Dexamethasone in hospitalized patients with Covid-19 (RECOVERY)',
+   'RECOVERY Collaborative Group', 'New England Journal of Medicine', '2021', 'Critical Care', 0, TRUE),
 
-  ('25573082', 'Surgical treatment versus non-surgical treatment for the management of proximal humeral fractures (PROFHER)',
-   'Rangan A, Handoll H, Brealey S et al.', 'The Lancet', '2015', 'Orthopaedics', 0, TRUE),
+  -- 7. Pre-specified geographic subgroup with disputed interaction p=0.045 (PLATO)
+  ('19717846', 'Ticagrelor versus clopidogrel in patients with acute coronary syndromes (PLATO)',
+   'Wallentin L, Becker RC, Budaj A et al.', 'New England Journal of Medicine', '2009', 'Cardiology', 0, TRUE),
 
-  ('26041020', 'Coronary CT angiography and 5-year risk of myocardial infarction (SCOT-HEART)',
-   'SCOT-HEART Investigators', 'The Lancet', '2015', 'Cardiology', 0, TRUE),
+  -- 8. Non-inferiority design — tests NI margin interpretation vs superiority p-value
+  ('32469183', 'Relugolix for androgen-deprivation therapy in advanced prostate cancer (HERO)',
+   'Shore ND, Saad F, Cookson MS et al.', 'New England Journal of Medicine', '2020', 'Oncology', 0, TRUE),
 
-  ('18612163', 'Surgical versus nonoperative treatment for lumbar spinal stenosis (SPORT)',
-   'Weinstein JN, Tosteson TD, Lurie JD et al.', 'JAMA', '2008', 'Spine', 0, TRUE)
+  -- 9. NEJM paywalled — falls through to abstract-only; tests graceful degradation
+  ('31562798', 'Five-year outcomes after PCI or CABG for left main coronary artery disease (EXCEL 5-year)',
+   'Stone GW, Kappetein AP, Sabik JF et al.', 'New England Journal of Medicine', '2019', 'Cardiac Surgery', 0, TRUE),
+
+  -- 10. Recent paper (2023), minimal citations → commentary sparse-pool fallback
+  ('37272522', 'Overall survival with osimertinib in resected EGFR-mutated NSCLC (ADAURA OS)',
+   'Tsuboi M, Herbst RS, John T et al.', 'New England Journal of Medicine', '2023', 'Oncology', 0, TRUE)
 
 ON CONFLICT (pmid) DO NOTHING;

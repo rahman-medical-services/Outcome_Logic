@@ -336,6 +336,8 @@
           ${viewBtn}
           ${pdfBtn}
           ${runBtn}
+          <button onclick="deletePaper('${p.id}', '${p.title.replace(/'/g, "\\'")}')"
+            class="text-xs text-slate-600 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-700 ml-1" title="Delete paper">✕</button>
         </div>
       </td>
     `;
@@ -513,6 +515,21 @@
       await loadPapers();
     } catch (err) {
       status.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  // ── Delete paper ─────────────────────────────────────────────────────────
+  async function deletePaper(paperId, title) {
+    if (!confirm(`Delete "${title}"?\n\nThis will also delete any stored V2 output and grades for this paper.`)) return;
+    try {
+      const r = await fetch(`${API}/study-papers?id=${paperId}`, {
+        method: 'DELETE', headers: authHeaders(),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      await loadPapers();
+    } catch(err) {
+      alert('Delete failed: ' + err.message);
     }
   }
 
