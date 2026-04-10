@@ -614,12 +614,16 @@
     }).join('');
   }
 
+  const BATCH_RETRY_WAIT_MS = 30_000;  // wait 30s before retrying a 503
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
   function batchStatusHtml(item) {
     return {
-      pending: `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
-      running: `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
-      done:    `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
-      error:   `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
+      pending:  `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
+      running:  `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+      retrying: `<span class="text-xs text-amber-400 animate-pulse">Retrying…</span>`,
+      done:     `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
+      error:    `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
     }[item.status] || '';
   }
 
@@ -631,28 +635,57 @@
     let done = 0, errors = 0;
 
     for (let idx = 0; idx < window.batchFiles.length; idx++) {
-      const item = window.batchFiles[idx];
+      const item  = window.batchFiles[idx];
+      const total = window.batchFiles.length;
 
-      item.status = 'running';
-      updateBatchRowStatus(idx, item);
-      document.getElementById('batch-progress-text').textContent =
-        `Running ${idx + 1} of ${window.batchFiles.length}…`;
+      for (let attempt = 0; attempt <= 1; attempt++) {
+        if (attempt === 1) {
+          // Gemini was overloaded on first attempt — wait then retry
+          item.status = 'retrying';
+          updateBatchRowStatus(idx, item);
+          document.getElementById('batch-progress-text').textContent =
+            `Gemini busy — waiting 30s then retrying ${idx + 1} of ${total}…`;
+          await sleep(BATCH_RETRY_WAIT_MS);
+        }
 
-      try {
-        const base64 = await readFileAsBase64(item.file);
-        const r      = await fetch(`${API}/study-run`, {
-          method:  'POST',
-          headers: authHeaders(),
-          body:    JSON.stringify({ version: 'v2', pdf_base64: base64 }),
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || data.message || r.statusText);
-        item.status = 'done';
-        item.title  = data.display_title || '';
-        done++;
-      } catch (err) {
+        item.status = 'running';
+        updateBatchRowStatus(idx, item);
+        document.getElementById('batch-progress-text').textContent =
+          attempt === 0 ? `Running ${idx + 1} of ${total}…`
+                        : `Retrying ${idx + 1} of ${total}…`;
+
+        try {
+          const base64 = await readFileAsBase64(item.file);
+          const r      = await fetch(`${API}/study-run`, {
+            method:  'POST',
+            headers: authHeaders(),
+            body:    JSON.stringify({ version: 'v2', pdf_base64: base64 }),
+          });
+          const data = await r.json();
+
+          if (r.status === 503 && attempt === 0) {
+            // Gemini overloaded — loop will retry after delay
+            continue;
+          }
+
+          if (!r.ok) throw new Error(data.error || data.message || r.statusText);
+
+          item.status = 'done';
+          item.title  = data.display_title || '';
+          done++;
+          break;
+        } catch (err) {
+          item.status  = 'error';
+          item.message = err.message;
+          errors++;
+          break;
+        }
+      }
+
+      // If we exhausted retries while still in 503 state
+      if (item.status === 'running' || item.status === 'retrying') {
         item.status  = 'error';
-        item.message = err.message;
+        item.message = 'Gemini still overloaded after retry — try again later';
         errors++;
       }
 
