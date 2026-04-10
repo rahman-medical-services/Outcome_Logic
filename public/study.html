@@ -207,7 +207,7 @@
   const ENV     = window.ENV || {};
   const API     = ENV.API_BASE_URL || '/api';
   const TOKEN   = ENV.INTERNAL_API_TOKEN || '';
-  const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+  const _sb = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
 
   let authToken   = null;
   let papersCache = [];
@@ -215,7 +215,7 @@
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   async function init() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await _sb.auth.getSession();
     if (!session) { window.location.href = '/'; return; }
     const tier = session.user?.user_metadata?.tier || 'free';
     if (tier !== 'admin') { window.location.href = '/'; return; }
