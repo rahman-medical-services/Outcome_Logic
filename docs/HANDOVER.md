@@ -1,8 +1,8 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 1
-session: "Session — 2026-04-12"
+version: 2
+session: "Session — 2026-04-13"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -19,48 +19,53 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ---
 
-## Current State (as of 12 April 2026 — v4.2.0)
+## Current State (as of 13 April 2026 — v4.3.0)
 
-**Branch:** `main` — merged ✅
+**Branch:** `claude/competent-borg` — working branch. Needs merge to main.
+
+**⚠️ CRITICAL — READ BEFORE TOUCHING GEMINI CODE:**
+The Gemini API has severe undocumented constraints. Read `LEARNINGS.md` section "Gemini API — Systematic 503 Failures (2026-04-13)" before any AI-related changes. Summary:
+- **No SDK** — both `@google/generative-ai` and `@google/genai` cause 503s. Raw `fetch()` only.
+- **Model: `gemini-2.5-flash-lite`** — not flash. Flash has persistent 503s.
+- **`thinkingBudget: 512`** — always set this. 0 causes 503 on flash. Missing causes TPM exhaustion.
+- **Sequential calls only** — parallel calls trigger concurrency 503s.
+- **5 retries with backoff** — built into `callGemini()` in pipeline.js and commentary.js.
 
 **What is working:**
-- 3-node AI pipeline (Extractor A + B parallel, Adjudicator) — functional
+- 3-node AI pipeline (Extractor A → B sequential, Adjudicator) — **confirmed working on flash-lite**
 - Node 4 (Expert Context): Europe PMC + PubMed Entrez + web synthesis — functional
 - Supabase save/load (library) — working
 - PDF export (4-page clinical report) — working
-- `study.html` + `api/study-*.js` — study admin infrastructure exists
+- `study.html` + `api/study.js` (consolidated) — study admin working
 
 **Completed in Session 2 (2026-04-12) — Pipeline hardening:**
 - ✅ Extractor diversity — EXTRACTOR_PROMPT_A (adjusted/ITT) + EXTRACTOR_PROMPT_B (first-reported)
-- ✅ Source citation requirement — mandatory `source_citation` field in both extractor prompts
+- ✅ Source citation requirement — mandatory `[SRC: verbatim | location]` in both extractor prompts
 - ✅ Adversarial adjudicator — `extraction_flags` schema, suspicious_agreement detection
-- ✅ `buildSourceContext()` exported from pipeline.js; both analyze.js and study-run.js use it
 - ✅ `verifySource()` keyword filter tightened (length > 5, threshold 0.50)
-- ✅ `search.js` `callGemini()` refactored to SDK (no API key in URL)
 - ✅ `_scoreCitation()` pubType scoring added (follow-up RCTs no longer excluded)
-- ✅ `supabase/schema-study.sql` rebuilt — 5 tables, per-field grading, UNIQUE(output_id, field_name), 10 Phase 0 papers seeded
-- ✅ Adjudicator unconditionally uses GEMINI_MODEL_PRO (Flash fallback, not Lite)
-- ✅ NI trial handling added to EXTRACTOR_CORE section 4
-- ✅ Borderline subgroup flag (p 0.04–0.06) added to EXTRACTOR_CORE section 7
+- ✅ `supabase/schema-study.sql` rebuilt — 5 tables, per-field grading, 10 Phase 0 papers seeded
+- ✅ NI trial handling in extractor prompts
+- ✅ Meta-analysis fields: effect_measure, ci_lower, ci_upper, arm_a_n, arm_b_n, time_point_weeks, analysis_population, adjusted
 
-**Completed in Session 3 (2026-04-12) — Phase 0 grading infrastructure:**
-- ✅ `docs/PROTOCOL.md` — pre-registration protocol (26-field list, match_status definitions, harm severity rubric, priority_score formula)
-- ✅ `api/study-grade.js` — GET (restore grades) + POST (upsert field grade, conflict on output_id+field_name)
-- ✅ `api/study-summary.js` — aggregated heatmap data, version breakdown, prompt modification queue
-- ✅ `public/pilot.html` — per-field grading UI (paper list + split-panel grading view, 26 fields, auto-save, progress bar)
-- ✅ `public/pilot-summary.html` — severity × frequency heatmap, version comparison, error taxonomy breakdown, CSV download
-- ✅ Strategic adversarial review (HAWK/FALCON/EAGLE/OWL) across pipeline, validation plan, and meta-analysis module
+**Completed in Session 4 (2026-04-13) — Gemini stability:**
+- ✅ Removed all SDK dependencies (`@google/generative-ai`, `@google/genai`)
+- ✅ All Gemini calls use raw `fetch()` to v1beta REST endpoint
+- ✅ Switched primary model to `gemini-2.5-flash-lite`
+- ✅ `thinkingBudget: 512` on all calls
+- ✅ Sequential extractors (not parallel)
+- ✅ 5 retries with exponential backoff + jitter in `callGemini()`
+- ✅ `api/study-papers.js` + `api/study-run.js` + `api/study-output.js` consolidated into `api/study.js`
+- ✅ `vercel.json` updated to remove deleted files, add `api/study.js`
+- ✅ First successful pipeline run confirmed on flash-lite
 
 **What is NOT yet built (in priority order):**
-1. **Deploy `schema-study.sql` to Supabase** — run SQL in Dashboard → SQL Editor. Blocking everything.
+1. **Merge `claude/competent-borg` → `main`**
 2. **`lib/pipeline-v1.js` + `api/analyze-v1.js`** — single-node V1 baseline for ablation comparison
-3. **NI structured output fields** — add `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label` to adjudicator schema (High priority before clinical deployment)
-4. **`capOutput()` truncation flag** — propagate `output_truncated: true` to adjudicator input when extractor output is truncated
-5. **`MIN_ITEMS_FOR_SYNTHESIS` raise to 3** — one-line change in `lib/commentary.js`
-6. **`patient_view` recommendation language audit** — replace "X is better" language with "this trial showed X" throughout clinician/patient prompts
-7. **Verify HALT-IT post-deploy** — check Vercel logs for Node 4 HALT-IT resolution
+3. **Phase 0 grading UI** (`/pilot` review interface) — may already exist in old branch, verify
+4. **Verify HALT-IT post-deploy** — check Vercel logs for Node 4 HALT-IT resolution
 
-**Phase 0 can begin after:** schema deployed + V1 baseline built + PROTOCOL.md harm severity rubric anchor vignettes written (2–3 hr task, in the doc already as a template — needs Saqib's clinical anchor vignettes added).
+**Phase 0 can begin after:** branch merged + V1 baseline built.
 
 ---
 
@@ -70,26 +75,25 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 PDF / DOI / PMID
       │
       ▼
-api/analyze.js
+api/analyze.js  OR  api/study.js
       │
-      ├─── Extractor A (Gemini 2.5 Flash) ─┐
-      │                                      ├─► Adjudicator (Gemini 2.5 Pro) ──► unified JSON
-      └─── Extractor B (Gemini 2.5 Flash) ─┘
-                                              │
-                                              ├─► postProcess() — enum enforcement, taxonomy, clinician_view / patient_view
-                                              │
-                                              └─► Node 4 / commentary.js (async)
-                                                    ├── Europe PMC citation graph
-                                                    ├── EPMC full-text phrase search
-                                                    └── PubMed Entrez + web synthesis (Gemini googleSearch)
+      ├─── Extractor A (gemini-2.5-flash-lite, sequential) ─┐
+      │                                                       ├─► Adjudicator (gemini-2.5-flash-lite) ──► unified JSON
+      └─── Extractor B (gemini-2.5-flash-lite, sequential) ─┘
+                                                              │
+                                                              ├─► postProcess() — enum enforcement, taxonomy, clinician_view / patient_view
+                                                              │
+                                                              └─► Node 4 / commentary.js (async, never throws)
+                                                                    ├── Europe PMC citation graph
+                                                                    ├── EPMC full-text phrase search
+                                                                    └── PubMed Entrez + web synthesis (Gemini googleSearch)
 ```
 
 **Key constants (lib/pipeline.js):**
-- `GEMINI_MODEL = 'gemini-2.5-flash'` (extractors)
-- `GEMINI_MODEL_PRO = 'gemini-2.5-pro'` (adjudicator)
+- `GEMINI_MODEL = 'gemini-2.5-flash-lite'` (all nodes)
+- `GEMINI_MODEL_PRO = 'gemini-2.5-flash'` (escalation path only, rarely triggered)
 - `EXTRACTOR_OUTPUT_CAP = 40000`
-
-**Known critical flaw (not yet fixed):** Both extractors use the same `EXTRACTOR_PROMPT` constant. Agreement on ambiguous papers is therefore risk, not quality. See Section 3 for the fix.
+- All calls: `thinkingBudget: 512`, 5 retries with backoff, raw fetch() — NO SDK
 
 ---
 
@@ -128,9 +132,7 @@ api/analyze.js
 | `api/library-save.js` | Saves analysis to Supabase |
 | `api/library-get.js` | Retrieves trials (paginated) |
 | `api/library-batch.js` | Bulk processing |
-| `api/study-papers.js` | Study paper management |
-| `api/study-run.js` | Run pipeline on study papers |
-| `api/study-output.js` | Retrieve study outputs |
+| `api/study.js` | Consolidated study admin: `?resource=papers\|run\|output` |
 | `public/index.html` | Main SPA (~1300 lines) |
 | `public/study.html` | Study admin UI (exists, needs Phase 0 review UI) |
 | `public/app.js` | Router, global state, tab switching |

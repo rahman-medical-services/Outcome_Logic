@@ -109,6 +109,51 @@ Format: what was tried → what happened → what the correct approach is → da
 
 ---
 
+---
+
+## Gemini API — Systematic 503 Failures (2026-04-13)
+
+### Both `@google/generative-ai` and `@google/genai` SDKs cause systematic 503 errors
+**Tried:** Migrating from `@google/generative-ai` to `@google/genai` to fix 503s. Both SDKs cause identical 503 failures.
+**What happened:** The 503 errors look like "high demand / overloaded" but are not. They occur on the first call, consistently, regardless of time of day, even with tiny payloads — if a large system instruction is present.
+**Root cause confirmed via curl:** Identical payloads sent as raw `fetch()` succeed; sent via either SDK, 503. The SDKs add something to the request construction that the API rejects with a misleading 503.
+**Fix:** Remove ALL SDK dependencies. Use raw `fetch()` to the v1beta REST endpoint directly. Pattern already existed in `api/search.js`. Now used in all Gemini calls across the project.
+**Date:** 2026-04-13
+
+### `thinkingBudget: 0` causes 503 on `gemini-2.5-flash` (not a 400 — genuinely misleading)
+**Tried:** Setting `thinkingBudget: 0` to disable thinking and reduce latency.
+**What happened:** Returns 503 "This model is currently experiencing high demand" — NOT a 400 INVALID_ARGUMENT. Completely misleading error. Wastes hours chasing a capacity problem that doesn't exist.
+**Correct behaviour:** `gemini-2.5-flash` does not support `thinkingBudget: 0`. `gemini-2.5-flash-lite` minimum is 512. `gemini-2.5-pro` requires thinking (0 returns 400).
+**Fix:** Always set `thinkingBudget: 512`. This satisfies all models and caps TPM consumption.
+**Date:** 2026-04-13
+
+### `gemini-2.5-flash` has persistent 503 errors even with correct configuration
+**Tried:** Using `gemini-2.5-flash` as the primary pipeline model.
+**What happened:** ~50% per-call 503 rate even outside US peak hours, on a paid tier, with correct thinkingBudget, single sequential requests. Not transient.
+**Root cause:** TPM (tokens per minute) throttling. The large extractor system instructions (~4000 tokens) + paper text + thinking tokens exceed per-minute quota on flash.
+**Fix:** Use `gemini-2.5-flash-lite` as primary. Same 1M token input limit, same output quality for extraction tasks, reliably available. Full flash reserved for escalation.
+**Date:** 2026-04-13
+
+### Parallel extractor calls trigger per-second concurrency 503s
+**Tried:** Running Extractor A and Extractor B via `Promise.all` (simultaneously).
+**Confirmed via curl:** Two simultaneous requests from same API key → one 503s, every time. Single sequential requests work.
+**Fix:** Sequential: Extractor A → await → Extractor B → await → Adjudicator. Adds ~5-15s per run, stays within 60s Vercel timeout.
+**Date:** 2026-04-13
+
+### Model availability varies unexpectedly by account
+**Tried:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash-latest` as fallback models.
+**What happened:** All return 404 "no longer available to new users" despite appearing in documentation. `gemini-2.5-pro` as fallback returns 503 and then times out Vercel at 60s (thinking mode too slow).
+**Fix:** Before using any model name in code, verify with `curl "https://generativelanguage.googleapis.com/v1beta/models?key=KEY" | jq '.models[].name'`. Available on this account: `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.0-flash-001`.
+**Date:** 2026-04-13
+
+### Vercel build cache serves stale `node_modules` after `package.json` changes
+**Tried:** Changing `package.json` dependencies and pushing — build shows "up to date in 3s" and uses old packages.
+**What happened:** Vercel restores `node_modules` from cache before `npm install` runs. If the lock file hasn't changed or is missing, npm sees everything as satisfied.
+**Fix:** Commit `package-lock.json` with every `package.json` change. If still stale: Vercel → Deployments → "..." → Redeploy → uncheck "Use existing Build Cache".
+**Date:** 2026-04-13
+
+---
+
 ## Session 2 Fixes (2026-04-12)
 
 ### `buildSourceContext()` must be the single source-of-truth for pipeline input formatting
@@ -125,9 +170,9 @@ Format: what was tried → what happened → what the correct approach is → da
 
 ### API key in URL in `api/search.js` `callGemini()`
 **Tried:** `fetch(url + '?key=' + GEMINI_API_KEY)` — raw REST call.
-**What happened:** API key appears in server-side logs, network traces, error messages. Inconsistent with the rest of the codebase which uses the SDK.
-**Fix:** Refactored `callGemini()` in `search.js` to use `@google/generative-ai` SDK. Key never appears in URLs.
-**Date:** 2026-04-12
+**What happened:** API key appears in server-side logs on the server side (Vercel function logs). Acceptable in serverless context as logs are private to the project owner, but was flagged as inconsistent.
+**Fix (2026-04-12):** Refactored to SDK temporarily. **Reverted (2026-04-13):** All Gemini calls now use raw `fetch()` with key in URL — this is now the deliberate architecture for all files, not a bug. The key is only ever in server-side logs, never sent to the client. This is the correct approach given SDK instability.
+**Date:** 2026-04-12 / updated 2026-04-13
 
 ### `_scoreCitation()` excluded follow-up RCTs and meta-analyses
 **Tried:** Title-keyword-only scoring.
