@@ -2,7 +2,6 @@
 // HTTP handler for single-trial analysis.
 // Source fetching lives here; the 3-node Gemini pipeline lives in lib/pipeline.js.
 
-import { GoogleGenAI } from '@google/genai';
 import pdfParse               from 'pdf-parse/lib/pdf-parse.js';
 import { Ratelimit }          from '@upstash/ratelimit';
 import { Redis }              from '@upstash/redis';
@@ -29,8 +28,8 @@ const ratelimit = new Ratelimit({
 // ==========================================
 // CONSTANTS
 // ==========================================
-const MIN_CHARS = { FULLTEXT: 2000, ABSTRACT: 200, JINA: 1000 };
-const ai        = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const MIN_CHARS    = { FULLTEXT: 2000, ABSTRACT: 200, JINA: 1000 };
+const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ==========================================
 // SOURCE TIER 1: PMC full text XML
@@ -192,14 +191,17 @@ async function verifySource(sourceText, originalQuery) {
   }
 
   try {
-    const result = await ai.models.generateContent({
-      model:    'gemini-2.5-flash',
-      contents: [{ role: 'user', parts: [{ text:
-        `Does this document describe a clinical trial relevant to: "${originalQuery}"?\nAnswer ONLY "YES" or "NO".\nExcerpt: ${sourceText.slice(0, 1500)}`
-      }] }],
-      config: { temperature: 0.0, maxOutputTokens: 10 },
+    const url = `${GEMINI_BASE}/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    const gemRes = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents:         [{ parts: [{ text: `Does this document describe a clinical trial relevant to: "${originalQuery}"?\nAnswer ONLY "YES" or "NO".\nExcerpt: ${sourceText.slice(0, 1500)}` }] }],
+        generationConfig: { temperature: 0.0, maxOutputTokens: 10 },
+      }),
     });
-    const answer = result.text.trim().toUpperCase();
+    if (!gemRes.ok) throw new Error(`Gemini verifier: ${gemRes.status}`);
+    const gemData = await gemRes.json();
+    const answer  = (gemData?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().toUpperCase();
     const verified = answer.startsWith('YES');
     console.log(`[Verify] AI: ${answer}`);
     return { verified, warning: verified ? null : 'Source may not match query — results may be unreliable.' };
