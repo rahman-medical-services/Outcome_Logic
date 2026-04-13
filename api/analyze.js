@@ -2,7 +2,7 @@
 // HTTP handler for single-trial analysis.
 // Source fetching lives here; the 3-node Gemini pipeline lives in lib/pipeline.js.
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import pdfParse               from 'pdf-parse/lib/pdf-parse.js';
 import { Ratelimit }          from '@upstash/ratelimit';
 import { Redis }              from '@upstash/redis';
@@ -30,7 +30,7 @@ const ratelimit = new Ratelimit({
 // CONSTANTS
 // ==========================================
 const MIN_CHARS = { FULLTEXT: 2000, ABSTRACT: 200, JINA: 1000 };
-const genAI     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const ai        = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // ==========================================
 // SOURCE TIER 1: PMC full text XML
@@ -192,14 +192,14 @@ async function verifySource(sourceText, originalQuery) {
   }
 
   try {
-    const verifier = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-    const result   = await verifier.generateContent({
+    const result = await ai.models.generateContent({
+      model:    'gemini-1.5-flash-latest',
       contents: [{ role: 'user', parts: [{ text:
         `Does this document describe a clinical trial relevant to: "${originalQuery}"?\nAnswer ONLY "YES" or "NO".\nExcerpt: ${sourceText.slice(0, 1500)}`
       }] }],
-      generationConfig: { temperature: 0.0, maxOutputTokens: 10, thinkingConfig: { thinkingBudget: 0 } }
+      config: { temperature: 0.0, maxOutputTokens: 10 },
     });
-    const answer   = result.response.text().trim().toUpperCase();
+    const answer = result.text.trim().toUpperCase();
     const verified = answer.startsWith('YES');
     console.log(`[Verify] AI: ${answer}`);
     return { verified, warning: verified ? null : 'Source may not match query — results may be unreliable.' };
