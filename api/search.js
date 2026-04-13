@@ -5,14 +5,17 @@
 //   Call 2 — Gemini re-ranks results by clinical relevance
 // Rate limit: 50 searches per IP per 24h (each search = 2 Gemini calls)
 
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis }     from '@upstash/redis';
+import { Ratelimit }          from '@upstash/ratelimit';
+import { Redis }               from '@upstash/redis';
+import { GoogleGenerativeAI }  from '@google/generative-ai';
 
 const NCBI_TOOL  = 'rahmanmedical-trial-visualiser';
 const NCBI_EMAIL = 'saqib@rahmanmedical.co.uk';
 const NCBI_BASE  = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 const GEMINI_MODEL = 'gemini-2.5-flash-lite';  // lightweight model for query construction + re-ranking
-const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+// SDK client — avoids exposing API key as URL query parameter
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const ratelimit = new Ratelimit({
   redis:     Redis.fromEnv(),
@@ -180,10 +183,7 @@ Return ONLY this JSON structure, no markdown, no backticks:
 
 User input: "${userQuery}"`;
 
-  const data = await callGemini(prompt, 512);
-
-  // Parse JSON response
-  const text    = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text    = await callGemini(prompt, 512);
   const cleaned = text.replace(/```json|```/gi, '').trim();
 
   let parsed;
@@ -257,9 +257,7 @@ ${JSON.stringify(resultSummaries, null, 2)}
 Return ONLY a JSON array of PMIDs in your preferred order, most relevant first.
 No markdown, no explanation, no backticks. Example: ["12345678", "87654321", "11223344"]`;
 
-  const data = await callGemini(prompt, 512);
-
-  const text    = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text    = await callGemini(prompt, 512);
   const cleaned = text.replace(/```json|```/gi, '').trim();
 
   try {
@@ -275,22 +273,16 @@ No markdown, no explanation, no backticks. Example: ["12345678", "87654321", "11
 
 
 // =============================================================================
-// SHARED GEMINI CALLER
+// SHARED GEMINI CALLER — uses @google/generative-ai SDK (no API key in URL)
+// Returns the response text string directly.
 // =============================================================================
 async function callGemini(prompt, maxTokens = 512) {
-  const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-
-  const geminiRes = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents:         [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: maxTokens },
-    }),
+  const model  = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const result = await model.generateContent({
+    contents:         [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: maxTokens },
   });
-
-  if (!geminiRes.ok) throw new Error(`Gemini API error: ${geminiRes.status}`);
-  return geminiRes.json();
+  return result.response.text();
 }
 
 

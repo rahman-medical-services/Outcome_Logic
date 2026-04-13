@@ -11,7 +11,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import pdfParse         from 'pdf-parse/lib/pdf-parse.js';
-import { runPipeline }  from '../lib/pipeline.js';
+import { runPipeline, buildSourceContext } from '../lib/pipeline.js';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '8mb' } }   // large enough for typical paper PDFs
@@ -264,15 +264,16 @@ export default async function handler(req, res) {
   // ── Run V2 pipeline ───────────────────────────────────────────────────────
   let pipelineResult;
   try {
+    const sourceMeta = {
+      sourceType: source.sourceType,
+      pmid:       source.pmid    || paper?.pmid    || null,
+      pmcid:      source.pmcid   || null,
+      doi:        source.doi     || null,
+      authors:    source.authors || paper?.authors || null,
+    };
     pipelineResult = await runPipeline(
-      source.text,
-      {
-        sourceType: source.sourceType,
-        pmid:       source.pmid    || paper?.pmid    || null,
-        pmcid:      source.pmcid   || null,
-        doi:        source.doi     || null,
-        authors:    source.authors || paper?.authors || null,
-      }
+      buildSourceContext(source.text, sourceMeta),
+      sourceMeta
     );
   } catch (err) {
     console.error(`[study-run] Pipeline error:`, err.message);

@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import pdfParse               from 'pdf-parse/lib/pdf-parse.js';
 import { Ratelimit }          from '@upstash/ratelimit';
 import { Redis }              from '@upstash/redis';
-import { runPipeline }        from '../lib/pipeline.js';
+import { runPipeline, buildSourceContext } from '../lib/pipeline.js';
 
 // ==========================================
 // VERCEL SERVERLESS CONFIG
@@ -181,12 +181,12 @@ async function fetchTrialSource(query, isPmid) {
 // ==========================================
 async function verifySource(sourceText, originalQuery) {
   const sample     = sourceText.slice(0, 3000).toLowerCase();
-  const keywords   = originalQuery.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3);
+  const keywords   = originalQuery.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 5);
   const matchRatio = keywords.length > 0
     ? keywords.filter(w => sample.includes(w)).length / keywords.length
     : 1;
 
-  if (matchRatio >= 0.35) {
+  if (matchRatio >= 0.50) {
     console.log(`[Verify] OK: ${Math.round(matchRatio * 100)}% keyword match`);
     return { verified: true };
   }
@@ -322,18 +322,8 @@ export default async function handler(req, res) {
       return res.status(200).json(buildSkeletonResponse(inputPayload, 'No text retrieved'));
     }
 
-    // ── Build source context for pipeline ────────────────────────────────
-    const sourceContext = [
-      `[SOURCE: ${sourceMeta.sourceType}]`,
-      sourceMeta.pmid  ? `[PMID: ${sourceMeta.pmid}]`   : '',
-      sourceMeta.pmcid ? `[PMCID: ${sourceMeta.pmcid}]` : '',
-      sourceMeta.doi   ? `[DOI: ${sourceMeta.doi}]`     : '',
-      sourceMeta.extractionWarning
-        ? `[WARNING: ${sourceMeta.extractionWarning}]`
-        : '',
-      '',
-      textToAnalyze,
-    ].filter(Boolean).join('\n');
+    // ── Build source context for pipeline (shared formatter from pipeline.js) ─
+    const sourceContext = buildSourceContext(textToAnalyze, sourceMeta);
 
     // ── Delegate to shared pipeline ──────────────────────────────────────
     const parsed = await runPipeline(sourceContext, sourceMeta);

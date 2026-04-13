@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Phase 0 Summary</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+
+    /* Priority row borders */
+    .priority-critical  { border-left: 3px solid #dc2626; }
+    .priority-high      { border-left: 3px solid #ea580c; }
+    .priority-ok        { border-left: 3px solid #16a34a; }
+
+    /* Count pills */
+    .pill-exact       { background: #14532d; color: #86efac; }
+    .pill-partial     { background: #713f12; color: #fde68a; }
+    .pill-fail        { background: #7f1d1d; color: #fca5a5; }
+    .pill-hallucinated{ background: #4a1d96; color: #ddd6fe; }
+    .pill-none        { background: #1e293b; color: #475569; }
+
+    /* Version comparison */
+    .version-up   { color: #4ade80; }
+    .version-down { color: #f87171; }
+    .version-eq   { color: #94a3b8; }
+
+    th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #334155; }
+    td { font-size: 0.8125rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e293b; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1e293b; }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <a href="/pilot.html" class="text-slate-400 hover:text-white text-sm">← Grading</a>
+      <span class="text-slate-600">|</span>
+      <span class="font-semibold text-white">Phase 0 Pilot</span>
+      <span class="text-slate-500 text-sm">— Summary</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="downloadCSV()" class="text-xs px-3 py-1.5 rounded border border-slate-600 text-slate-300 hover:text-white hover:border-slate-400">
+        Download CSV
+      </button>
+      <span id="user-info" class="text-xs text-slate-400"></span>
+      <button onclick="logout()" class="text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-800">Logout</button>
+    </div>
+  </header>
+
+  <!-- ── Loading / Error states ──────────────────────────────────────────── -->
+  <div id="page-loading" class="flex items-center justify-center py-20 text-slate-500 text-sm">
+    <svg class="spinner w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+    </svg>
+    Loading summary…
+  </div>
+  <div id="page-error" class="hidden text-center py-20 text-red-400 text-sm"></div>
+
+  <!-- ── Main content ─────────────────────────────────────────────────────── -->
+  <main id="main-content" class="hidden max-w-6xl mx-auto px-6 py-8 space-y-8">
+
+    <!-- Stats bar -->
+    <div class="grid grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-papers" class="text-2xl font-bold text-white">—</div>
+        <div class="text-xs text-slate-400 mt-1">Papers graded (of 10)</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-fields" class="text-2xl font-bold text-blue-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">Total fields graded</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-exact" class="text-2xl font-bold text-green-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">Overall exact match rate</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-priority" class="text-2xl font-bold text-amber-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">Priority fields (score &gt; 1.5)</div>
+      </div>
+    </div>
+
+    <!-- Version comparison -->
+    <div class="bg-slate-800 rounded-lg p-6">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Version Comparison</h2>
+      <div class="grid grid-cols-2 gap-8">
+        <div id="v1-block" class="text-center">
+          <div class="text-slate-500 text-xs uppercase tracking-wide mb-2">V1 Exact Match Rate</div>
+          <div id="v1-rate" class="text-4xl font-bold text-white">—</div>
+          <div id="v1-total" class="text-xs text-slate-500 mt-1">— fields graded</div>
+        </div>
+        <div id="v2-block" class="text-center">
+          <div class="text-slate-500 text-xs uppercase tracking-wide mb-2">V2 Exact Match Rate</div>
+          <div id="v2-rate" class="text-4xl font-bold text-white">—</div>
+          <div id="v2-total" class="text-xs text-slate-500 mt-1">— fields graded</div>
+        </div>
+      </div>
+      <div id="version-delta" class="text-center mt-4 text-sm font-medium"></div>
+    </div>
+
+    <!-- Priority heatmap -->
+    <div class="bg-slate-800 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-slate-300">Priority Heatmap — All Fields</h2>
+        <div class="text-xs text-slate-500 flex items-center gap-3">
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-600 inline-block"></span> &gt; 2.0 critical</span>
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-orange-600 inline-block"></span> 1.0–2.0 high</span>
+          <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-green-700 inline-block"></span> &lt; 1.0 ok</span>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr>
+              <th class="text-left" style="min-width:180px">Field</th>
+              <th>Total</th>
+              <th>Exact</th>
+              <th>Partial</th>
+              <th>Fail</th>
+              <th>Hallucinated</th>
+              <th>Avg Severity</th>
+              <th>Priority Score</th>
+            </tr>
+          </thead>
+          <tbody id="heatmap-tbody">
+            <tr><td colspan="8" class="text-center py-8 text-slate-500">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Error taxonomy breakdown -->
+    <div class="grid grid-cols-2 gap-6">
+      <div class="bg-slate-800 rounded-lg overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-700">
+          <h2 class="text-sm font-semibold text-slate-300">Error Taxonomy Breakdown</h2>
+        </div>
+        <table class="w-full">
+          <thead>
+            <tr>
+              <th>Taxonomy</th>
+              <th>Count</th>
+              <th>% of non-exact</th>
+              <th>Most affected fields</th>
+            </tr>
+          </thead>
+          <tbody id="taxonomy-tbody">
+            <tr><td colspan="4" class="text-center py-6 text-slate-500">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pipeline section breakdown -->
+      <div class="bg-slate-800 rounded-lg overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-700">
+          <h2 class="text-sm font-semibold text-slate-300">Pipeline Section Breakdown</h2>
+        </div>
+        <table class="w-full">
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>Error count</th>
+              <th>Top field</th>
+            </tr>
+          </thead>
+          <tbody id="pipeline-tbody">
+            <tr><td colspan="3" class="text-center py-6 text-slate-500">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Prompt modification queue -->
+    <div class="bg-slate-800 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-700">
+        <h2 class="text-sm font-semibold text-slate-300">Prompt Modification Queue</h2>
+        <p class="text-xs text-slate-500 mt-0.5">Fields with priority score &gt; 1.0 — ordered by urgency</p>
+      </div>
+      <div id="prompt-queue-list" class="divide-y divide-slate-700">
+        <div class="px-4 py-6 text-center text-slate-500 text-sm">Loading…</div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+  // ── Config ────────────────────────────────────────────────────────────────
+  const ENV   = window.ENV || {};
+  const API   = ENV.API_BASE_URL || '/api';
+  const TOKEN = ENV.INTERNAL_API_TOKEN || '';
+  const _sb   = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let summaryData = null;
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  async function getAuthHeaders() {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) { window.location.href = '/'; return null; }
+    return {
+      'Content-Type':  'application/json',
+      'x-api-token':   TOKEN,
+      'Authorization': `Bearer ${session.access_token}`,
+    };
+  }
+
+  async function logout() {
+    await _sb.auth.signOut();
+    window.location.href = '/';
+  }
+
+  async function init() {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) { window.location.href = '/'; return; }
+    const tier = session.user?.user_metadata?.tier || 'free';
+    if (tier !== 'admin') { window.location.href = '/'; return; }
+    document.getElementById('user-info').textContent = session.user.email + ' · admin';
+    await loadSummary();
+  }
+
+  // ── Load summary ──────────────────────────────────────────────────────────
+  async function loadSummary() {
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+
+    try {
+      const r    = await fetch(`${API}/study-summary`, { headers });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      summaryData = data;
+      renderAll(data);
+    } catch (err) {
+      document.getElementById('page-loading').classList.add('hidden');
+      const el = document.getElementById('page-error');
+      el.textContent = 'Failed to load summary: ' + err.message;
+      el.classList.remove('hidden');
+    }
+  }
+
+  // ── Render all sections ───────────────────────────────────────────────────
+  function renderAll(data) {
+    document.getElementById('page-loading').classList.add('hidden');
+    document.getElementById('main-content').classList.remove('hidden');
+
+    renderStats(data);
+    renderVersionComparison(data.version_breakdown);
+    renderHeatmap(data.summary || []);
+    renderTaxonomy(data.taxonomy_breakdown || []);
+    renderPipeline(data.pipeline_breakdown || []);
+    renderPromptQueue(data.prompt_queue || []);
+  }
+
+  // ── Stats bar ─────────────────────────────────────────────────────────────
+  function renderStats(data) {
+    const overall = data.overall || {};
+    document.getElementById('stat-papers').textContent  = overall.papers_graded ?? '—';
+    document.getElementById('stat-fields').textContent  = overall.total_grades ?? '—';
+    document.getElementById('stat-exact').textContent   =
+      overall.exact_rate !== null && overall.exact_rate !== undefined
+        ? overall.exact_rate + '%'
+        : '—';
+
+    const priorityCount = (data.summary || []).filter(f => f.priority_score > 1.5).length;
+    document.getElementById('stat-priority').textContent = priorityCount;
+  }
+
+  // ── Version comparison ────────────────────────────────────────────────────
+  function renderVersionComparison(vb) {
+    if (!vb) return;
+    const v1 = vb.v1 || {};
+    const v2 = vb.v2 || {};
+
+    document.getElementById('v1-rate').textContent  = v1.exact_rate !== null ? v1.exact_rate + '%' : 'N/A';
+    document.getElementById('v1-total').textContent = `${v1.total || 0} fields graded`;
+    document.getElementById('v2-rate').textContent  = v2.exact_rate !== null ? v2.exact_rate + '%' : 'N/A';
+    document.getElementById('v2-total').textContent = `${v2.total || 0} fields graded`;
+
+    const deltaEl = document.getElementById('version-delta');
+    if (v1.exact_rate !== null && v2.exact_rate !== null && v1.total > 0 && v2.total > 0) {
+      const diff = Math.round((v2.exact_rate - v1.exact_rate) * 10) / 10;
+      if (diff > 0) {
+        deltaEl.innerHTML = `<span class="version-up">↑ V2 improvement: +${diff} pp</span>`;
+      } else if (diff < 0) {
+        deltaEl.innerHTML = `<span class="version-down">↓ V2 regression: ${diff} pp (unexpected)</span>`;
+      } else {
+        deltaEl.innerHTML = `<span class="version-eq">No change between versions</span>`;
+      }
+    } else if (v1.total === 0 && v2.total === 0) {
+      deltaEl.textContent = 'No grades recorded yet for either version.';
+    } else if (v1.total === 0) {
+      deltaEl.textContent = 'V1 not yet graded — comparison pending.';
+    } else {
+      deltaEl.textContent = 'V2 not yet graded — comparison pending.';
+    }
+  }
+
+  // ── Priority heatmap ──────────────────────────────────────────────────────
+  function renderHeatmap(fields) {
+    const tbody = document.getElementById('heatmap-tbody');
+    if (fields.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-500">No grades recorded yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = fields.map(f => {
+      const borderCls = f.priority_score > 2.0
+        ? 'priority-critical'
+        : f.priority_score >= 1.0
+          ? 'priority-high'
+          : 'priority-ok';
+
+      const exact = f.exact_count > 0
+        ? `<span class="pill-exact px-1.5 py-0.5 rounded text-xs">${f.exact_count}</span>`
+        : `<span class="pill-none px-1.5 py-0.5 rounded text-xs">0</span>`;
+      const partial = f.partial_count > 0
+        ? `<span class="pill-partial px-1.5 py-0.5 rounded text-xs">${f.partial_count}</span>`
+        : `<span class="pill-none px-1.5 py-0.5 rounded text-xs">0</span>`;
+      const fail = f.fail_count > 0
+        ? `<span class="pill-fail px-1.5 py-0.5 rounded text-xs">${f.fail_count}</span>`
+        : `<span class="pill-none px-1.5 py-0.5 rounded text-xs">0</span>`;
+      const hall = f.hallucinated_count > 0
+        ? `<span class="pill-hallucinated px-1.5 py-0.5 rounded text-xs">${f.hallucinated_count}</span>`
+        : `<span class="pill-none px-1.5 py-0.5 rounded text-xs">0</span>`;
+
+      const sevColor = f.avg_severity >= 4 ? 'text-red-400'
+        : f.avg_severity >= 3 ? 'text-amber-400'
+        : 'text-slate-300';
+
+      const scoreColor = f.priority_score > 2.0 ? 'text-red-400 font-bold'
+        : f.priority_score >= 1.0 ? 'text-amber-400 font-semibold'
+        : 'text-green-400';
+
+      return `<tr class="${borderCls}">
+        <td>
+          <div class="font-medium text-slate-200">${escHtml(f.field_name.replace(/_/g, ' '))}</div>
+          ${f.dominant_error_taxonomy ? `<div class="text-xs text-slate-600 mt-0.5">${escHtml(f.dominant_error_taxonomy.replace(/_/g, ' '))}</div>` : ''}
+        </td>
+        <td class="text-center text-slate-400">${f.total_graded}</td>
+        <td class="text-center">${exact}</td>
+        <td class="text-center">${partial}</td>
+        <td class="text-center">${fail}</td>
+        <td class="text-center">${hall}</td>
+        <td class="text-center ${sevColor}">${f.avg_severity > 0 ? f.avg_severity.toFixed(1) : '—'}</td>
+        <td class="text-center ${scoreColor}">${f.priority_score.toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Taxonomy breakdown ────────────────────────────────────────────────────
+  function renderTaxonomy(rows) {
+    const tbody = document.getElementById('taxonomy-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-slate-500">No error data yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="font-medium text-slate-200">${escHtml(r.taxonomy.replace(/_/g, ' '))}</td>
+        <td class="text-center text-slate-300">${r.count}</td>
+        <td class="text-center text-slate-400">${r.pct_of_non_exact}%</td>
+        <td class="text-xs text-slate-500">${(r.most_affected_fields || []).map(f => escHtml(f.replace(/_/g,' '))).join(', ') || '—'}</td>
+      </tr>`).join('');
+  }
+
+  // ── Pipeline breakdown ────────────────────────────────────────────────────
+  function renderPipeline(rows) {
+    const tbody = document.getElementById('pipeline-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center py-6 text-slate-500">No pipeline data yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="font-medium text-slate-200">${escHtml(r.section.replace(/_/g, ' '))}</td>
+        <td class="text-center text-slate-300">${r.error_count}</td>
+        <td class="text-xs text-slate-400">${r.top_field ? escHtml(r.top_field.replace(/_/g, ' ')) : '—'}</td>
+      </tr>`).join('');
+  }
+
+  // ── Prompt modification queue ─────────────────────────────────────────────
+  function renderPromptQueue(queue) {
+    const container = document.getElementById('prompt-queue-list');
+    if (queue.length === 0) {
+      container.innerHTML = '<div class="px-4 py-6 text-center text-slate-500 text-sm">No fields exceed priority threshold 1.0 yet.</div>';
+      return;
+    }
+
+    container.innerHTML = queue.map((item, i) => {
+      const scoreColor = item.priority_score > 2.0 ? 'text-red-400'
+        : item.priority_score >= 1.5 ? 'text-amber-400'
+        : 'text-slate-400';
+
+      const suggPromptSection = item.dominant_pipeline_section
+        ? `Suggested fix location: <span class="text-blue-400">${escHtml(item.dominant_pipeline_section.replace(/_/g, ' '))} prompt</span>`
+        : 'Suggested fix location: unknown';
+
+      const correctionPreview = item.latest_correction_text
+        ? `<div class="mt-2 bg-slate-900 rounded p-2 text-xs text-slate-400 italic border border-slate-700 max-h-16 overflow-hidden">"${escHtml(item.latest_correction_text.slice(0, 200))}${item.latest_correction_text.length > 200 ? '…' : ''}"</div>`
+        : '';
+
+      return `
+        <div class="px-4 py-3 flex items-start gap-4">
+          <span class="text-slate-600 text-sm font-mono w-5 flex-shrink-0">${i + 1}.</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-3 flex-wrap">
+              <span class="font-semibold text-slate-200 text-sm">${escHtml(item.field_name.replace(/_/g, ' '))}</span>
+              ${item.dominant_error_taxonomy
+                ? `<span class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300">${escHtml(item.dominant_error_taxonomy.replace(/_/g, ' '))}</span>`
+                : ''}
+              <span class="${scoreColor} text-xs font-mono">score ${item.priority_score.toFixed(2)}</span>
+            </div>
+            <div class="text-xs text-slate-500 mt-1">${suggPromptSection}</div>
+            ${correctionPreview}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── CSV download ──────────────────────────────────────────────────────────
+  function downloadCSV() {
+    if (!summaryData?.summary?.length) {
+      alert('No summary data to download yet.');
+      return;
+    }
+
+    const headers = [
+      'field_name','total_graded','exact_count','partial_count','fail_count',
+      'hallucinated_count','avg_severity','priority_score',
+      'taxonomy_omission','taxonomy_misclassification','taxonomy_formatting_syntax','taxonomy_semantic',
+      'pipeline_extractor','pipeline_adjudicator','pipeline_post_processing',
+    ];
+
+    const rows = summaryData.summary.map(f => [
+      f.field_name,
+      f.total_graded,
+      f.exact_count,
+      f.partial_count,
+      f.fail_count,
+      f.hallucinated_count,
+      f.avg_severity,
+      f.priority_score,
+      f.error_taxonomy_dist?.omission          || 0,
+      f.error_taxonomy_dist?.misclassification || 0,
+      f.error_taxonomy_dist?.formatting_syntax || 0,
+      f.error_taxonomy_dist?.semantic          || 0,
+      f.pipeline_section_dist?.extractor       || 0,
+      f.pipeline_section_dist?.adjudicator     || 0,
+      f.pipeline_section_dist?.post_processing || 0,
+    ]);
+
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `outcomelogic-phase0-summary-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Utility ───────────────────────────────────────────────────────────────
+  function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  init();
+  </script>
+</body>
+</html>

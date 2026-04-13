@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Phase 0 Pilot Grading</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* match_status pill buttons */
+    .ms-btn { transition: all 0.15s; }
+    .ms-btn.active-exact        { background: #166534; color: #86efac; border-color: #16a34a; }
+    .ms-btn.active-partial      { background: #713f12; color: #fde68a; border-color: #d97706; }
+    .ms-btn.active-fail         { background: #7f1d1d; color: #fca5a5; border-color: #dc2626; }
+    .ms-btn.active-hallucinated { background: #4a1d96; color: #ddd6fe; border-color: #7c3aed; }
+    .ms-btn.inactive { background: #1e293b; color: #64748b; border-color: #334155; }
+
+    /* severity buttons */
+    .sev-btn { transition: all 0.15s; min-width: 2rem; }
+    .sev-btn.active-1 { background: #1e293b; color: #94a3b8; border-color: #475569; }
+    .sev-btn.active-2 { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+    .sev-btn.active-3 { background: #713f12; color: #fde68a; border-color: #d97706; }
+    .sev-btn.active-4 { background: #7c2d12; color: #fdba74; border-color: #ea580c; }
+    .sev-btn.active-5 { background: #7f1d1d; color: #fca5a5; border-color: #dc2626; }
+    .sev-btn.inactive { background: #1e293b; color: #475569; border-color: #334155; }
+
+    /* field card */
+    .field-card { border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; }
+    .field-card.saved-flash { border-color: #16a34a; transition: border-color 0.5s; }
+
+    /* extracted value display */
+    .extracted-val { background: #0f172a; border: 1px solid #334155; border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8125rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-word; max-height: 12rem; overflow-y: auto; }
+
+    /* progress bar */
+    .progress-bar-fill { transition: width 0.4s ease; }
+
+    /* flags badges */
+    .flag-warn   { background: #78350f; color: #fde68a; }
+    .flag-danger { background: #7f1d1d; color: #fca5a5; }
+    .flag-info   { background: #1e3a5f; color: #93c5fd; }
+    .flag-ok     { background: #14532d; color: #86efac; }
+
+    /* scrollable right panel */
+    .right-panel { height: calc(100vh - 8rem); overflow-y: auto; padding-right: 4px; }
+    .left-panel  { height: calc(100vh - 8rem); overflow-y: auto; padding-right: 4px; position: sticky; top: 7rem; }
+
+    select { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 0.375rem; padding: 0.25rem 0.5rem; font-size: 0.8125rem; }
+    select:focus { outline: none; border-color: #3b82f6; }
+    textarea { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8125rem; width: 100%; resize: vertical; }
+    textarea:focus { outline: none; border-color: #3b82f6; }
+    textarea::placeholder { color: #475569; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <a href="/study.html" class="text-slate-400 hover:text-white text-sm">← Study Admin</a>
+      <span class="text-slate-600">|</span>
+      <span class="font-semibold text-white">Phase 0 Pilot</span>
+      <span class="text-slate-500 text-sm">— Grading Interface</span>
+      <span class="text-xs text-slate-500 ml-1">26 fields per paper</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="grading-breadcrumb" class="hidden text-xs text-slate-400" id="hdr-grading-label"></span>
+      <span id="user-info" class="text-xs text-slate-400"></span>
+      <button onclick="logout()" class="text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-800">Logout</button>
+    </div>
+  </header>
+
+  <!-- ── Paper list view ──────────────────────────────────────────────────── -->
+  <div id="view-list" class="max-w-5xl mx-auto px-6 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-lg font-semibold text-white">Pilot Papers</h1>
+      <a href="/pilot-summary.html" class="text-xs text-blue-400 hover:text-blue-300 px-3 py-1.5 rounded border border-slate-700 hover:border-blue-500">
+        View Summary →
+      </a>
+    </div>
+    <div id="list-loading" class="text-center py-16 text-slate-500 text-sm">Loading papers…</div>
+    <div id="list-error"   class="hidden text-center py-16 text-red-400 text-sm"></div>
+    <div id="paper-cards"  class="hidden space-y-4"></div>
+  </div>
+
+  <!-- ── Grading view ──────────────────────────────────────────────────────── -->
+  <div id="view-grading" class="hidden px-6 py-4 max-w-screen-xl mx-auto">
+
+    <!-- Grading header -->
+    <div class="flex items-center gap-4 mb-4">
+      <button onclick="showList()" class="text-slate-400 hover:text-white text-sm px-3 py-1.5 rounded border border-slate-700 hover:border-slate-500">
+        ← Back to papers
+      </button>
+      <div class="flex-1">
+        <div class="flex items-center gap-3">
+          <span id="grading-title" class="font-semibold text-white text-sm truncate max-w-xl"></span>
+          <span id="grading-version-badge" class="px-2 py-0.5 rounded text-xs font-medium bg-blue-900 text-blue-300"></span>
+        </div>
+        <!-- Progress bar -->
+        <div class="flex items-center gap-3 mt-1.5">
+          <div class="flex-1 bg-slate-700 rounded-full h-2 max-w-xs">
+            <div id="grading-progress-fill" class="progress-bar-fill bg-blue-500 h-2 rounded-full" style="width:0%"></div>
+          </div>
+          <span id="grading-progress-text" class="text-xs text-slate-400"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Two-column grid -->
+    <div class="grid gap-6" style="grid-template-columns: 38% 1fr;">
+
+      <!-- LEFT: Paper info -->
+      <div class="left-panel">
+        <div class="bg-slate-800 rounded-lg p-4 mb-4">
+          <div id="left-title" class="font-medium text-white text-sm mb-1"></div>
+          <div id="left-meta"  class="text-xs text-slate-400 mb-3"></div>
+
+          <!-- Links -->
+          <div id="left-links" class="flex flex-wrap gap-2 mb-4"></div>
+
+          <!-- Source type + PMID -->
+          <div class="flex items-center gap-2 mb-3">
+            <span id="left-source-badge" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300"></span>
+            <span id="left-pmid" class="text-xs text-slate-500"></span>
+          </div>
+
+          <!-- Extraction flags -->
+          <div id="left-flags-section" class="mb-4">
+            <div class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Extraction Flags</div>
+            <div id="left-flags" class="space-y-1.5"></div>
+          </div>
+
+          <!-- Source citations -->
+          <div id="left-citations-section">
+            <div class="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Source Citations</div>
+            <div id="left-citations" class="space-y-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Field grading cards -->
+      <div class="right-panel" id="right-panel">
+        <div id="fields-loading" class="text-center py-12 text-slate-500 text-sm">Loading fields…</div>
+        <div id="field-cards"   class="hidden space-y-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ── Config ────────────────────────────────────────────────────────────────
+  const ENV   = window.ENV || {};
+  const API   = ENV.API_BASE_URL || '/api';
+  const TOKEN = ENV.INTERNAL_API_TOKEN || '';
+  const _sb   = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+
+  // ── Grade fields definition ───────────────────────────────────────────────
+  const GRADE_FIELDS = [
+    { id: 'trial_identification',     label: 'Trial Identification',           path: 'reportMeta.trial_identification' },
+    { id: 'study_design',             label: 'Study Design',                   path: 'reportMeta.study_design' },
+    { id: 'authors',                  label: 'Authors',                        path: 'reportMeta.authors' },
+    { id: 'journal_year',             label: 'Journal / Year',                 path: ['reportMeta.journal', 'reportMeta.year'] },
+    { id: 'population',               label: 'PICO: Population',               path: 'clinician_view.pico.population' },
+    { id: 'intervention',             label: 'PICO: Intervention',             path: 'clinician_view.pico.intervention' },
+    { id: 'control',                  label: 'PICO: Control',                  path: 'clinician_view.pico.control' },
+    { id: 'primary_outcome_def',      label: 'Primary Outcome: Definition',    path: 'clinician_view.pico.primary_outcome' },
+    { id: 'secondary_outcomes',       label: 'Secondary Outcomes',             path: 'clinician_view.pico.secondary_outcomes' },
+    { id: 'baseline_characteristics', label: 'Baseline Characteristics',       path: 'clinician_view.baseline_characteristics' },
+    { id: 'primary_result_values',    label: 'Primary Result: Numeric Values', path: 'clinician_view.interactive_data.endpoints[0].arms' },
+    { id: 'primary_result_synthesis', label: 'Primary Result: Synthesis',      path: 'clinician_view.interactive_data.endpoints[0].clinical_synthesis' },
+    { id: 'grade_certainty',          label: 'GRADE Certainty',                path: 'clinician_view.critical_appraisal.grade_certainty' },
+    { id: 'risk_of_bias',             label: 'Risk of Bias Rating',            path: 'clinician_view.critical_appraisal.risk_of_bias' },
+    { id: 'risk_of_bias_rationale',   label: 'Risk of Bias Rationale',         path: 'clinician_view.critical_appraisal.risk_of_bias_rationale' },
+    { id: 'limitations',              label: 'Limitations',                    path: 'clinician_view.critical_appraisal.limitations' },
+    { id: 'adverse_events',           label: 'Adverse Events',                 path: 'clinician_view.adverse_events' },
+    { id: 'subgroups',                label: 'Subgroup Analyses',              path: 'clinician_view.subgroups' },
+    { id: 'context_already_known',    label: 'Context: Prior Evidence',        path: 'clinician_view.context.already_known' },
+    { id: 'context_what_adds',        label: 'Context: What This Adds',        path: 'clinician_view.context.what_this_adds' },
+    { id: 'lay_summary',              label: 'Lay Summary',                    path: 'patient_view.lay_summary' },
+    { id: 'sdm_takeaway',             label: 'Shared Decision Making',         path: 'patient_view.shared_decision_making_takeaway' },
+    { id: 'extraction_flags',         label: 'Extraction Flags Quality',       path: 'extraction_flags' },
+    { id: 'source_citations',         label: 'Source Citations Quality',       path: 'source_citations' },
+    { id: 'ni_handling',              label: 'NI Trial Handling',              path: 'extraction_flags.ni_trial', conditional: 'ni_trial' },
+    { id: 'library_meta',             label: 'Library Metadata',               path: 'library_meta' },
+  ];
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let authToken    = null;
+  let currentView  = 'list';
+  let papers       = [];
+  let currentOutput = null;
+  let currentPaper  = null;
+  let grades       = {};   // { field_id: grade_object }
+  let saveTimers   = {};   // debounce timers per field
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  async function getAuthHeaders() {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) { window.location.href = '/'; return null; }
+    return {
+      'Content-Type':  'application/json',
+      'x-api-token':   TOKEN,
+      'Authorization': `Bearer ${session.access_token}`,
+    };
+  }
+
+  async function logout() {
+    await _sb.auth.signOut();
+    window.location.href = '/';
+  }
+
+  async function init() {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) { window.location.href = '/'; return; }
+    const tier = session.user?.user_metadata?.tier || 'free';
+    if (tier !== 'admin') { window.location.href = '/'; return; }
+    authToken = session.access_token;
+    document.getElementById('user-info').textContent = session.user.email + ' · admin';
+    await loadPapers();
+  }
+
+  // ── Utility: nested value resolver ───────────────────────────────────────
+  function getNestedValue(obj, path) {
+    if (!obj || !path) return undefined;
+
+    // Array of paths — resolve each and join
+    if (Array.isArray(path)) {
+      const parts = path.map(p => getNestedValue(obj, p));
+      const joined = parts.filter(v => v !== undefined && v !== null && v !== '').join(' / ');
+      return joined || undefined;
+    }
+
+    // Handle array index notation: e.g. endpoints[0].arms
+    const segments = [];
+    const re = /([^.[]+)|\[(\d+)\]/g;
+    let m;
+    while ((m = re.exec(path)) !== null) {
+      segments.push(m[1] !== undefined ? m[1] : parseInt(m[2], 10));
+    }
+
+    let current = obj;
+    for (const seg of segments) {
+      if (current === null || current === undefined) return undefined;
+      current = current[seg];
+    }
+    return current;
+  }
+
+  function formatExtractedValue(val) {
+    if (val === undefined || val === null) return '<span class="text-slate-600 italic">— not present in output —</span>';
+    if (typeof val === 'boolean') return val ? 'true' : 'false';
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'string') return val.trim() || '<span class="text-slate-600 italic">— empty string —</span>';
+    if (Array.isArray(val)) {
+      if (val.length === 0) return '<span class="text-slate-600 italic">— empty array —</span>';
+      return val.map((item, i) => {
+        if (typeof item === 'object' && item !== null) {
+          return `• ${Object.entries(item).map(([k, v]) => `<span class="text-slate-500">${k}:</span> ${formatSimple(v)}`).join('  ')}`;
+        }
+        return `• ${formatSimple(item)}`;
+      }).join('\n');
+    }
+    if (typeof val === 'object') {
+      return Object.entries(val).map(([k, v]) => `<span class="text-slate-500">${k}:</span> ${formatSimple(v)}`).join('\n');
+    }
+    return String(val);
+  }
+
+  function formatSimple(v) {
+    if (v === null || v === undefined) return '—';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  // ── Load papers ───────────────────────────────────────────────────────────
+  async function loadPapers() {
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+
+    try {
+      const r    = await fetch(`${API}/study-papers`, { headers });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+
+      papers = (data.papers || []).filter(p => p.is_pilot);
+      // Fetch grade counts for each output
+      await loadGradeCounts();
+      renderPaperList();
+    } catch (err) {
+      document.getElementById('list-loading').classList.add('hidden');
+      const el = document.getElementById('list-error');
+      el.textContent = 'Failed to load papers: ' + err.message;
+      el.classList.remove('hidden');
+    }
+  }
+
+  // grade counts: { output_id: count }
+  let gradeCounts = {};
+
+  async function loadGradeCounts() {
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+    // Fetch summary to get counts (or we do individual calls per output)
+    // For efficiency, try summary endpoint
+    try {
+      const r    = await fetch(`${API}/study-summary`, { headers });
+      if (!r.ok) return;
+      const data = await r.json();
+      // summary gives per-field not per-output. We need per-output counts.
+      // Fall through: we'll count from per-output grade fetches lazily.
+    } catch (_) {}
+  }
+
+  // ── Render paper list ─────────────────────────────────────────────────────
+  function renderPaperList() {
+    document.getElementById('list-loading').classList.add('hidden');
+    const container = document.getElementById('paper-cards');
+    container.innerHTML = '';
+
+    if (papers.length === 0) {
+      container.innerHTML = '<div class="text-center py-12 text-slate-500 text-sm">No pilot papers found.</div>';
+      container.classList.remove('hidden');
+      return;
+    }
+
+    papers.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'bg-slate-800 rounded-lg p-4 border border-slate-700';
+      card.id = `paper-card-${p.id}`;
+
+      const v1 = p.outputs?.find(o => o.version === 'v1') || null;
+      const v2 = p.outputs?.find(o => o.version === 'v2') || null;
+
+      // Specialty badge
+      const specialtyBadge = p.specialty
+        ? `<span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">${p.specialty}</span>`
+        : '';
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-4 mb-3">
+          <div class="flex-1 min-w-0">
+            <div class="font-medium text-white text-sm leading-snug mb-0.5">${escHtml(p.title)}</div>
+            <div class="text-xs text-slate-400">${escHtml(p.authors || '')} ${p.year ? '(' + p.year + ')' : ''} · ${escHtml(p.journal || '')}</div>
+          </div>
+          ${specialtyBadge}
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          ${versionCard('v1', p, v1)}
+          ${versionCard('v2', p, v2)}
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+    container.classList.remove('hidden');
+  }
+
+  function versionCard(version, paper, output) {
+    const label   = version.toUpperCase();
+    const hasOut  = !!output;
+    const outputId = output?.id || null;
+
+    const statusBadge = hasOut
+      ? `<span class="text-xs px-2 py-0.5 rounded bg-green-900 text-green-300">Output ready</span>`
+      : `<span class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-500">No output</span>`;
+
+    const gradeCountEl = hasOut
+      ? `<span id="gc-${outputId}" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400">— / 26 fields</span>`
+      : `<span class="text-xs text-slate-600">—</span>`;
+
+    const gradeBtn = hasOut
+      ? `<button onclick="startGrading('${paper.id}','${outputId}','${version}')"
+           class="text-xs px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white font-medium">
+           Grade ${label}
+         </button>`
+      : `<button disabled class="text-xs px-3 py-1.5 rounded bg-slate-700 text-slate-600 cursor-not-allowed">
+           Grade ${label}
+         </button>`;
+
+    if (hasOut) {
+      // Async: fetch grade count
+      fetchGradeCount(outputId);
+    }
+
+    return `
+      <div class="bg-slate-900 rounded p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xs font-semibold text-slate-300">${label}</span>
+          ${statusBadge}
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          ${gradeCountEl}
+          ${gradeBtn}
+        </div>
+      </div>
+    `;
+  }
+
+  async function fetchGradeCount(outputId) {
+    if (!outputId) return;
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+    try {
+      const r    = await fetch(`${API}/study-grade?output_id=${outputId}`, { headers });
+      if (!r.ok) return;
+      const data = await r.json();
+      const count = (data.grades || []).length;
+      const el    = document.getElementById(`gc-${outputId}`);
+      if (!el) return;
+      const pct   = Math.round((count / 26) * 100);
+      const cls   = count === 26 ? 'bg-green-900 text-green-300' : count > 0 ? 'bg-amber-900 text-amber-300' : 'bg-slate-700 text-slate-400';
+      el.className = `text-xs px-2 py-0.5 rounded ${cls}`;
+      el.textContent = `${count} / 26 fields`;
+    } catch (_) {}
+  }
+
+  // ── Show paper list ───────────────────────────────────────────────────────
+  function showList() {
+    currentView  = 'list';
+    currentOutput = null;
+    currentPaper  = null;
+    grades        = {};
+    document.getElementById('view-list').classList.remove('hidden');
+    document.getElementById('view-grading').classList.add('hidden');
+    document.getElementById('grading-breadcrumb').classList.add('hidden');
+    // Refresh grade counts on return
+    loadPapers();
+  }
+
+  // ── Start grading an output ───────────────────────────────────────────────
+  async function startGrading(paperId, outputId, version) {
+    document.getElementById('view-list').classList.add('hidden');
+    document.getElementById('view-grading').classList.remove('hidden');
+    document.getElementById('grading-breadcrumb').classList.remove('hidden');
+    document.getElementById('fields-loading').classList.remove('hidden');
+    document.getElementById('field-cards').classList.add('hidden');
+
+    currentView = 'grading';
+    const paper = papers.find(p => p.id === paperId);
+    currentPaper = paper;
+
+    // Set header
+    document.getElementById('grading-title').textContent = paper?.title || 'Paper';
+    document.getElementById('grading-version-badge').textContent = `Grading ${version.toUpperCase()}`;
+
+    // Fetch output JSON
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+
+    let output = null;
+    try {
+      const r = await fetch(`${API}/study-output?id=${outputId}`, { headers });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.statusText);
+      output = d.output || d;
+    } catch (err) {
+      document.getElementById('fields-loading').textContent = 'Failed to load output: ' + err.message;
+      return;
+    }
+
+    currentOutput = { id: outputId, version, json: output };
+
+    // Fetch existing grades
+    try {
+      const r2  = await fetch(`${API}/study-grade?output_id=${outputId}`, { headers });
+      const d2  = await r2.json();
+      grades = {};
+      (d2.grades || []).forEach(g => { grades[g.field_name] = g; });
+    } catch (_) {}
+
+    // Populate left panel
+    populateLeftPanel(paper, output, version);
+
+    // Render field cards
+    renderFieldCards(output);
+
+    document.getElementById('fields-loading').classList.add('hidden');
+    document.getElementById('field-cards').classList.remove('hidden');
+
+    updateProgressBar();
+  }
+
+  // ── Left panel ────────────────────────────────────────────────────────────
+  function populateLeftPanel(paper, output, version) {
+    // Title & meta
+    const rm = output?.reportMeta || {};
+    document.getElementById('left-title').textContent = rm.trial_identification || paper?.title || '';
+    document.getElementById('left-meta').textContent  = [rm.authors, rm.journal, rm.year].filter(Boolean).join(' · ');
+
+    // Links
+    const linksEl = document.getElementById('left-links');
+    linksEl.innerHTML = '';
+    const pmid  = rm.pubmed_id || paper?.pmid;
+    const pmcid = rm.pmcid;
+    if (pmid) {
+      linksEl.innerHTML += `<a href="https://pubmed.ncbi.nlm.nih.gov/${pmid}/" target="_blank" rel="noopener"
+        class="text-xs px-3 py-1.5 rounded border border-slate-600 text-blue-400 hover:text-blue-300 hover:border-blue-500">
+        Open in PubMed
+      </a>`;
+    }
+    if (pmcid) {
+      linksEl.innerHTML += `<a href="https://www.ncbi.nlm.nih.gov/pmc/articles/${pmcid}/" target="_blank" rel="noopener"
+        class="text-xs px-3 py-1.5 rounded border border-slate-600 text-blue-400 hover:text-blue-300 hover:border-blue-500">
+        Open in PMC
+      </a>`;
+    }
+
+    // Source badge
+    const srcType = output?.source_type || output?.library_meta?.source_type || '—';
+    document.getElementById('left-source-badge').textContent = srcType;
+    document.getElementById('left-pmid').textContent = pmid ? `PMID: ${pmid}` : '';
+
+    // Extraction flags
+    const flags    = output?.extraction_flags || {};
+    const flagsEl  = document.getElementById('left-flags');
+    flagsEl.innerHTML = '';
+
+    const flagDefs = [
+      { key: 'suspicious_agreement',  label: 'Suspicious Agreement', cls: 'flag-warn' },
+      { key: 'source_conflict',       label: 'Source Conflict',      cls: 'flag-danger' },
+      { key: 'ni_trial',              label: 'NI Trial',             cls: 'flag-info' },
+      { key: 'abstract_only',         label: 'Abstract Only',        cls: 'flag-warn' },
+      { key: 'low_confidence',        label: 'Low Confidence',       cls: 'flag-warn' },
+    ];
+
+    let anyFlag = false;
+    flagDefs.forEach(({ key, label, cls }) => {
+      if (flags[key]) {
+        anyFlag = true;
+        const note = typeof flags[key] === 'string' ? flags[key] : '';
+        flagsEl.innerHTML += `
+          <div class="${cls} rounded px-2 py-1.5 text-xs">
+            <span class="font-semibold">${escHtml(label)}</span>
+            ${note ? `<div class="mt-0.5 opacity-80">${escHtml(note)}</div>` : ''}
+          </div>`;
+      }
+    });
+    if (!anyFlag) {
+      flagsEl.innerHTML = '<div class="flag-ok rounded px-2 py-1 text-xs">No flags</div>';
+    }
+
+    // Source citations
+    const cits    = output?.source_citations || {};
+    const citsEl  = document.getElementById('left-citations');
+    citsEl.innerHTML = '';
+
+    const citKeys = ['primary_result', 'effect_size', 'grade_evidence', 'adverse_events'];
+    let anyCit = false;
+    citKeys.forEach(k => {
+      const c = cits[k];
+      if (!c) return;
+      anyCit = true;
+      const text     = typeof c === 'string' ? c : (c.text || c.quote || JSON.stringify(c));
+      const location = typeof c === 'object' ? (c.location || c.section || '') : '';
+      citsEl.innerHTML += `
+        <div class="bg-slate-900 rounded p-2 text-xs">
+          <div class="text-slate-500 uppercase tracking-wide mb-1">${escHtml(k.replace(/_/g, ' '))}</div>
+          <div class="text-slate-300 italic">"${escHtml(text)}"</div>
+          ${location ? `<div class="text-slate-600 mt-0.5">${escHtml(location)}</div>` : ''}
+        </div>`;
+    });
+    if (!anyCit) {
+      citsEl.innerHTML = '<div class="text-xs text-slate-600">No source citations in output</div>';
+    }
+  }
+
+  // ── Render field cards ────────────────────────────────────────────────────
+  function renderFieldCards(output) {
+    const container = document.getElementById('field-cards');
+    container.innerHTML = '';
+
+    const suspFlag = output?.extraction_flags?.suspicious_agreement;
+
+    GRADE_FIELDS.forEach(field => {
+      // Skip conditional fields if condition not met
+      if (field.conditional === 'ni_trial' && !output?.extraction_flags?.ni_trial) {
+        return;
+      }
+
+      const extractedRaw = getNestedValue(output?.output_json || output, field.path);
+      const formatted    = formatExtractedValue(extractedRaw);
+      const existing     = grades[field.id] || null;
+
+      const card = document.createElement('div');
+      card.className  = 'field-card p-4';
+      card.id         = `card-${field.id}`;
+
+      card.innerHTML = buildFieldCardHTML(field, formatted, existing, suspFlag);
+      container.appendChild(card);
+
+      // Attach event listeners
+      attachFieldListeners(field.id, existing, suspFlag);
+    });
+  }
+
+  function buildFieldCardHTML(field, formattedValue, existing, suspFlag) {
+    const ms  = existing?.match_status || null;
+    const sev = existing?.harm_severity || null;
+    const tax = existing?.error_taxonomy || null;
+    const ps  = existing?.pipeline_section || null;
+    const showExtra = ms && ms !== 'exact_match';
+
+    const msBtns = [
+      { val: 'exact_match',  label: 'Exact Match ✓',   cls: 'active-exact' },
+      { val: 'partial_match', label: 'Partial Match ~', cls: 'active-partial' },
+      { val: 'fail',          label: 'Fail ✗',          cls: 'active-fail' },
+      { val: 'hallucinated',  label: 'Hallucinated !',  cls: 'active-hallucinated' },
+    ].map(b => `
+      <button data-ms="${b.val}"
+        onclick="setMatchStatus('${field.id}','${b.val}')"
+        class="ms-btn text-xs px-2.5 py-1 rounded border font-medium ${ms === b.val ? b.cls : 'inactive'}">
+        ${b.label}
+      </button>`).join('');
+
+    const sevBtns = [1,2,3,4,5].map(n => `
+      <button data-sev="${n}"
+        onclick="setSeverity('${field.id}',${n})"
+        class="sev-btn text-xs px-2.5 py-1 rounded border font-medium ${sev === n ? 'active-'+n : 'inactive'}">
+        ${n}
+      </button>`).join('');
+
+    const taxOptions = ['omission','misclassification','formatting_syntax','semantic']
+      .map(t => `<option value="${t}" ${tax === t ? 'selected' : ''}>${t.replace(/_/g, ' ')}</option>`)
+      .join('');
+
+    const psOptions = ['extractor','adjudicator','post_processing']
+      .map(p => `<option value="${p}" ${ps === p ? 'selected' : ''}>${p.replace(/_/g, ' ')}</option>`)
+      .join('');
+
+    const savedIndicator = existing
+      ? `<span id="saved-${field.id}" class="text-xs text-green-400">Saved ✓</span>`
+      : `<span id="saved-${field.id}" class="hidden text-xs text-green-400">Saved ✓</span>`;
+
+    const suspSection = suspFlag ? `
+      <div class="mt-3 pt-3 border-t border-slate-700">
+        <label class="flex items-center gap-2 text-xs text-amber-300 cursor-pointer">
+          <input type="checkbox" id="susp-cb-${field.id}" class="accent-amber-500"
+            ${existing?.suspicious_agreement ? 'checked' : ''}
+            onchange="toggleSuspNote('${field.id}')">
+          Suspicious agreement contributed to this error
+        </label>
+        <textarea id="susp-note-${field.id}" rows="2" placeholder="Describe how suspicious agreement manifests in this field…"
+          class="${existing?.suspicious_agreement ? '' : 'hidden'} mt-1.5"
+        >${escHtml(existing?.suspicious_agreement_note || '')}</textarea>
+      </div>` : '';
+
+    return `
+      <div class="flex items-start justify-between mb-2 gap-2">
+        <div>
+          <span class="font-semibold text-slate-100 text-sm">${escHtml(field.label)}</span>
+          <span class="text-slate-600 text-xs ml-2">${escHtml(field.id)}</span>
+          ${field.conditional ? '<span class="ml-1 text-xs text-blue-400 bg-blue-900 px-1.5 py-0.5 rounded">conditional</span>' : ''}
+        </div>
+      </div>
+
+      <!-- Extracted value -->
+      <div class="mb-3">
+        <div class="text-xs text-slate-500 mb-1">Extracted value</div>
+        <div class="extracted-val">${formattedValue}</div>
+      </div>
+
+      <!-- Reference standard -->
+      <div class="mb-3">
+        <div class="text-xs text-slate-500 mb-1">Reference standard</div>
+        <textarea id="ref-${field.id}" rows="2" placeholder="What should the value be? (leave blank if correct)"
+          >${escHtml(existing?.reference_standard_value || '')}</textarea>
+      </div>
+
+      <!-- match_status -->
+      <div class="mb-3">
+        <div class="text-xs text-slate-500 mb-1.5">Match status</div>
+        <div class="flex flex-wrap gap-1.5">
+          ${msBtns}
+        </div>
+      </div>
+
+      <!-- Extra fields (conditionally shown) -->
+      <div id="extra-${field.id}" class="${showExtra ? '' : 'hidden'}">
+
+        <!-- Error taxonomy -->
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <div class="text-xs text-slate-500 mb-1">Error taxonomy</div>
+            <select id="tax-${field.id}" onchange="scheduleSave('${field.id}')">
+              <option value="">— select —</option>
+              ${taxOptions}
+            </select>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 mb-1">Pipeline section</div>
+            <select id="ps-${field.id}" onchange="scheduleSave('${field.id}')">
+              <option value="">— select —</option>
+              ${psOptions}
+            </select>
+          </div>
+        </div>
+
+        <!-- Severity -->
+        <div class="mb-3">
+          <div class="text-xs text-slate-500 mb-1.5">Harm severity</div>
+          <div class="flex gap-1.5" id="sev-btns-${field.id}">
+            ${sevBtns}
+          </div>
+          <div class="text-xs text-slate-600 mt-1">1=Cosmetic · 2=Minor · 3=Moderate · 4=Serious · 5=Dangerous</div>
+        </div>
+
+        <!-- Correction text -->
+        <div class="mb-2">
+          <div class="text-xs text-slate-500 mb-1">Correction notes</div>
+          <textarea id="corr-${field.id}" rows="2" placeholder="What is the correct value? Add context."
+            >${escHtml(existing?.correction_text || '')}</textarea>
+        </div>
+      </div>
+
+      <!-- Suspicious agreement section -->
+      ${suspSection}
+
+      <!-- Save controls -->
+      <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-700">
+        <button onclick="saveGrade('${field.id}')"
+          id="save-btn-${field.id}"
+          class="text-xs px-4 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white font-medium">
+          Save Grade
+        </button>
+        ${savedIndicator}
+      </div>
+    `;
+  }
+
+  function attachFieldListeners(fieldId, existing, suspFlag) {
+    // Textarea debounce save
+    ['ref', 'corr'].forEach(prefix => {
+      const el = document.getElementById(`${prefix}-${fieldId}`);
+      if (el) el.addEventListener('input', () => scheduleSave(fieldId));
+    });
+    if (suspFlag) {
+      const noteEl = document.getElementById(`susp-note-${fieldId}`);
+      if (noteEl) noteEl.addEventListener('input', () => scheduleSave(fieldId));
+    }
+  }
+
+  function toggleSuspNote(fieldId) {
+    const cb   = document.getElementById(`susp-cb-${fieldId}`);
+    const note = document.getElementById(`susp-note-${fieldId}`);
+    if (!cb || !note) return;
+    note.classList.toggle('hidden', !cb.checked);
+    scheduleSave(fieldId);
+  }
+
+  // ── Match status / severity setters ──────────────────────────────────────
+  function setMatchStatus(fieldId, val) {
+    if (!grades[fieldId]) grades[fieldId] = {};
+    grades[fieldId].match_status = val;
+
+    // Update button styles
+    const btnClasses = { exact_match: 'active-exact', partial_match: 'active-partial', fail: 'active-fail', hallucinated: 'active-hallucinated' };
+    document.querySelectorAll(`#card-${fieldId} [data-ms]`).forEach(btn => {
+      const bval = btn.dataset.ms;
+      btn.className = btn.className.replace(/active-\w+|inactive/g, '').trim();
+      btn.classList.add(bval === val ? btnClasses[bval] : 'inactive');
+    });
+
+    // Show/hide extra fields
+    const extraEl = document.getElementById(`extra-${fieldId}`);
+    if (extraEl) {
+      extraEl.classList.toggle('hidden', val === 'exact_match' || !val);
+    }
+
+    updateProgressBar();
+    scheduleSave(fieldId);
+  }
+
+  function setSeverity(fieldId, val) {
+    if (!grades[fieldId]) grades[fieldId] = {};
+    grades[fieldId].harm_severity = val;
+
+    document.querySelectorAll(`#sev-btns-${fieldId} [data-sev]`).forEach(btn => {
+      const bval = parseInt(btn.dataset.sev);
+      btn.className = btn.className.replace(/active-\d|inactive/g, '').trim();
+      btn.classList.add(bval === val ? `active-${bval}` : 'inactive');
+    });
+
+    scheduleSave(fieldId);
+  }
+
+  // ── Progress bar ──────────────────────────────────────────────────────────
+  function updateProgressBar() {
+    const total  = document.querySelectorAll('[id^="card-"]').length;
+    const graded = Object.keys(grades).length;
+    const pct    = total > 0 ? Math.round((graded / 26) * 100) : 0;
+    document.getElementById('grading-progress-fill').style.width = pct + '%';
+    document.getElementById('grading-progress-text').textContent = `${graded} / 26 fields graded`;
+  }
+
+  // ── Save grade ────────────────────────────────────────────────────────────
+  function scheduleSave(fieldId) {
+    clearTimeout(saveTimers[fieldId]);
+    saveTimers[fieldId] = setTimeout(() => saveGrade(fieldId), 1200);
+  }
+
+  async function saveGrade(fieldId) {
+    clearTimeout(saveTimers[fieldId]);
+    if (!currentOutput) return;
+
+    const g   = grades[fieldId] || {};
+    const tax = document.getElementById(`tax-${fieldId}`)?.value || null;
+    const ps  = document.getElementById(`ps-${fieldId}`)?.value  || null;
+    const ref = document.getElementById(`ref-${fieldId}`)?.value || null;
+    const corr = document.getElementById(`corr-${fieldId}`)?.value || null;
+    const suspCb   = document.getElementById(`susp-cb-${fieldId}`);
+    const suspNote = document.getElementById(`susp-note-${fieldId}`);
+
+    const payload = {
+      output_id:                currentOutput.id,
+      field_name:               fieldId,
+      match_status:             g.match_status || null,
+      error_taxonomy:           tax || null,
+      harm_severity:            g.harm_severity || null,
+      pipeline_section:         ps || null,
+      correction_text:          corr || null,
+      reference_standard_value: ref || null,
+      suspicious_agreement:     suspCb?.checked || false,
+      suspicious_agreement_note: suspNote?.value || null,
+    };
+
+    const headers = await getAuthHeaders();
+    if (!headers) return;
+
+    const saveBtn = document.getElementById(`save-btn-${fieldId}`);
+    const savedEl = document.getElementById(`saved-${fieldId}`);
+
+    if (saveBtn) {
+      saveBtn.textContent = 'Saving…';
+      saveBtn.disabled = true;
+    }
+
+    try {
+      const r = await fetch(`${API}/study-grade`, { method: 'POST', headers, body: JSON.stringify(payload) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.statusText);
+
+      grades[fieldId] = { ...grades[fieldId], ...payload, id: d.id };
+
+      if (savedEl) {
+        savedEl.classList.remove('hidden');
+        setTimeout(() => savedEl.classList.add('hidden'), 3000);
+      }
+      const card = document.getElementById(`card-${fieldId}`);
+      if (card) {
+        card.classList.add('saved-flash');
+        setTimeout(() => card.classList.remove('saved-flash'), 600);
+      }
+    } catch (err) {
+      console.error('[pilot] Save failed:', err.message);
+      if (saveBtn) saveBtn.textContent = 'Save failed — retry';
+    } finally {
+      if (saveBtn) {
+        saveBtn.textContent = 'Save Grade';
+        saveBtn.disabled = false;
+      }
+      updateProgressBar();
+    }
+  }
+
+  // ── Utility ───────────────────────────────────────────────────────────────
+  function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  init();
+  </script>
+</body>
+</html>
