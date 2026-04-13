@@ -193,7 +193,7 @@ async function verifySource(sourceText, originalQuery) {
 
   try {
     const result = await ai.models.generateContent({
-      model:    'gemini-2.0-flash-lite',
+      model:    'gemini-2.0-flash',
       contents: [{ role: 'user', parts: [{ text:
         `Does this document describe a clinical trial relevant to: "${originalQuery}"?\nAnswer ONLY "YES" or "NO".\nExcerpt: ${sourceText.slice(0, 1500)}`
       }] }],
