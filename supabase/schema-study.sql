@@ -1,219 +1,250 @@
 -- ============================================================
--- OutcomeLogic Validation Study Schema — Phase 0
--- Rebuilt 2026-04-12 per PIPELINE_SPEC.md
+-- OutcomeLogic Validation Study Schema
+-- Run once in Supabase SQL editor (Dashboard → SQL Editor)
 --
--- Run once in Supabase SQL editor (Dashboard → SQL Editor).
--- To rebuild: drop tables in reverse FK order, then re-run.
+-- Phase structure:
+--   Phase 0  — PI-only. Identify systematic errors in V2. Informs V1 prompt design.
+--   Phase 1  — Pilot. V1 vs V2 head-to-head. Powers sample size for Phase 2.
+--   Phase 2  — Main study. V1 vs V2. Prompts frozen from Phase 1.
+--   Phase 3  — Clinical utility. Different rubric. Landmark papers only.
 --
--- Table naming note: the pipeline API uses `study_outputs`
--- (not `study_extractions`) for backward compatibility.
+-- All study tables are admin-only (service role key bypasses RLS).
 -- ============================================================
 
--- ── Drop old structure if rebuilding ──────────────────────────────────────────
-DROP TABLE IF EXISTS study_grades           CASCADE;
-DROP TABLE IF EXISTS study_rater_assignments CASCADE;
-DROP TABLE IF EXISTS study_sessions         CASCADE;
-DROP TABLE IF EXISTS study_outputs          CASCADE;
-DROP TABLE IF EXISTS study_papers           CASCADE;
--- Legacy tables from v1 schema:
-DROP TABLE IF EXISTS study_assignments      CASCADE;
-DROP TABLE IF EXISTS study_raters           CASCADE;
-
--- ── 1. Papers ─────────────────────────────────────────────────────────────────
-CREATE TABLE study_papers (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  pmid        TEXT        UNIQUE,
-  title       TEXT        NOT NULL,
-  authors     TEXT,
-  journal     TEXT,
-  year        TEXT,
-  specialty   TEXT,
-  phase       SMALLINT    NOT NULL DEFAULT 0 CHECK (phase IN (0, 1, 2, 3)),
-  is_pilot    BOOLEAN     NOT NULL DEFAULT FALSE,
-  status      TEXT        NOT NULL DEFAULT 'pending'
-                          CHECK (status IN ('pending', 'running', 'complete', 'error')),
-  added_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- ─────────────────────────────────────────────────────────────
+-- 1. Papers registered for the validation study
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_papers (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  pmid         TEXT        UNIQUE,
+  doi          TEXT,
+  title        TEXT        NOT NULL,
+  trial_name   TEXT,                    -- short acronym e.g. "ORBITA"
+  authors      TEXT,
+  journal      TEXT,
+  year         TEXT,
+  domain       TEXT,                    -- Surgery | Orthopaedics | Medicine | Critical Care | Anaesthesia
+  specialty    TEXT,
+  study_design TEXT,                    -- RCT | cohort | single-arm | crossover etc.
+  phase        SMALLINT    NOT NULL DEFAULT 0 CHECK (phase IN (0, 1, 2, 3)),
+  is_pilot     BOOLEAN     NOT NULL DEFAULT FALSE,
+  status       TEXT        NOT NULL DEFAULT 'pending'
+                           CHECK (status IN ('pending', 'analyzing', 'complete', 'error')),
+  added_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ── 2. Pipeline outputs (V1 + V2 per paper) ───────────────────────────────────
--- Named study_outputs for API compatibility (api/study-run.js, api/study-output.js).
-CREATE TABLE study_outputs (
-  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  paper_id      UUID        NOT NULL REFERENCES study_papers(id) ON DELETE CASCADE,
-  version       TEXT        NOT NULL CHECK (version IN ('v1', 'v2')),
-  output_json   JSONB,
-  source_type   TEXT,
-  generated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+-- ─────────────────────────────────────────────────────────────
+-- 2. Pipeline outputs — V2 only in Phase 0; V1 + V2 in Phase 1/2
+-- pipeline_version tracks which prompt version produced the output
+-- so that Phase 1/2 comparisons are not confounded by prompt changes.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_extractions (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  paper_id         UUID        NOT NULL REFERENCES study_papers(id) ON DELETE CASCADE,
+  version          TEXT        NOT NULL CHECK (version IN ('v1', 'v2')),
+  pipeline_version TEXT,                -- e.g. "v2.1.0-hardened" — tag before each phase run
+  output_json      JSONB,
+  source_type      TEXT,                -- full-text-pmc | abstract-only | full-text-pdf etc.
+  generated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(paper_id, version)
 );
 
--- ── 3. Sessions ───────────────────────────────────────────────────────────────
-CREATE TABLE study_sessions (
-  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  reviewer_id   TEXT        NOT NULL,
-  paper_id      UUID        REFERENCES study_papers(id),
-  started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  completed_at  TIMESTAMPTZ,
-  notes         TEXT
+-- ─────────────────────────────────────────────────────────────
+-- 3. Raters — PI, registrars, consultants
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_raters (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT        NOT NULL,
+  role        TEXT        NOT NULL CHECK (role IN ('registrar', 'consultant', 'pi')),
+  specialty   TEXT,
+  blinded     BOOLEAN     NOT NULL DEFAULT TRUE,   -- FALSE for PI in Phase 0
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ── 4. Grades (per-field structured — not Likert) ─────────────────────────────
--- One row per field per extraction output per session.
--- match_status and error_taxonomy drive the /pilot/summary heatmap.
--- suspicious_agreement is the highest-priority error type: both V1 and V2
--- extracted the same wrong value.
-CREATE TABLE study_grades (
+-- ─────────────────────────────────────────────────────────────
+-- 4. Field-level structured grades
+--
+-- One row per (extraction, rater, field_name).
+-- field_name is a string enum enforced by the UI:
+--   trial_identification | study_design | population | intervention |
+--   comparator | primary_outcome_definition | primary_outcome_effect_measure |
+--   primary_outcome_point_estimate | primary_outcome_ci | primary_outcome_p_value |
+--   primary_outcome_arm_a_n | primary_outcome_arm_b_n |
+--   primary_outcome_arm_a_events | primary_outcome_arm_b_events |
+--   primary_outcome_analysis_population | primary_outcome_adjusted |
+--   secondary_outcomes_list | grade_certainty | risk_of_bias |
+--   risk_of_bias_rationale | adverse_events | subgroup_interactions |
+--   lay_summary | source_citation
+--
+-- field_section groups fields for aggregate views:
+--   pico | primary_endpoint | secondary_endpoints | appraisal |
+--   adverse_events | subgroups | patient_view
+--
+-- error_taxonomy:
+--   omission         — value present in paper, not extracted
+--   misclassification — wrong category/label
+--   formatting_syntax — correct value, wrong format
+--   semantic          — numerically close but clinically meaningfully different
+--
+-- pipeline_section: where the error likely originated
+--   extractor | adjudicator | post_processing
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_grades (
   id                        UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  output_id                 UUID        NOT NULL REFERENCES study_outputs(id) ON DELETE CASCADE,
-  session_id                UUID        REFERENCES study_sessions(id),
+  extraction_id             UUID        NOT NULL REFERENCES study_extractions(id) ON DELETE CASCADE,
+  rater_id                  UUID        NOT NULL REFERENCES study_raters(id) ON DELETE CASCADE,
   field_name                TEXT        NOT NULL,
-  match_status              TEXT        CHECK (match_status IN (
+  field_section             TEXT        NOT NULL
+                            CHECK (field_section IN (
+                              'pico', 'primary_endpoint', 'secondary_endpoints',
+                              'appraisal', 'adverse_events', 'subgroups', 'patient_view'
+                            )),
+  match_status              TEXT        NOT NULL
+                            CHECK (match_status IN (
                               'exact_match', 'partial_match', 'fail', 'hallucinated'
                             )),
-  error_taxonomy            TEXT        CHECK (error_taxonomy IN (
+  error_taxonomy            TEXT
+                            CHECK (error_taxonomy IN (
                               'omission', 'misclassification', 'formatting_syntax', 'semantic'
                             )),
-  correction_text           TEXT,
-  reference_standard_value  TEXT,
+  correction_text           TEXT,       -- what the correct value should be
   harm_severity             SMALLINT    CHECK (harm_severity BETWEEN 1 AND 5),
-  frequency_count           INTEGER     NOT NULL DEFAULT 1,
-  pipeline_section          TEXT        CHECK (pipeline_section IN (
+  pipeline_section          TEXT
+                            CHECK (pipeline_section IN (
                               'extractor', 'adjudicator', 'post_processing'
                             )),
+  -- suspicious_agreement: both V1 and V2 give the same wrong answer
+  -- (more dangerous than one-sided failure — set by rater during Phase 1/2 comparison)
   suspicious_agreement      BOOLEAN     NOT NULL DEFAULT FALSE,
   suspicious_agreement_note TEXT,
   graded_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(output_id, field_name)          -- required for upsert in api/study-grade.js
+  UNIQUE(extraction_id, rater_id, field_name)
 );
 
--- ── 5. Rater assignments (Phase 2 blinding) ───────────────────────────────────
--- Phase 0 is PI-only unblinded; this table is populated for Phase 1+.
-CREATE TABLE study_rater_assignments (
+-- ─────────────────────────────────────────────────────────────
+-- 5. Rater assignments — which rater reviews which paper/version
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_rater_assignments (
   id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  rater_id    TEXT        NOT NULL,
+  rater_id    UUID        NOT NULL REFERENCES study_raters(id) ON DELETE CASCADE,
   paper_id    UUID        NOT NULL REFERENCES study_papers(id) ON DELETE CASCADE,
-  version     TEXT        CHECK (version IN ('v1', 'v2')),
-  blinded     BOOLEAN     NOT NULL DEFAULT TRUE,
+  version     TEXT        NOT NULL CHECK (version IN ('v1', 'v2')),
+  completed   BOOLEAN     NOT NULL DEFAULT FALSE,
   assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(rater_id, paper_id, version)
 );
 
--- ── RLS ──────────────────────────────────────────────────────────────────────
--- All study tables are admin-only.
--- Service role key (used server-side) bypasses RLS automatically.
-ALTER TABLE study_papers             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE study_outputs            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE study_sessions           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE study_grades             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE study_rater_assignments  ENABLE ROW LEVEL SECURITY;
+-- ─────────────────────────────────────────────────────────────
+-- 6. Sessions — review session metadata for time tracking
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_sessions (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  rater_id    UUID        NOT NULL REFERENCES study_raters(id) ON DELETE CASCADE,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at    TIMESTAMPTZ,
+  paper_count SMALLINT,
+  notes       TEXT
+);
 
--- ── Indexes ───────────────────────────────────────────────────────────────────
-CREATE INDEX study_outputs_paper_id_idx       ON study_outputs(paper_id);
-CREATE INDEX study_grades_output_id_idx       ON study_grades(output_id);
-CREATE INDEX study_grades_field_name_idx      ON study_grades(field_name);
-CREATE INDEX study_grades_match_status_idx    ON study_grades(match_status);
-CREATE INDEX study_rater_assignments_paper_idx ON study_rater_assignments(paper_id);
+-- ─────────────────────────────────────────────────────────────
+-- RLS — admin-only (service role bypasses automatically)
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE study_papers           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_extractions      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_raters           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_grades           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_rater_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE study_sessions         ENABLE ROW LEVEL SECURITY;
 
--- ── Phase 0 Pilot Papers ──────────────────────────────────────────────────────
--- 10 surgical/interventional RCTs covering distinct pipeline stress-test scenarios.
--- Mix: recent post-2023 papers (reduce training-data contamination) + landmark
--- surgical trials that represent the primary OutcomeLogic user base.
+-- ─────────────────────────────────────────────────────────────
+-- Indexes
+-- ─────────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS study_extractions_paper_id_idx    ON study_extractions(paper_id);
+CREATE INDEX IF NOT EXISTS study_grades_extraction_id_idx    ON study_grades(extraction_id);
+CREATE INDEX IF NOT EXISTS study_grades_field_name_idx       ON study_grades(field_name);
+CREATE INDEX IF NOT EXISTS study_grades_match_status_idx     ON study_grades(match_status);
+CREATE INDEX IF NOT EXISTS study_assignments_rater_id_idx    ON study_rater_assignments(rater_id);
+CREATE INDEX IF NOT EXISTS study_assignments_paper_id_idx    ON study_rater_assignments(paper_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- Phase 0 Pilot Papers (10)
+-- Primarily surgical/orthopaedic trials — domain focus of OutcomeLogic.
+-- Selected to cover: sham controls, non-inferiority, null results,
+-- complex survival data, contentious subgroups, abstract-only fallback.
 --
--- Pipeline stress-test coverage:
---   • Sham-controlled RCT (blinding/placebo pipeline edge)          → ORBITA
---   • Composite primary endpoint, pre-specified interim stop        → HIP ATTACK
---   • As-treated vs ITT divergence, observational run-in            → SPORT disc
---   • Continuous primary outcome (not binary/survival)              → UK FASHIoN, TKR Skou
---   • Complex geographic subgroup with disputed interaction p       → STICH
---   • Non-inferiority design; NI margin + CI interpretation         → PROFHER
---   • CT-guided imaging, surrogate vs hard endpoint ambiguity       → SCOT-HEART 2019
---   • SPORT spinal stenosis: crossover contamination, ITT vs AT     → SPORT stenosis
---   • Recent (2024) post-training-cutoff; minimal citations         → OPTIMAS
---
--- PMIDs verified against PubMed 2026-04-12.
--- To re-seed after clearing: DELETE FROM study_papers; then re-run this block.
+-- IMPORTANT: Verify all PMIDs against PubMed before running analyses.
+-- PMIDs marked "VERIFY" should be confirmed before use.
+-- ─────────────────────────────────────────────────────────────
+INSERT INTO study_papers (pmid, title, trial_name, authors, journal, year, domain, specialty, study_design, phase, is_pilot) VALUES
 
-INSERT INTO study_papers (pmid, title, authors, journal, year, specialty, phase, is_pilot) VALUES
-
-  -- 1. Sham-controlled PCI — blinding pipeline edge case; N Engl J Med 2017
-  ('29103658',
-   'Percutaneous coronary intervention in stable angina (ORBITA)',
+  -- 1. Sham-controlled RCT — tests blinding/sham design extraction + ORBITA controversy
+  ('29126895',
+   'Percutaneous coronary intervention in stable angina (ORBITA): a double-blind, randomised controlled trial',
+   'ORBITA',
    'Al-Lamee R, Thompson D, Dehbi HM et al.',
-   'The Lancet', '2018', 'Cardiology', 0, TRUE),
+   'The Lancet', '2018', 'Medicine', 'Cardiology', 'RCT', 0, TRUE),
 
-  -- 2. Accelerated vs usual-care hip surgery; composite primary; Lancet 2020
-  ('30738707',
-   'Accelerated surgery versus standard care in hip fracture (HIP ATTACK)',
+  -- 2. Accelerated surgery for hip fracture — tests time-to-event extraction, surgical specialty
+  (NULL,
+   'Accelerated surgery versus standard care in hip fracture (HIP ATTACK): an international, randomised, multicentre, controlled trial',
+   'HIP ATTACK',
    'HIP ATTACK Investigators',
-   'The Lancet', '2020', 'Orthopaedic Surgery', 0, TRUE),
+   'The Lancet', '2020', 'Orthopaedics', 'Hip', 'RCT', 0, TRUE),
 
-  -- 3. SPORT disc herniation — ITT vs as-treated divergence; observational run-in; NEJM 2006
-  ('17578769',
-   'Surgical versus nonsurgical treatment for lumbar disk herniation (SPORT)',
+  -- 3. Surgery vs nonoperative for lumbar disc herniation — two-arm RCT, complex crossover
+  ('17545430',
+   'Surgical versus nonoperative treatment for lumbar disk herniation: the Spine Patient Outcomes Research Trial (SPORT)',
+   'SPORT (disc)',
    'Weinstein JN, Tosteson TD, Lurie JD et al.',
-   'New England Journal of Medicine', '2006', 'Spinal Surgery', 0, TRUE),
+   'JAMA', '2006', 'Orthopaedics', 'Spine', 'RCT', 0, TRUE),
 
-  -- 4. Continuous primary outcome (Oxford Hip Score); equipoise design; BMJ 2017
-  ('28676077',
-   'Arthroplasty versus internal fixation for displaced intracapsular hip fractures (UK FASHIoN)',
-   'Griffin XL, Parsons N, Achten J et al.',
-   'BMJ', '2017', 'Orthopaedic Surgery', 0, TRUE),
+  -- 4. Hip arthroscopy vs physiotherapy for FAI — tests non-inferiority design, UK multicentre
+  (NULL,
+   'Hip arthroscopy versus best conservative care for the treatment of femoroacetabular impingement syndrome (UK FASHIoN): a multicentre randomised controlled trial',
+   'UK FASHIoN',
+   'Griffin DR, Dickenson EJ, Wall PDH et al.',
+   'The Lancet', '2018', 'Orthopaedics', 'Hip', 'RCT', 0, TRUE),
 
-  -- 5. TKR + nonsurgical vs nonsurgical alone; continuous KOOS outcome; NEJM 2015
-  ('26509247',
-   'A randomized, controlled trial of total knee replacement (Skou 2015)',
+  -- 5. TKR vs non-surgical management — NEJM 2015, Skou — tests continuous outcome extraction
+  ('26488691',
+   'A randomized, controlled trial of total knee replacement',
+   'TKR (Skou 2015)',
    'Skou ST, Roos EM, Laursen MB et al.',
-   'New England Journal of Medicine', '2015', 'Orthopaedic Surgery', 0, TRUE),
+   'New England Journal of Medicine', '2015', 'Orthopaedics', 'Knee', 'RCT', 0, TRUE),
 
-  -- 6. CABG vs medical therapy in ischaemic cardiomyopathy; complex subgroups; NEJM 2011
-  ('21463150',
+  -- 6. CABG vs medical therapy for ischaemic cardiomyopathy — survival data, multiple time points
+  ('21463148',
    'Coronary-artery bypass surgery in patients with left ventricular dysfunction (STICH)',
+   'STICH',
    'Velazquez EJ, Lee KL, Deja MA et al.',
-   'New England Journal of Medicine', '2011', 'Cardiac Surgery', 0, TRUE),
+   'New England Journal of Medicine', '2011', 'Surgery', 'Vascular', 'RCT', 0, TRUE),
 
-  -- 7. NI design: shoulder fracture surgery vs conservative; Lancet 2015
-  ('25748778',
-   'Surgical versus conservative interventions for displaced intraarticular calcaneal fractures (PROFHER)',
-   'Rangan A, Handoll H, Brealey S et al.',
-   'The Lancet', '2015', 'Orthopaedic Surgery', 0, TRUE),
+  -- 7. PCI vs CABG for left main — EXCEL original 3-year; contentious long-term outcomes
+  ('27117439',
+   'Everolimus-eluting stents or bypass surgery for left main coronary artery disease (EXCEL)',
+   'EXCEL',
+   'Stone GW, Sabik JF, Serruys PW et al.',
+   'New England Journal of Medicine', '2016', 'Surgery', 'Vascular', 'RCT', 0, TRUE),
 
-  -- 8. CT coronary angiography 5-year hard outcomes; surrogate-to-hard endpoint pipeline; NEJM 2020
-  ('31722575',
-   'Coronary CT angiography and 5-year risk of myocardial infarction (SCOT-HEART 2019)',
-   'SCOT-HEART Investigators',
-   'New England Journal of Medicine', '2018', 'Cardiology', 0, TRUE),
+  -- 8. Plate fixation vs conservative for proximal humerus fractures — null primary endpoint
+  (NULL,
+   'Surgical treatment compared with early particle physiotherapy for fractures of the proximal humerus in adults (PROFHER)',
+   'PROFHER',
+   'Handoll HH, Brealey S, Rangan A et al.',
+   'The Lancet', '2015', 'Orthopaedics', 'Shoulder', 'RCT', 0, TRUE),
 
-  -- 9. SPORT spinal stenosis — crossover contamination, ITT vs per-protocol; NEJM 2008
-  ('17578774',
-   'Surgical versus nonsurgical therapy for lumbar spinal stenosis (SPORT)',
+  -- 9. CT coronary angiography vs standard care — 5-year outcomes; tests long follow-up extraction
+  ('31475798',
+   'Coronary CT angiography and 5-year risk of myocardial infarction (SCOT-HEART)',
+   'SCOT-HEART',
+   'Newby DE, Adamson PD, Berry C et al.',
+   'New England Journal of Medicine', '2019', 'Medicine', 'Cardiology', 'RCT', 0, TRUE),
+
+  -- 10. Surgery vs nonoperative for lumbar spinal stenosis — companion to SPORT disc paper
+  ('18997196',
+   'Surgical versus nonoperative treatment for lumbar spinal stenosis: four-year results of the Spine Patient Outcomes Research Trial (SPORT)',
+   'SPORT (stenosis)',
    'Weinstein JN, Tosteson TD, Lurie JD et al.',
-   'New England Journal of Medicine', '2008', 'Spinal Surgery', 0, TRUE),
-
-  -- 10. OPTIMAS (2024) — IV vs oral iron in hip fracture; post-training-cutoff; sparse citations
-  ('39491870',
-   'Intravenous versus oral iron supplementation for hip fracture (OPTIMAS)',
-   'OPTIMAS Trial Investigators',
-   'The Lancet', '2024', 'Orthopaedic Surgery', 0, TRUE)
+   'Spine', '2010', 'Orthopaedics', 'Spine', 'RCT', 0, TRUE)
 
 ON CONFLICT (pmid) DO NOTHING;
-
--- ── API endpoints for grade persistence ───────────────────────────────────────
--- Grade read/write is handled server-side by two Vercel ESM handlers:
---
---   api/study-grade.js
---     GET  /api/study-grade?output_id=<uuid>  — returns all grades for an output
---     POST /api/study-grade                   — upserts a single field grade
---       onConflict: (output_id, field_name)
---       Columns written: match_status, error_taxonomy, harm_severity,
---                        pipeline_section, correction_text,
---                        reference_standard_value, suspicious_agreement,
---                        suspicious_agreement_note, graded_at
---
---   api/study-summary.js
---     GET  /api/study-summary                 — aggregated grading data for
---                                               the /pilot-summary.html view
---       Joins: study_grades → study_outputs → study_papers (is_pilot = true)
---       Returns: per-field priority scores, version breakdown, overall exact-rate
---
--- No additional SQL objects are required for these endpoints.
--- Both use the service-role key (bypasses RLS) via getAdminClient().
