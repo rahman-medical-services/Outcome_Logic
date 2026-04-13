@@ -1,20 +1,20 @@
-// api/study-run.js
-// Runs the V2 pipeline on a registered study paper and stores the output.
-// Admin-only: requires INTERNAL_API_TOKEN + admin-tier JWT.
+// api/study.js
+// Consolidated study admin API — replaces study-papers.js, study-output.js, study-run.js.
+// Routes via ?resource= query param.
 //
-// POST /api/study-run
-//   Body (PMID fetch):  { paper_id, version?: "v2", force?: false }
-//   Body (PDF upload):  { paper_id, version?: "v2", force?: false, pdf_base64: "<base64>" }
-//
-// If pdf_base64 is present, skips Europe PMC fetch and parses the PDF directly.
-// Source type is set to "full-text-pdf".
+// GET    /api/study?resource=papers              → list all papers with extraction status
+// POST   /api/study?resource=papers              → add a paper
+// PATCH  /api/study?resource=papers&id=<uuid>    → update a paper
+// DELETE /api/study?resource=papers&id=<uuid>    → delete a paper
+// GET    /api/study?resource=output&id=<uuid>    → get full output_json for one extraction
+// POST   /api/study?resource=run                 → run pipeline on a paper
 
 import { createClient } from '@supabase/supabase-js';
 import pdfParse         from 'pdf-parse/lib/pdf-parse.js';
 import { runPipeline }  from '../lib/pipeline.js';
 
 export const config = {
-  api: { bodyParser: { sizeLimit: '8mb' } }   // large enough for typical paper PDFs
+  api: { bodyParser: { sizeLimit: '8mb' } }  // required for PDF uploads via study-run
 };
 
 // ─────────────────────────────────────────────
@@ -53,8 +53,7 @@ async function requireAdmin(req, res) {
     res.status(401).json({ error: 'Invalid or expired session.' });
     return null;
   }
-  const tier = user.user_metadata?.tier || 'free';
-  if (tier !== 'admin') {
+  if ((user.user_metadata?.tier || 'free') !== 'admin') {
     res.status(403).json({ error: 'Admin access required.' });
     return null;
   }
@@ -62,8 +61,110 @@ async function requireAdmin(req, res) {
 }
 
 // ─────────────────────────────────────────────
-// SOURCE: PDF (base64)
+// RESOURCE: papers
 // ─────────────────────────────────────────────
+async function handlePapers(req, res) {
+  const supabase = getAdminClient();
+  const { id }   = req.query;
+
+  // GET: list all papers with extraction status
+  if (req.method === 'GET') {
+    const { data: papers, error } = await supabase
+      .from('study_papers')
+      .select('*, study_extractions(id, version, source_type, generated_at)')
+      .order('phase', { ascending: true })
+      .order('added_at', { ascending: true });
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const result = (papers || []).map(p => {
+      const extractions = p.study_extractions || [];
+      return {
+        ...p,
+        study_extractions: undefined,
+        v1_output: extractions.find(o => o.version === 'v1') || null,
+        v2_output: extractions.find(o => o.version === 'v2') || null,
+      };
+    });
+
+    return res.status(200).json({ papers: result });
+  }
+
+  // POST: add a paper
+  if (req.method === 'POST') {
+    const { pmid, title, authors, journal, year, specialty, phase = 0, is_pilot = false } = req.body;
+    if (!title) return res.status(400).json({ error: 'title is required.' });
+
+    const { data, error } = await supabase
+      .from('study_papers')
+      .insert({ pmid: pmid || null, title, authors, journal, year, specialty, phase, is_pilot })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json({ paper: data });
+  }
+
+  // PATCH: update a paper (e.g. set/correct PMID)
+  if (req.method === 'PATCH') {
+    if (!id) return res.status(400).json({ error: 'id query param required.' });
+    const allowed = ['pmid', 'title', 'authors', 'journal', 'year', 'specialty', 'phase', 'is_pilot', 'status'];
+    const updates = {};
+    for (const key of allowed) {
+      if (key in req.body) updates[key] = req.body[key];
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields to update.' });
+
+    const { data, error } = await supabase
+      .from('study_papers')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ paper: data });
+  }
+
+  // DELETE: remove a paper (cascades to extractions/grades)
+  if (req.method === 'DELETE') {
+    if (!id) return res.status(400).json({ error: 'id query param required.' });
+    const { error } = await supabase.from('study_papers').delete().eq('id', id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ ok: true });
+  }
+
+  return res.status(405).json({ error: 'Method Not Allowed' });
+}
+
+// ─────────────────────────────────────────────
+// RESOURCE: output
+// GET /api/study?resource=output&id=<extraction_uuid>
+// ─────────────────────────────────────────────
+async function handleOutput(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' });
+
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'id query param required.' });
+
+  const supabase = getAdminClient();
+  const { data, error } = await supabase
+    .from('study_extractions')
+    .select('id, paper_id, version, pipeline_version, output_json, source_type, generated_at')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) return res.status(404).json({ error: 'Output not found.' });
+  return res.status(200).json({ output: data });
+}
+
+// ─────────────────────────────────────────────
+// RESOURCE: run
+// POST /api/study?resource=run
+// Body: { paper_id, version?, force?, pdf_base64? }
+// ─────────────────────────────────────────────
+const MIN_CHARS = { FULLTEXT: 2000, ABSTRACT: 200 };
+
 async function sourceFromPdf(pdf_base64, paper) {
   const buf  = Buffer.from(pdf_base64, 'base64');
   const data = await pdfParse(buf);
@@ -71,21 +172,9 @@ async function sourceFromPdf(pdf_base64, paper) {
   if (!text || text.length < 500) {
     throw new Error('PDF appears to be empty or image-only — could not extract text.');
   }
-  console.log(`[study-run PDF] Extracted ${text.length} chars from PDF`);
-  return {
-    text,
-    sourceType: 'full-text-pdf',
-    pmid:    paper.pmid    || null,
-    pmcid:   null,
-    doi:     null,
-    authors: paper.authors || null,
-  };
+  console.log(`[study-run PDF] Extracted ${text.length} chars`);
+  return { text, sourceType: 'full-text-pdf', pmid: paper.pmid || null, pmcid: null, doi: null, authors: paper.authors || null };
 }
-
-// ─────────────────────────────────────────────
-// SOURCE: Europe PMC tiered fetch (PMID → PMC XML → Jina → abstract)
-// ─────────────────────────────────────────────
-const MIN_CHARS = { FULLTEXT: 2000, ABSTRACT: 200 };
 
 async function fetchFullTextPMC(pmcid, pmid) {
   if (!pmcid) return null;
@@ -120,19 +209,17 @@ async function fetchFullTextJina(pmcid) {
 
 async function fetchAbstract(pmid) {
   try {
-    const url  = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`ext_id:${pmid}`)}&resultType=core&format=json`;
-    const res  = await fetch(url);
+    const url     = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`ext_id:${pmid}`)}&resultType=core&format=json`;
+    const res     = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data    = await res.json();
     const article = data.resultList?.result?.[0];
     if (!article) return null;
-    const abstract = article.abstractText
-      ? article.abstractText.replace(/<[^>]*>?/gm, '')
-      : null;
+    const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : null;
     if (!abstract || abstract.length < MIN_CHARS.ABSTRACT) return null;
     console.log(`[study-run Tier 4] Abstract: ${abstract.length} chars`);
     const authorList = (article.authorString || '').split(',').map(a => a.trim()).filter(Boolean);
-    const authorsStr = authorList.length === 0  ? null
+    const authorsStr = authorList.length === 0 ? null
       : authorList.length <= 3 ? authorList.join(', ')
       : authorList.slice(0, 3).join(', ') + ' et al.';
     return {
@@ -160,9 +247,9 @@ async function fetchTrialByPmid(pmid) {
       if (article) {
         const authorList = (article.authorString || '').split(',').map(a => a.trim()).filter(Boolean);
         meta = {
-          pmid:    article.pmid   || pmid,
-          pmcid:   article.pmcid  || null,
-          doi:     article.doi    || null,
+          pmid:    article.pmid  || pmid,
+          pmcid:   article.pmcid || null,
+          doi:     article.doi   || null,
           authors: authorList.length === 0 ? null
             : authorList.length <= 3 ? authorList.join(', ')
             : authorList.slice(0, 3).join(', ') + ' et al.',
@@ -172,41 +259,23 @@ async function fetchTrialByPmid(pmid) {
   } catch (err) {
     console.log(`[study-run Meta] ${err.message}`);
   }
-
   const tier1 = await fetchFullTextPMC(meta.pmcid, meta.pmid);
   if (tier1) return { ...meta, ...tier1 };
-
   const tier2 = await fetchFullTextJina(meta.pmcid);
   if (tier2) return { ...meta, ...tier2 };
-
   const tier4 = await fetchAbstract(pmid);
   if (tier4) return { ...meta, ...tier4 };
-
   return null;
 }
 
-// ─────────────────────────────────────────────
-// HANDLER
-// ─────────────────────────────────────────────
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-token, Authorization');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+async function handleRun(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
-
-  const user = await requireAdmin(req, res);
-  if (!user) return;
 
   const { paper_id, version = 'v2', force = false, pdf_base64 } = req.body;
   if (version !== 'v2') return res.status(400).json({ error: 'Only version v2 supported for now.' });
   if (!paper_id && !pdf_base64) return res.status(400).json({ error: 'Provide paper_id or pdf_base64.' });
 
   const supabase = getAdminClient();
-
-  // ── Mode A: paper_id provided — look up existing paper ───────────────────
-  // ── Mode B: pdf_base64 only — auto-create paper from pipeline output ──────
   let paper = null;
 
   if (paper_id) {
@@ -222,10 +291,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No PMID on record. Add a PMID first, or upload a PDF.' });
     }
 
-    // Guard: don't re-run unless force=true
     if (!force) {
       const { data: existing } = await supabase
-        .from('study_outputs')
+        .from('study_extractions')
         .select('id, generated_at, source_type')
         .eq('paper_id', paper_id)
         .eq('version', version)
@@ -239,7 +307,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Resolve source ────────────────────────────────────────────────────────
   let source;
   if (pdf_base64) {
     console.log(`[study-run] Parsing uploaded PDF`);
@@ -261,7 +328,6 @@ export default async function handler(req, res) {
 
   console.log(`[study-run] Source: ${source.sourceType}, ${source.text.length} chars`);
 
-  // ── Run V2 pipeline ───────────────────────────────────────────────────────
   let pipelineResult;
   try {
     pipelineResult = await runPipeline(
@@ -282,7 +348,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: `Pipeline failed: ${err.message}` });
   }
 
-  // ── Mode B: create study_papers row from pipeline output ─────────────────
+  // Mode B: auto-create study_papers row from pipeline output (PDF upload without paper_id)
   if (!paper_id) {
     const rm = pipelineResult.reportMeta   || {};
     const lm = pipelineResult.library_meta || {};
@@ -308,9 +374,8 @@ export default async function handler(req, res) {
     console.log(`[study-run] Auto-created paper ${paper.id}: ${paper.title}`);
   }
 
-  // ── Save to study_outputs ─────────────────────────────────────────────────
   const { data: output, error: saveErr } = await supabase
-    .from('study_outputs')
+    .from('study_extractions')
     .upsert(
       {
         paper_id:     paper.id,
@@ -329,7 +394,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: `Failed to save output: ${saveErr.message}` });
   }
 
-  console.log(`[study-run] Saved output ${output.id} for paper ${paper.id}`);
+  console.log(`[study-run] Saved extraction ${output.id} for paper ${paper.id}`);
 
   return res.status(200).json({
     ok:            true,
@@ -339,4 +404,26 @@ export default async function handler(req, res) {
     display_title: pipelineResult?.library_meta?.display_title || paper.title,
     generated_at:  output.generated_at,
   });
+}
+
+// ─────────────────────────────────────────────
+// MAIN HANDLER
+// ─────────────────────────────────────────────
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,GET,POST,PATCH,DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-token, Authorization');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const user = await requireAdmin(req, res);
+  if (!user) return;
+
+  const { resource } = req.query;
+
+  if (resource === 'papers') return handlePapers(req, res);
+  if (resource === 'output') return handleOutput(req, res);
+  if (resource === 'run')    return handleRun(req, res);
+
+  return res.status(400).json({ error: 'resource param required: papers | output | run' });
 }
