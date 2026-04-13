@@ -191,7 +191,7 @@ async function verifySource(sourceText, originalQuery) {
   }
 
   try {
-    const url = `${GEMINI_BASE}/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    const url = `${GEMINI_BASE}/gemini-2.5-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
     const gemRes = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
