@@ -17,7 +17,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 - **Frontend:** Vanilla JS SPA (`public/index.html` + modules), Tailwind CSS CDN, Chart.js, Supabase JS client
 - **Backend:** Vercel serverless functions (`api/` directory, ESM)
-- **AI:** Google Gemini API — gemini-2.5-flash (extractors), gemini-2.5-pro (adjudicator)
+- **AI:** Google Gemini API — **raw fetch() only, NO SDK** — gemini-2.5-flash-lite (all nodes), gemini-2.5-flash (escalation). See LEARNINGS.md "Gemini API — Systematic 503 Failures" before touching any Gemini code.
 - **DB:** Supabase (Postgres + auth)
 - **Rate limiting:** Upstash Redis (100 calls/24 hr per IP)
 - **PDF parsing:** pdf-parse
@@ -25,7 +25,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ## Key source files (read on demand, not upfront)
 
-- `lib/pipeline.js` — 3-node extraction pipeline: Extractor A + B (parallel), Adjudicator. Read when working on prompts or pipeline logic.
+- `lib/pipeline.js` — 3-node extraction pipeline: Extractor A + B (sequential), Adjudicator. Raw fetch, no SDK, thinkingBudget:512. Read when working on prompts or pipeline logic.
 - `lib/commentary.js` — Node 4: Europe PMC / PubMed Entrez expert context. Read when working on commentary.
 - `api/analyze.js` — Main analysis endpoint (rate-limited, PDF/DOI fetch, pipeline call).
 - `public/index.html` — Main SPA (~1300 lines). Read specific sections on demand.

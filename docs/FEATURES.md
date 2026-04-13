@@ -44,7 +44,7 @@ These must be complete before any Phase 0 paper runs.
 
 ### ✅ Supabase schema rebuild — 5 tables per spec
 **Status:** Complete (Session 2, 2026-04-12). Deploy to Supabase before running UI.
-**Location:** `supabase/schema-study.sql` — `study_papers` (with status field), `study_outputs` (API-compatible name), `study_sessions`, `study_grades` (per-field structured), `study_rater_assignments`. 10 Phase 0 papers seeded.
+**Location:** `supabase/schema-study.sql` — `study_papers`, `study_extractions` (not study_outputs), `study_sessions`, `study_grades` (per-field structured), `study_rater_assignments`. 10 Phase 0 papers seeded.
 
 ### ✅ `docs/PROTOCOL.md` — pre-registration protocol
 **Status:** Complete (Session 3, 2026-04-12).
@@ -73,8 +73,8 @@ These must be complete before any Phase 0 paper runs.
 
 ## Phase 0 — Deployment
 
-### ✅ Merge dev → main
-**Status:** Complete.
+### 🔧 Merge `claude/competent-borg` → main
+**Status:** Branch working, not yet merged. Contains all session 4 changes (SDK removal, flash-lite, sequential extractors).
 
 ### ⬜ Deploy `schema-study.sql` to Supabase
 **Status:** SQL rebuilt and ready. Must be run before pilot.html can save grades.
@@ -122,8 +122,8 @@ These must be complete before any Phase 0 paper runs.
 
 ### ⬜ Model diversity for Phase 1 extractors **[High for Phase 1]**
 **Status:** Documented, not started.
-**Problem:** Extractor A and B both use `gemini-2.5-flash`. Prompt diversity (A=adjusted/ITT, B=first-reported) is insufficient to catch model-level correlated errors (HR direction convention, hallucinated CIs from footnotes). For Phase 0 this is acceptable. For Phase 1 at scale it is not.
-**Fix:** Extractor A = Gemini Flash (current). Extractor B = Claude Sonnet or GPT-4o. Requires new API client in pipeline.js.
+**Problem:** Extractor A and B both use `gemini-2.5-flash-lite`. Prompt diversity (A=adjusted/ITT, B=first-reported) is insufficient to catch model-level correlated errors (HR direction convention, hallucinated CIs from footnotes). For Phase 0 this is acceptable. For Phase 1 at scale it is not.
+**Fix:** Extractor A = Gemini flash-lite (current). Extractor B = Claude Sonnet or GPT-4o. Requires new API client in pipeline.js.
 **Effort:** Medium (2–3 hrs). **Do not build before Phase 0 results.**
 
 ### ⬜ Phase 1 powered validation study **[Publication path]**
@@ -227,3 +227,4 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 - Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated
 - Session 2 (2026-04-12): Pipeline hardening (extractor diversity, adversarial adjudicator, source citations, NI handling, 10 fixes)
 - Session 3 (2026-04-12): Phase 0 grading infrastructure, strategic adversarial review (HAWK/FALCON/EAGLE/OWL), meta-analysis strategy
+- Session 4 (2026-04-13): Gemini SDK removal, flash-lite primary model, sequential extractors, thinkingBudget:512, 5-retry backoff, api/study.js consolidation — first successful pipeline run confirmed

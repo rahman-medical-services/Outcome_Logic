@@ -14,10 +14,17 @@ This file is the technical reference for the extraction pipeline, Phase 0 valida
 
 ## Current 3-Node Pipeline (V2)
 
-### Node 1 + 2: Parallel Extractors
+### Node 1 + 2: Sequential Extractors
 
-**Model:** Gemini 2.5 Flash (both)
-**Concurrency:** `Promise.all([extractorA.call(), extractorB.call()])` — parallel
+**Model:** `gemini-2.5-flash-lite` (both) — see note below
+**Concurrency:** Sequential (A then B) — parallel calls cause concurrency 503s on the API key
+
+**⚠️ GEMINI API CONSTRAINTS (confirmed 2026-04-13 via systematic curl testing):**
+- **No SDK** — `@google/generative-ai` and `@google/genai` both cause 503s. Use raw `fetch()` only.
+- **`thinkingBudget: 512`** — always required. 0 = 503 on flash, 400 on pro. Missing = TPM exhaustion.
+- **flash-lite not flash** — `gemini-2.5-flash` has persistent ~50% 503 rate. flash-lite is stable.
+- **Sequential only** — `Promise.all` with 2 simultaneous calls → one 503s every time.
+- **5 retries with exponential backoff** — built into `callGemini()` in pipeline.js.
 
 **Extractor A prompt priority (required modification):**
 ```
