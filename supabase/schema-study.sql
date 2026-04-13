@@ -12,6 +12,20 @@
 -- ============================================================
 
 -- ─────────────────────────────────────────────────────────────
+-- DROP existing tables (handles rename from study_outputs → study_extractions
+-- and output_id → extraction_id in study_grades). CASCADE removes dependents.
+-- WARNING: this wipes any existing study data. Safe to run before Phase 0.
+-- ─────────────────────────────────────────────────────────────
+DROP TABLE IF EXISTS study_sessions          CASCADE;
+DROP TABLE IF EXISTS study_rater_assignments CASCADE;
+DROP TABLE IF EXISTS study_assignments       CASCADE;
+DROP TABLE IF EXISTS study_grades            CASCADE;
+DROP TABLE IF EXISTS study_raters            CASCADE;
+DROP TABLE IF EXISTS study_extractions       CASCADE;
+DROP TABLE IF EXISTS study_outputs           CASCADE;
+DROP TABLE IF EXISTS study_papers            CASCADE;
+
+-- ─────────────────────────────────────────────────────────────
 -- 1. Papers registered for the validation study
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS study_papers (
