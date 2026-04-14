@@ -179,3 +179,26 @@ Format: what was tried → what happened → what the correct approach is → da
 **What happened:** Follow-up RCTs don't contain 'comment'/'editorial' in titles. Scored 0. Excluded before the `MEANINGFUL_THRESHOLD` gate — high-value follow-up evidence silently dropped.
 **Fix:** Added pubType signal scoring (meta-analysis: +3, systematic review: +3, RCT: +2, clinical trial: +1, guideline: +3).
 **Date:** 2026-04-12
+
+---
+
+## Session 5 (2026-04-14)
+
+### Branches created from main may not include hotfixes committed to feature branches
+**Tried:** Assuming `claude/sweet-mccarthy` (branched from main) had the Session 4 SDK fixes because HANDOVER.md described them as complete.
+**What happened:** The Session 4 SDK removal was committed to `claude/competent-borg` and merged to main *after* `sweet-mccarthy` was branched. The `sweet-mccarthy` worktree still had `@google/generative-ai` SDK, `gemini-2.5-flash`, and `Promise.all` parallel extractors. The HANDOVER described the work as complete, which it was — but on a different branch.
+**Fix:** Always check `grep "generative-ai\|GEMINI_MODEL\|Promise.all" lib/pipeline.js` at session start when switching branches to verify the Session 4 state.
+**Date:** 2026-04-14
+
+### Adjudicator cannot detect errors it has no candidates for — `candidate_values` is the structural fix
+**Tried:** Relying on adjudicator adversarial framing ("check for alternative values in the paper") to surface extraction errors.
+**What happened:** Two independent critiques (Gemini, GPT) identified the same root problem: the adjudicator can only rank candidates it has been given. If both extractors converge on the same wrong value and surface no alternatives, the adversarial framing fires vacuously — it sees no competing candidates and confirms consensus. The most dangerous failure mode (correlated misread of ambiguous table) is structurally undetectable without candidates.
+**Fix:** Extractors now required to output a `candidate_values` list (max 3) for every primary endpoint extraction, covering all plausible alternatives. Adjudicator compiles these into `primary_endpoint_candidates` and ranks. The adjudication problem is now ranking over a provided set, not open-ended search. This eliminates 5 of 8 GPT failure cases.
+**Limitation:** Correlated table misread (both extractors misread the same table identically) still produces a single candidate and remains undetectable. This is the residual failure mode for Phase 0.
+**Date:** 2026-04-14
+
+### `Promise.all` in Node 4 drops all partial results on single API failure
+**Tried:** Running EPMC citations, name search, and PubMed Entrez in `Promise.all`.
+**What happened:** Gemini critique correctly identified that if PubMed Entrez hangs past the 45s timeout, all three API results are discarded. EPMC data that completed in 2s is lost. Same problem applied to abstract batch fetching and `_runSynthesis`.
+**Fix:** All four `Promise.all` calls in `commentary.js` replaced with `Promise.allSettled` + graceful per-result fallback. Partial Node 4 output now salvageable.
+**Date:** 2026-04-14

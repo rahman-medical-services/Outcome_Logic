@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS study_papers (
 CREATE TABLE IF NOT EXISTS study_extractions (
   id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   paper_id         UUID        NOT NULL REFERENCES study_papers(id) ON DELETE CASCADE,
-  version          TEXT        NOT NULL CHECK (version IN ('v1', 'v2')),
+  version          TEXT        NOT NULL,  -- Phase 0: free-form to allow rapid prompt iteration.
+  -- Examples: 'v2', 'v2.1-adj-fix', 'v2.2-candidate-values'. Add CHECK constraint before Phase 1 freeze.
   pipeline_version TEXT,                -- e.g. "v2.1.0-hardened" — tag before each phase run
   output_json      JSONB,
   source_type      TEXT,                -- full-text-pmc | abstract-only | full-text-pdf etc.
@@ -142,7 +143,7 @@ CREATE TABLE IF NOT EXISTS study_rater_assignments (
   id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   rater_id    UUID        NOT NULL REFERENCES study_raters(id) ON DELETE CASCADE,
   paper_id    UUID        NOT NULL REFERENCES study_papers(id) ON DELETE CASCADE,
-  version     TEXT        NOT NULL CHECK (version IN ('v1', 'v2')),
+  version     TEXT        NOT NULL,  -- Phase 0: free-form. Add CHECK before Phase 1.
   completed   BOOLEAN     NOT NULL DEFAULT FALSE,
   assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(rater_id, paper_id, version)
