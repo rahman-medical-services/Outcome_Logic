@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@google/generative-ai": "latest",
     "@supabase/supabase-js": "^2.99.3",
     "@upstash/ratelimit": "latest",
     "@upstash/redis": "latest",
