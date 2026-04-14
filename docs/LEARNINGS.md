@@ -197,6 +197,13 @@ Format: what was tried → what happened → what the correct approach is → da
 **Limitation:** Correlated table misread (both extractors misread the same table identically) still produces a single candidate and remains undetectable. This is the residual failure mode for Phase 0.
 **Date:** 2026-04-14
 
+### Source citations may be partially synthetic (undetectable, tolerated)
+**Tried:** Assuming `source_citation` fields contain verbatim text from the paper.
+**What happened:** ChatGPT critique (2026-04-14) identified that when no clean 30-word snippet exists in a messy table, extractors produce citations that look valid but are not verbatim. These synthetic citations are used by the adjudicator for ranking context.
+**Why tolerated:** Citations are used internally for ranking, not displayed verbatim to users. Partial synthetics are better than no citations. Structurally unfixable without OCR-level grounding.
+**Risk:** If both extractors produce similar synthetic citations for the same wrong value, the adjudicator may treat this as source confirmation. Flag during Phase 0 PI review by manually checking cited locations.
+**Date:** 2026-04-14
+
 ### `Promise.all` in Node 4 drops all partial results on single API failure
 **Tried:** Running EPMC citations, name search, and PubMed Entrez in `Promise.all`.
 **What happened:** Gemini critique correctly identified that if PubMed Entrez hangs past the 45s timeout, all three API results are discarded. EPMC data that completed in 2s is lost. Same problem applied to abstract batch fetching and `_runSynthesis`.
