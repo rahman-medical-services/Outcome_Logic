@@ -98,21 +98,45 @@ These must be complete before any Phase 0 paper runs.
 **Fix:** Add `ni_margin`, `ni_margin_excluded_by_ci` (boolean), `ni_result_label` as structured fields to the adjudicator output schema in `lib/pipeline.js` and `postProcess()`.
 **Effort:** 30–45 mins.
 
-### ⬜ `capOutput()` truncation flag **[Medium]**
-**Status:** Not started.
-**Problem:** When extractor output exceeds 40,000 chars, `capOutput()` truncates silently. If A is truncated and B is not, the adjudicator receives a lopsided comparison. STICH and SPORT with extensive supplementary tables are most at risk.
-**Fix:** Add `output_truncated: true` to adjudicator input JSON when `capOutput()` fires. Adjudicator prompt should acknowledge: if one report is flagged as truncated, treat its missing fields as unknown rather than absent.
-**Effort:** 20 mins.
+### ✅ `capOutput()` truncation flag **[Medium]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `lib/pipeline.js` — `capOutput()` returns `{ text, truncated }`. `TRUNCATION NOTICE` injected into adjudicator input. Adjudicator treats absent fields from truncated reports as UNKNOWN.
 
-### ⬜ Raise `MIN_ITEMS_FOR_SYNTHESIS` to 3 **[Low]**
-**Status:** Not started.
-**Location:** `lib/commentary.js`.
-**Fix:** One line. Two items is insufficient for meaningful synthesis.
+### ✅ Raise `MIN_ITEMS_FOR_SYNTHESIS` to 3 **[Low]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `lib/commentary.js` line 24.
 
-### ⬜ Patient/clinician view recommendation language audit **[Medium — liability]**
+### ✅ Patient/clinician view recommendation language audit **[Medium — liability]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `lib/pipeline.js` — `lay_summary` critical instructions now explicitly prohibit "is better", "recommends", "confirms", "establishes". `shared_decision_making_takeaway` schema description rewritten.
+
+---
+
+### ✅ `candidate_values` array — extractor and adjudicator **[High — pre-Phase 0]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `lib/pipeline.js` — `_EXTRACTOR_SHARED_SECTIONS` section 4, `ADJUDICATOR_PROMPT_BASE` candidate ranking block, adjudicator output schema `primary_endpoint_candidates` array.
+**What it does:** Extractors list all plausible primary endpoint values (max 3, labelled: adjusted/unadjusted, ITT/PP, interim/final, subgroup). Adjudicator compiles into `primary_endpoint_candidates`, ranks, and marks `selected: true`. Converts adjudication from search problem to ranking problem. Addresses GPT failure cases 1 (adjusted/unadjusted trap), 4 (abstract framing), 6 (timepoint confusion), 7 (metric substitution).
+
+### ✅ Extractor B co-primary and abstract/full-text strengthening **[High — pre-Phase 0]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `lib/pipeline.js` — `EXTRACTOR_PROMPT_B` priority rules.
+**What it does:** Explicit co-primary rule (list all, don't select one). Explicit abstract vs full-text rule: when they differ, record both and flag; do NOT default to abstract value.
+
+### ✅ Node 4 `Promise.allSettled()` — partial result recovery **[Medium]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `lib/commentary.js` — all four `Promise.all` calls converted: external API fan-out (EPMC/PubMed/name search), abstract batch fetch, `_runSynthesis`.
+**What it does:** One hanging API no longer drops results from the others. EPMC data survives PubMed timeout, and vice versa.
+
+### ✅ Schema version constraint relaxed **[Low — pre-Phase 0]**
+**Status:** Complete (Session 5, 2026-04-14).
+**Location:** `supabase/schema-study.sql` — `study_extractions` and `study_rater_assignments`.
+**What it does:** Removed `CHECK (version IN ('v1', 'v2'))`. Free-form TEXT for Phase 0 prompt iteration. Add formal CHECK before Phase 1 freeze.
+
+### ⬜ Pilot UI consistency gate generalisation **[High — before Phase 0 grading]**
 **Status:** Not started.
-**Problem:** Any "X treatment is better than Y" language in the AI output creates liability if a clinician acts on it. Intended use claim is "research tool", not "clinical decision support."
-**Fix:** Grep for "recommend", "is better", "confirms", "establishes" in ADJUDICATOR_PROMPT_BASE, EXTRACTOR_CORE, patient_view prompt. Replace with "this trial showed", "the data suggest", "results indicate".
+**Problem:** PIPELINE_SPEC.md specifies the blocking consistency gate as "HR numeric value" — will prevent grading non-survival trials (SPORT/ORBITA/TKR use MD/continuous outcomes).
+**Fix:** Generalise to "Primary Effect Size". Gate text: "direction of effect, 95% CI, and arm labels are jointly coherent." Field label must be dynamic from adjudicator `effect_measure` output.
+**Effort:** 30 min (spec update + pilot.html gate logic). **Must be done before grading begins.**
 
 ---
 
@@ -228,3 +252,4 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 - Session 2 (2026-04-12): Pipeline hardening (extractor diversity, adversarial adjudicator, source citations, NI handling, 10 fixes)
 - Session 3 (2026-04-12): Phase 0 grading infrastructure, strategic adversarial review (HAWK/FALCON/EAGLE/OWL), meta-analysis strategy
 - Session 4 (2026-04-13): Gemini SDK removal, flash-lite primary model, sequential extractors, thinkingBudget:512, 5-retry backoff, api/study.js consolidation — first successful pipeline run confirmed
+- Session 5 (2026-04-14): Adversarial critique review (Gemini + GPT, stress-tested against codebase by agents). candidate_values array, Extractor B strengthening, capOutput truncation flag, Node 4 allSettled, MIN_ITEMS_FOR_SYNTHESIS=3, schema version constraint relaxed, language audit. All SDK removal re-applied to branch.
