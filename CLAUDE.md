@@ -41,6 +41,23 @@ node -e "import('./lib/pipeline.js')"          # syntax check
 node -e "import('./lib/commentary.js')"        # syntax check
 ```
 
+## Git workflow
+
+Work directly on a feature branch in the main checkout — do NOT use worktrees.
+
+```bash
+# Session start: branch from main
+git checkout main && git pull
+git checkout -b claude/<short-name>
+
+# Session end: merge to main, push
+git checkout main
+git merge claude/<short-name> --no-ff
+git push origin main
+```
+
+Worktrees were used in earlier sessions and caused branch staleness (sweet-mccarthy missed Session 4 changes from competent-borg). Direct branching avoids this.
+
 ## To close a session
 
 Type `/outcomelogic-close` to run the session close procedure. This updates HANDOVER.md, FEATURES.md, LEARNINGS.md, and memory files to reflect what was done.
