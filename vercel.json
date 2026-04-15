@@ -6,7 +6,7 @@
     { "source": "/study",    "destination": "/study.html" }
   ],
   "functions": {
-    "api/analyze.js":                      { "maxDuration": 60  },
+    "api/analyze.js":                      { "maxDuration": 120 },
     "api/commentary.js":                   { "maxDuration": 60  },
     "api/library-commentary-refresh.js":   { "maxDuration": 60  },
     "api/library-batch.js":                { "maxDuration": 300 },
