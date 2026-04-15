@@ -310,7 +310,7 @@
     }
   }
 
-  // grade counts: { output_id: count }
+  // grade counts: { extraction_id: count }
   let gradeCounts = {};
 
   async function loadGradeCounts() {
@@ -417,7 +417,7 @@
     const headers = await getAuthHeaders();
     if (!headers) return;
     try {
-      const r    = await fetch(`${API}/study-grade?output_id=${outputId}`, { headers });
+      const r    = await fetch(`${API}/study-grade?extraction_id=${outputId}`, { headers });
       if (!r.ok) return;
       const data = await r.json();
       const count = (data.grades || []).length;
@@ -479,7 +479,7 @@
 
     // Fetch existing grades
     try {
-      const r2  = await fetch(`${API}/study-grade?output_id=${outputId}`, { headers });
+      const r2  = await fetch(`${API}/study-grade?extraction_id=${outputId}`, { headers });
       const d2  = await r2.json();
       grades = {};
       (d2.grades || []).forEach(g => { grades[g.field_name] = g; });
@@ -969,7 +969,7 @@
     const suspNote = document.getElementById(`susp-note-${fieldId}`);
 
     const payload = {
-      output_id:                currentOutput.id,
+      extraction_id:            currentOutput.id,
       field_name:               fieldId,
       match_status:             g.match_status || null,
       error_taxonomy:           tax || null,

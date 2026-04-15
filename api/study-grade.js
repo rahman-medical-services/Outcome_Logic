@@ -70,11 +70,11 @@ export default async function handler(req, res) {
 
   const supabase = getAdminClient();
 
-  // ── GET: fetch all grades for an output ──────────────────────────────────
+  // ── GET: fetch all grades for an extraction ──────────────────────────────
   if (req.method === 'GET') {
-    const { output_id } = req.query;
-    if (!output_id) {
-      return res.status(400).json({ error: 'output_id query parameter required.' });
+    const { extraction_id } = req.query;
+    if (!extraction_id) {
+      return res.status(400).json({ error: 'extraction_id query parameter required.' });
     }
 
     const { data, error } = await supabase
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
         'suspicious_agreement_note',
         'graded_at',
       ].join(', '))
-      .eq('output_id', output_id)
+      .eq('extraction_id', extraction_id)
       .order('graded_at', { ascending: true });
 
     if (error) {
@@ -106,7 +106,7 @@ export default async function handler(req, res) {
   // ── POST: upsert a single field grade ────────────────────────────────────
   if (req.method === 'POST') {
     const {
-      output_id,
+      extraction_id,
       field_name,
       match_status,
       error_taxonomy,
@@ -119,8 +119,8 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     // Validation
-    if (!output_id) {
-      return res.status(400).json({ error: 'output_id is required.' });
+    if (!extraction_id) {
+      return res.status(400).json({ error: 'extraction_id is required.' });
     }
     if (!field_name) {
       return res.status(400).json({ error: 'field_name is required.' });
@@ -129,7 +129,10 @@ export default async function handler(req, res) {
     if (match_status && !validMatchStatuses.includes(match_status)) {
       return res.status(400).json({ error: `match_status must be one of: ${validMatchStatuses.join(', ')}` });
     }
-    const validTaxonomies = ['omission', 'misclassification', 'formatting_syntax', 'semantic'];
+    const validTaxonomies = [
+      'recall_failure', 'correlated_recall', 'ranking_failure',
+      'misclassification', 'interpretation_failure', 'hallucination', 'formatting_enum',
+    ];
     if (error_taxonomy && !validTaxonomies.includes(error_taxonomy)) {
       return res.status(400).json({ error: `error_taxonomy must be one of: ${validTaxonomies.join(', ')}` });
     }
@@ -144,23 +147,23 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `pipeline_section must be one of: ${validSections.join(', ')}` });
     }
 
-    // Verify the output exists
-    const { data: outputCheck, error: outputErr } = await supabase
-      .from('study_outputs')
+    // Verify the extraction exists
+    const { data: extractionCheck, error: extractionErr } = await supabase
+      .from('study_extractions')
       .select('id')
-      .eq('id', output_id)
+      .eq('id', extraction_id)
       .maybeSingle();
 
-    if (outputErr) {
-      return res.status(500).json({ error: outputErr.message });
+    if (extractionErr) {
+      return res.status(500).json({ error: extractionErr.message });
     }
-    if (!outputCheck) {
-      return res.status(404).json({ error: `No study_output found with id: ${output_id}` });
+    if (!extractionCheck) {
+      return res.status(404).json({ error: `No study_extraction found with id: ${extraction_id}` });
     }
 
     // Build upsert payload
     const payload = {
-      output_id,
+      extraction_id,
       field_name,
       graded_at: new Date().toISOString(),
     };
@@ -175,7 +178,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('study_grades')
-      .upsert(payload, { onConflict: 'output_id,field_name' })
+      .upsert(payload, { onConflict: 'extraction_id,field_name' })
       .select('id')
       .single();
 

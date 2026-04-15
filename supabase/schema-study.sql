@@ -95,11 +95,14 @@ CREATE TABLE IF NOT EXISTS study_raters (
 --   pico | primary_endpoint | secondary_endpoints | appraisal |
 --   adverse_events | subgroups | patient_view
 --
--- error_taxonomy:
---   omission         — value present in paper, not extracted
---   misclassification — wrong category/label
---   formatting_syntax — correct value, wrong format
---   semantic          — numerically close but clinically meaningfully different
+-- error_taxonomy (7-class — see docs/ERROR_TAXONOMY.md):
+--   recall_failure         — value present, both extractors missed it
+--   correlated_recall      — both extractors anchored to same wrong prominent text
+--   ranking_failure        — correct value in candidates, adjudicator ranked it wrong
+--   misclassification      — wrong category/label (e.g. wrong effect measure type)
+--   interpretation_failure — value extracted but meaning misunderstood
+--   hallucination          — extracted value has no basis in the source document
+--   formatting_enum        — correct value, wrong format or enum string
 --
 -- pipeline_section: where the error likely originated
 --   extractor | adjudicator | post_processing
@@ -107,33 +110,36 @@ CREATE TABLE IF NOT EXISTS study_raters (
 CREATE TABLE IF NOT EXISTS study_grades (
   id                        UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   extraction_id             UUID        NOT NULL REFERENCES study_extractions(id) ON DELETE CASCADE,
-  rater_id                  UUID        NOT NULL REFERENCES study_raters(id) ON DELETE CASCADE,
+  rater_id                  UUID        REFERENCES study_raters(id) ON DELETE SET NULL,
   field_name                TEXT        NOT NULL,
-  field_section             TEXT        NOT NULL
+  field_section             TEXT
                             CHECK (field_section IN (
                               'pico', 'primary_endpoint', 'secondary_endpoints',
                               'appraisal', 'adverse_events', 'subgroups', 'patient_view'
                             )),
-  match_status              TEXT        NOT NULL
+  match_status              TEXT
                             CHECK (match_status IN (
                               'exact_match', 'partial_match', 'fail', 'hallucinated'
                             )),
   error_taxonomy            TEXT
                             CHECK (error_taxonomy IN (
-                              'omission', 'misclassification', 'formatting_syntax', 'semantic'
+                              'recall_failure', 'correlated_recall', 'ranking_failure',
+                              'misclassification', 'interpretation_failure',
+                              'hallucination', 'formatting_enum'
                             )),
-  correction_text           TEXT,       -- what the correct value should be
+  correction_text           TEXT,
+  reference_standard_value  TEXT,       -- PI's independent assessment (required for evaluative fields)
   harm_severity             SMALLINT    CHECK (harm_severity BETWEEN 1 AND 5),
   pipeline_section          TEXT
                             CHECK (pipeline_section IN (
                               'extractor', 'adjudicator', 'post_processing'
                             )),
-  -- suspicious_agreement: both V1 and V2 give the same wrong answer
+  -- suspicious_agreement: both V1 and V3 give the same wrong answer
   -- (more dangerous than one-sided failure — set by rater during Phase 1/2 comparison)
   suspicious_agreement      BOOLEAN     NOT NULL DEFAULT FALSE,
   suspicious_agreement_note TEXT,
   graded_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(extraction_id, rater_id, field_name)
+  UNIQUE(extraction_id, field_name)
 );
 
 -- ─────────────────────────────────────────────────────────────
@@ -190,74 +196,88 @@ CREATE INDEX IF NOT EXISTS study_assignments_paper_id_idx    ON study_rater_assi
 -- IMPORTANT: Verify all PMIDs against PubMed before running analyses.
 -- PMIDs marked "VERIFY" should be confirmed before use.
 -- ─────────────────────────────────────────────────────────────
+-- All PMIDs verified against live PubMed via E-utilities API (April 2026).
+-- To correct a PMID after insertion:
+--   UPDATE study_papers SET pmid='<correct>' WHERE trial_name='<name>';
 INSERT INTO study_papers (pmid, title, trial_name, authors, journal, year, domain, specialty, study_design, phase, is_pilot) VALUES
 
-  -- 1. Sham-controlled RCT — tests blinding/sham design extraction + ORBITA controversy
-  ('29126895',
+  -- 1. ORBITA — sham-controlled RCT; tests blinding/sham design + ORBITA controversy
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/29103656
+  ('29103656',
    'Percutaneous coronary intervention in stable angina (ORBITA): a double-blind, randomised controlled trial',
    'ORBITA',
    'Al-Lamee R, Thompson D, Dehbi HM et al.',
    'The Lancet', '2018', 'Medicine', 'Cardiology', 'RCT', 0, TRUE),
 
-  -- 2. Accelerated surgery for hip fracture — tests time-to-event extraction, surgical specialty
-  (NULL,
-   'Accelerated surgery versus standard care in hip fracture (HIP ATTACK): an international, randomised, multicentre, controlled trial',
+  -- 2. HIP ATTACK — accelerated surgery for hip fracture; tests time-to-event extraction
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/32050090
+  ('32050090',
+   'Accelerated surgery versus standard care in hip fracture (HIP ATTACK): an international, randomised, controlled trial',
    'HIP ATTACK',
    'HIP ATTACK Investigators',
    'The Lancet', '2020', 'Orthopaedics', 'Hip', 'RCT', 0, TRUE),
 
-  -- 3. Surgery vs nonoperative for lumbar disc herniation — two-arm RCT, complex crossover
-  ('17545430',
-   'Surgical versus nonoperative treatment for lumbar disk herniation: the Spine Patient Outcomes Research Trial (SPORT)',
+  -- 3. SPORT (disc) — surgery vs nonoperative for lumbar disc herniation; complex crossover
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/17119140 (RCT arm; companion observational: 17119141)
+  ('17119140',
+   'Surgical vs nonoperative treatment for lumbar disk herniation: the Spine Patient Outcomes Research Trial (SPORT): a randomized trial',
    'SPORT (disc)',
    'Weinstein JN, Tosteson TD, Lurie JD et al.',
    'JAMA', '2006', 'Orthopaedics', 'Spine', 'RCT', 0, TRUE),
 
-  -- 4. Hip arthroscopy vs physiotherapy for FAI — tests non-inferiority design, UK multicentre
-  (NULL,
+  -- 4. UK FASHIoN — hip arthroscopy vs physiotherapy for FAI; UK multicentre
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/29893223
+  ('29893223',
    'Hip arthroscopy versus best conservative care for the treatment of femoroacetabular impingement syndrome (UK FASHIoN): a multicentre randomised controlled trial',
    'UK FASHIoN',
    'Griffin DR, Dickenson EJ, Wall PDH et al.',
    'The Lancet', '2018', 'Orthopaedics', 'Hip', 'RCT', 0, TRUE),
 
-  -- 5. TKR vs non-surgical management — NEJM 2015, Skou — tests continuous outcome extraction
+  -- 5. TKR (Skou 2015) — TKR vs non-surgical; tests continuous outcome extraction
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/26488691 (confirmed by PI)
   ('26488691',
    'A randomized, controlled trial of total knee replacement',
    'TKR (Skou 2015)',
    'Skou ST, Roos EM, Laursen MB et al.',
    'New England Journal of Medicine', '2015', 'Orthopaedics', 'Knee', 'RCT', 0, TRUE),
 
-  -- 6. CABG vs medical therapy for ischaemic cardiomyopathy — survival data, multiple time points
-  ('21463148',
-   'Coronary-artery bypass surgery in patients with left ventricular dysfunction (STICH)',
+  -- 6. STICH — CABG vs medical therapy for ischaemic cardiomyopathy; survival, multiple time points
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/21463150
+  ('21463150',
+   'Coronary-artery bypass surgery in patients with left ventricular dysfunction',
    'STICH',
    'Velazquez EJ, Lee KL, Deja MA et al.',
    'New England Journal of Medicine', '2011', 'Surgery', 'Vascular', 'RCT', 0, TRUE),
 
-  -- 7. PCI vs CABG for left main — EXCEL original 3-year; contentious long-term outcomes
-  ('27117439',
-   'Everolimus-eluting stents or bypass surgery for left main coronary artery disease (EXCEL)',
+  -- 7. EXCEL — PCI vs CABG for left main; 3-year primary; contentious long-term outcomes
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/27797291
+  ('27797291',
+   'Everolimus-Eluting Stents or Bypass Surgery for Left Main Coronary Artery Disease',
    'EXCEL',
    'Stone GW, Sabik JF, Serruys PW et al.',
    'New England Journal of Medicine', '2016', 'Surgery', 'Vascular', 'RCT', 0, TRUE),
 
-  -- 8. Plate fixation vs conservative for proximal humerus fractures — null primary endpoint
-  (NULL,
-   'Surgical treatment compared with early particle physiotherapy for fractures of the proximal humerus in adults (PROFHER)',
+  -- 8. PROFHER — surgery vs conservative for proximal humerus fractures; null primary endpoint
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/25756440 (published JAMA 2015, not Lancet)
+  ('25756440',
+   'Surgical vs nonsurgical treatment of adults with displaced fractures of the proximal humerus: the PROFHER randomized clinical trial',
    'PROFHER',
-   'Handoll HH, Brealey S, Rangan A et al.',
-   'The Lancet', '2015', 'Orthopaedics', 'Shoulder', 'RCT', 0, TRUE),
+   'Rangan A, Handoll H, Brealey S et al.',
+   'JAMA', '2015', 'Orthopaedics', 'Shoulder', 'RCT', 0, TRUE),
 
-  -- 9. CT coronary angiography vs standard care — 5-year outcomes; tests long follow-up extraction
-  ('31475798',
-   'Coronary CT angiography and 5-year risk of myocardial infarction (SCOT-HEART)',
+  -- 9. SCOT-HEART — CT coronary angiography vs standard care; 5-year MI outcomes
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/30145934 (NEJM 2018, epub Aug 2018)
+  ('30145934',
+   'Coronary CT Angiography and 5-Year Risk of Myocardial Infarction',
    'SCOT-HEART',
-   'Newby DE, Adamson PD, Berry C et al.',
-   'New England Journal of Medicine', '2019', 'Medicine', 'Cardiology', 'RCT', 0, TRUE),
+   'SCOT-HEART Investigators; Newby DE et al.',
+   'New England Journal of Medicine', '2018', 'Medicine', 'Cardiology', 'RCT', 0, TRUE),
 
-  -- 10. Surgery vs nonoperative for lumbar spinal stenosis — companion to SPORT disc paper
-  ('18997196',
-   'Surgical versus nonoperative treatment for lumbar spinal stenosis: four-year results of the Spine Patient Outcomes Research Trial (SPORT)',
+  -- 10. SPORT (stenosis) — surgery vs nonoperative for lumbar spinal stenosis; 4-year follow-up
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/20453723 (4-yr Spine 2010)
+  -- Note: 2-yr primary JAMA 2008 paper is PMID 18091066 if preferred
+  ('20453723',
+   'Surgical versus nonsurgical therapy for lumbar spinal stenosis: four-year results of the Spine Patient Outcomes Research Trial',
    'SPORT (stenosis)',
    'Weinstein JN, Tosteson TD, Lurie JD et al.',
    'Spine', '2010', 'Orthopaedics', 'Spine', 'RCT', 0, TRUE)
