@@ -209,3 +209,39 @@ Format: what was tried → what happened → what the correct approach is → da
 **What happened:** Gemini critique correctly identified that if PubMed Entrez hangs past the 45s timeout, all three API results are discarded. EPMC data that completed in 2s is lost. Same problem applied to abstract batch fetching and `_runSynthesis`.
 **Fix:** All four `Promise.all` calls in `commentary.js` replaced with `Promise.allSettled` + graceful per-result fallback. Partial Node 4 output now salvageable.
 **Date:** 2026-04-14
+
+---
+
+## Session 6 (2026-04-15)
+
+### `gpt-5-mini` (and o-series reasoning models) do not support temperature or standard token limits
+**Tried:** Using `gpt-5-mini` as Extractor B candidate. Test curl with `max_tokens` and `temperature: 0.05`.
+**What happened:**
+1. `max_tokens` → 400 error "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+2. After fix: `temperature: 0.05` → 400 error "temperature does not support 0.05 with this model".
+**Root cause:** `gpt-5-mini` is a reasoning model (like o1/o3 family) — internal reasoning tokens, no temperature control, very slow on large inputs (~30s on tiny payload).
+**Fix:** Use `gpt-4o-mini` instead. Supports temperature, `max_completion_tokens`, responds in ~3–10s, no internal reasoning tokens. Do NOT use reasoning models for extraction.
+**Date:** 2026-04-15
+
+### OpenAI API requires `max_completion_tokens` not `max_tokens` on recent models
+**Tried:** `max_tokens: 8000` in OpenAI request body.
+**What happened:** 400 error "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead." Applies to `gpt-4o-mini`, `gpt-5-mini`, and all models released after a certain point.
+**Fix:** Always use `max_completion_tokens` in `callOpenAI()`. `max_tokens` is legacy.
+**Date:** 2026-04-15
+
+### Parallel extractors are safe when running on different API providers
+**Previous learning (Session 4):** `Promise.all` on two simultaneous Gemini calls from the same key → one 503s every time. Parallel requires sequential for Gemini.
+**New finding (Session 6):** `Promise.all([callGemini(...), callOpenAI(...)])` is safe — different providers, different keys, no shared concurrency limit. Confirmed in HIP ATTACK run at ~47s total.
+**Rule:** Parallel is safe only when different providers. Same-key same-provider = sequential.
+**Date:** 2026-04-15
+
+### Vercel `maxDuration` defaults to 10s for Hobby plan — must be explicitly set
+**Tried:** Assuming 60s (the previous explicit setting) covered the parallel extractor run.
+**What happened:** Sequential Gemini A (~24s) + Gemini B (~26s) + Adjudicator (~10s) = ~60s before parallel. After parallel switch, ~47s, but the explicit setting provides safety margin. Must be set in `vercel.json` per function.
+**Fix:** `api/analyze.js` is set to `maxDuration: 120` in `vercel.json`. Hobby plan hard max is 60s — this requires Pro plan. Confirmed Pro plan in use.
+**Date:** 2026-04-15
+
+### Subgroup interaction p-value meaning is counterintuitive and must be explained explicitly
+**What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
+**Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.
+**Date:** 2026-04-15

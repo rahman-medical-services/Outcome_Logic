@@ -1,9 +1,9 @@
 ---
 id: "pipeline-spec"
 type: "technical-specification"
-version: 2
+version: 3
 created: 2026-04-12
-updated: 2026-04-14
+updated: 2026-04-15
 owner: "saqib"
 ---
 
@@ -15,18 +15,27 @@ This file is the technical reference for the extraction pipeline, Phase 0 valida
 
 ## Current 3-Node Pipeline (V2)
 
-### Node 1 + 2: Sequential Extractors
+### Node 1 + 2: Extractors A and B
 
-**Model:** `gemini-2.5-flash-lite` (both nodes) — stable, avoids TPM exhaustion
-**Escalation:** `gemini-2.5-flash` when `isEscalation = true` is passed to `runPipeline()`
-**Concurrency:** Sequential (A then B, awaited) — parallel calls trigger concurrency 503s on the same API key
+**Extractor A:** `gemini-2.5-flash-lite` via `callGemini()` — adjusted/ITT priority
+**Extractor B:** `gpt-4o-mini` (OpenAI) via `callOpenAI()` — first-reported/abstract priority
+**Escalation:** `gemini-2.5-flash` for Extractor A when `isEscalation = true` is passed to `runPipeline()`
+**Concurrency:** **Parallel** (`Promise.all`) when `OPENAI_API_KEY` is set — different providers, no shared concurrency limit. Sequential fallback (A then B, both Gemini) if key absent.
+**Typical timing:** A+B parallel ~10–33s (gpt-4o-mini is faster), Adjudicator ~13s, total ~47s on full paper.
 
 **⚠️ GEMINI API CONSTRAINTS (confirmed 2026-04-13 via systematic curl testing):**
 - **No SDK** — `@google/generative-ai` and `@google/genai` both cause 503s on first call with large system instructions. Use raw `fetch()` to v1beta REST only. This is the deliberate architecture across all files.
 - **`thinkingBudget: 512`** — always required. `0` = 503 on flash-lite, 400 on Pro. Missing = TPM exhaustion. `512` satisfies all models.
 - **flash-lite not flash** — `gemini-2.5-flash` has persistent ~50% 503 rate on this account. flash-lite is stable.
-- **Sequential only** — `Promise.all` with 2 simultaneous calls from the same key → one 503s every time.
+- **Parallel safe only with different providers** — `Promise.all` with 2 simultaneous Gemini calls from same key → one 503s every time. Gemini+OpenAI parallel is safe.
 - **5 retries with exponential backoff + jitter** — built into `callGemini()` in `lib/pipeline.js`. 400/401/403/404 are non-retryable and throw immediately.
+
+**⚠️ OPENAI API CONSTRAINTS (confirmed 2026-04-15):**
+- **No SDK** — raw `fetch()` to `https://api.openai.com/v1/chat/completions`. `Authorization: Bearer ${process.env.OPENAI_API_KEY}`.
+- **`max_completion_tokens` not `max_tokens`** — `max_tokens` returns 400 on gpt-4o-mini and newer models.
+- **Temperature 0.05 supported** on `gpt-4o-mini`. Do NOT use `gpt-5-mini` or any o-series reasoning model — they reject temperature and are very slow.
+- **5 retries with exponential backoff + jitter** — built into `callOpenAI()`. Non-retryable on 400/401/403.
+- **Falls back to Gemini** for Extractor B if `OPENAI_API_KEY` is absent.
 
 **`callGemini()` pattern (canonical — all Gemini calls in the codebase must use this):**
 ```javascript
@@ -41,6 +50,22 @@ const body = {
   },
 };
 // 5-retry loop: non-retryable on [400,401,403,404]; backoff = min(1000*2^(attempt-1) + jitter, 15000)
+```
+
+**`callOpenAI()` pattern (canonical — Extractor B):**
+```javascript
+const url = 'https://api.openai.com/v1/chat/completions';
+const body = {
+  model: 'gpt-4o-mini',
+  temperature: options.temperature ?? 0.05,
+  max_completion_tokens: options.max_completion_tokens ?? 8000,
+  messages: [
+    { role: 'system', content: systemInstruction },  // omitted if null
+    { role: 'user', content: userContent },
+  ],
+};
+// 5-retry loop: non-retryable on [400,401,403]; retryable on 429/500/503
+// throws OPENAI_UNAVAILABLE on quota exhaustion
 ```
 
 **Extractor A — adjusted/ITT priority:**
@@ -134,6 +159,17 @@ The adjudicator receives all `candidate_values` from both extractors and compile
 ```
 
 **Known residual limitation:** Correlated table misread — both extractors misread the same table identically — produces a single candidate and is structurally undetectable. This is the residual failure mode for Phase 0. See LEARNINGS.md "Adjudicator cannot detect errors it has no candidates for."
+
+**Subgroup output schema (extended Session 6):**
+Each subgroup entry includes:
+- `pre_specified` / `post_hoc` (boolean) — credibility flags; post-hoc subgroups are substantially less reliable
+- `cis_all_cross_one` (boolean) — true when ALL arm CIs include 1.0 (no individual arm is statistically significant, even if interaction p < 0.05)
+- `direction_vs_hypothesis` — whether the observed direction matches the a priori hypothesis
+- `interaction_note` — plain-language explanation of what the interaction p-value means (the p-value tests variation in treatment effect across subgroups, NOT individual group significance)
+- Per arm: `ci_crosses_one` (boolean), `absolute_events`
+- `outcome` — which endpoint this subgroup analysis applies to
+
+The interaction p-value is a common source of clinical misinterpretation. An interaction p < 0.05 means the treatment effect *varies* across subgroups — it does not mean any individual subgroup is significant. See LEARNINGS.md "Subgroup interaction p-value meaning is counterintuitive."
 
 ---
 
@@ -297,7 +333,7 @@ async function runWithConcurrency(tasks, limit = 5) {
 
 ### Model diversity for extractors
 
-Extractor A and B currently both use `gemini-2.5-flash-lite`. For Phase 1, Extractor B should use a different model family (Claude Sonnet or GPT-4o) to prevent model-level correlated errors. Do not build before Phase 0 results.
+**Implemented (Session 6):** Extractor B uses `gpt-4o-mini` (OpenAI) — cross-model diversity achieved. For Phase 1 at scale, consider upgrading Extractor B to `gpt-4o` if Phase 0 results reveal residual correlated errors.
 
 ### Meta-analysis pipeline
 

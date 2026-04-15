@@ -73,8 +73,8 @@ These must be complete before any Phase 0 paper runs.
 
 ## Phase 0 — Deployment
 
-### 🔧 Merge `claude/competent-borg` → main
-**Status:** Branch working, not yet merged. Contains all session 4 changes (SDK removal, flash-lite, sequential extractors).
+### ✅ Merge `claude/competent-borg` + `claude/sweet-mccarthy` → main
+**Status:** Complete (Session 6, 2026-04-15). All pipeline changes merged and pushed.
 
 ### ⬜ Deploy `schema-study.sql` to Supabase
 **Status:** SQL rebuilt and ready. Must be run before pilot.html can save grades.
@@ -144,11 +144,11 @@ These must be complete before any Phase 0 paper runs.
 
 ---
 
-### ⬜ Model diversity for Phase 1 extractors **[High for Phase 1]**
-**Status:** Documented, not started.
-**Problem:** Extractor A and B both use `gemini-2.5-flash-lite`. Prompt diversity (A=adjusted/ITT, B=first-reported) is insufficient to catch model-level correlated errors (HR direction convention, hallucinated CIs from footnotes). For Phase 0 this is acceptable. For Phase 1 at scale it is not.
-**Fix:** Extractor A = Gemini flash-lite (current). Extractor B = Claude Sonnet or GPT-4o. Requires new API client in pipeline.js.
-**Effort:** Medium (2–3 hrs). **Do not build before Phase 0 results.**
+### ✅ Model diversity — gpt-4o-mini as Extractor B **[Completed Session 6, 2026-04-15]**
+**Status:** Complete.
+**What was built:** Extractor B now uses `gpt-4o-mini` (OpenAI) via `callOpenAI()` in `lib/pipeline.js`. Raw `fetch()` to `v1/chat/completions`. `max_completion_tokens: 8000`, temperature 0.05. 5-retry backoff. Falls back to Gemini flash-lite if `OPENAI_API_KEY` absent.
+**Cross-model diversity achieved:** Gemini (A) + OpenAI (B). Correlated table misreads now produce detectable discrepancies rather than silent consensus.
+**Timing:** gpt-4o-mini responds in ~3–10s (vs ~26s for Gemini flash-lite on same input).
 
 ### ⬜ Phase 1 powered validation study **[Publication path]**
 **Status:** Planned. Depends on Phase 0 findings.
@@ -253,3 +253,4 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 - Session 3 (2026-04-12): Phase 0 grading infrastructure, strategic adversarial review (HAWK/FALCON/EAGLE/OWL), meta-analysis strategy
 - Session 4 (2026-04-13): Gemini SDK removal, flash-lite primary model, sequential extractors, thinkingBudget:512, 5-retry backoff, api/study.js consolidation — first successful pipeline run confirmed
 - Session 5 (2026-04-14): Adversarial critique review (Gemini + GPT, stress-tested against codebase by agents). candidate_values array, Extractor B strengthening, capOutput truncation flag, Node 4 allSettled, MIN_ITEMS_FOR_SYNTHESIS=3, schema version constraint relaxed, language audit. All SDK removal re-applied to branch.
+- Session 6 (2026-04-15): gpt-4o-mini Extractor B (cross-model diversity), parallel A+B extractors (different providers), Vercel maxDuration 60→120s, ChatGPT critique F1 (candidate completeness check), F3 (adjudicator ranking tiebreaker), F5 (synthetic citations logged), F6 (truncation notice for incomplete candidate list), subgroup clarity (pre/post-hoc badges, CI-crosses-one per arm, cis_all_cross_one flag, direction_vs_hypothesis, interaction_note), subgroup UI update. First HIP ATTACK Phase 0 run confirmed at ~47s.
