@@ -1125,19 +1125,57 @@ function renderSubgroups(subgroups) {
   if (!section || !content) return;
   if (!subgroups?.has_significant_interactions || !subgroups.items?.length) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
-  content.innerHTML = subgroups.items.map(item => `
-    <div class="p-3 bg-slate-50 border border-slate-200 rounded">
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-semibold text-slate-700">${item.variable}</span>
-        <span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">Interaction ${item.interaction_p}</span>
+  content.innerHTML = subgroups.items.map(item => {
+    const badges = [];
+    if (item.pre_specified)  badges.push(`<span class="text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">Pre-specified</span>`);
+    if (item.post_hoc)       badges.push(`<span class="text-xs text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded">Post-hoc</span>`);
+    if (item.borderline)     badges.push(`<span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">Borderline</span>`);
+
+    const outcomeLabel = item.outcome ? `<span class="text-xs text-slate-500 ml-1">(${item.outcome})</span>` : '';
+
+    const cisWarning = item.cis_all_cross_one
+      ? `<div class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+           <span class="font-semibold">⚠ No individual subgroup reached statistical significance</span> — all 95% CIs include 1.0.
+           The interaction p-value shows the treatment effect <em>varies</em> across groups, but does not confirm a proven effect in any single group.
+         </div>`
+      : '';
+
+    const directionWarning = item.direction_vs_hypothesis
+      ? `<div class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+           <span class="font-semibold">Direction note:</span> ${item.direction_vs_hypothesis}
+         </div>`
+      : '';
+
+    const arms = (item.arms || []).map(arm => {
+      const crossesOne = arm.ci_crosses_one
+        ? `<span class="text-slate-400 text-xs ml-1">(CI crosses 1)</span>` : '';
+      const absEvents = arm.absolute_events
+        ? `<span class="text-slate-400 ml-2">${arm.absolute_events}</span>` : '';
+      return `<div class="text-xs text-slate-600 py-1 border-b border-slate-100 last:border-0">
+        <span class="font-medium text-slate-700">${arm.subgroup_name}:</span>
+        HR ${arm.hr} (95% CI ${arm.ci_95})${crossesOne}${absEvents}
+      </div>`;
+    }).join('');
+
+    const interactionNote = item.interaction_note
+      ? `<div class="mt-2 text-xs text-slate-500 italic">${item.interaction_note}</div>` : '';
+
+    return `<div class="p-3 bg-slate-50 border border-slate-200 rounded space-y-1">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <span class="font-semibold text-slate-700">${item.variable}</span>${outcomeLabel}
+        </div>
+        <div class="flex items-center gap-1 flex-wrap justify-end">
+          ${badges.join('')}
+          <span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">Interaction ${item.interaction_p}</span>
+        </div>
       </div>
-      <div class="flex flex-wrap gap-3">
-        ${(item.arms || []).map(arm => `
-          <div class="text-xs text-slate-600">
-            <span class="font-medium">${arm.subgroup_name}:</span> HR ${arm.hr} (95% CI ${arm.ci_95})
-          </div>`).join('')}
-      </div>
-    </div>`).join('');
+      ${cisWarning}
+      ${directionWarning}
+      <div class="mt-2">${arms}</div>
+      ${interactionNote}
+    </div>`;
+  }).join('');
 }
 
 // ── Chart Renderer ───────────────────────────────────────────────────
