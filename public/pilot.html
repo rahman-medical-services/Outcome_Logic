@@ -120,7 +120,15 @@
           <div id="left-meta"  class="text-xs text-slate-400 mb-3"></div>
 
           <!-- Links -->
-          <div id="left-links" class="flex flex-wrap gap-2 mb-4"></div>
+          <div id="left-links" class="flex flex-wrap gap-2 mb-2"></div>
+
+          <!-- View full report -->
+          <div class="mb-4">
+            <button id="btn-view-report" onclick="openFullReport()"
+              class="hidden text-xs px-3 py-1.5 rounded border border-indigo-600 text-indigo-400 hover:text-indigo-300 hover:border-indigo-400 w-full">
+              View Full Report ↗
+            </button>
+          </div>
 
           <!-- Source type + PMID -->
           <div class="flex items-center gap-2 mb-3">
@@ -477,6 +485,9 @@
     currentOutput = { id: outputId, version, json: output };
     gateConfirmed = false;
 
+    // Show "View Full Report" button now that output is loaded
+    document.getElementById('btn-view-report').classList.remove('hidden');
+
     // Fetch existing grades
     try {
       const r2  = await fetch(`${API}/study-grade?extraction_id=${outputId}`, { headers });
@@ -501,11 +512,49 @@
     updateProgressBar();
   }
 
+  // ── Open full report in index.html via sessionStorage ────────────────────
+  function openFullReport() {
+    const outputObj = currentOutput?.json?.output_json || currentOutput?.json;
+    if (!outputObj) return;
+    sessionStorage.setItem('pilot_preview_output', JSON.stringify(outputObj));
+    window.open('/index.html?from=pilot', '_blank');
+  }
+
   // ── Consistency gate ──────────────────────────────────────────────────────
   function renderGate(output) {
     const outputObj = output?.output_json || output;
-    const ep = (getNestedValue(outputObj, 'clinician_view.interactive_data.endpoints') || [])[0] || {};
+    const endpoints = getNestedValue(outputObj, 'clinician_view.interactive_data.endpoints') || [];
+    const ep   = endpoints[0] || {};
     const arms = ep.arms || [];
+
+    // Fallback: if no structured endpoint data, show PICO primary outcome text
+    const hasStructuredData = endpoints.length > 0 && (ep.point_estimate != null || ep.effect_measure);
+    if (!hasStructuredData) {
+      const picoText = getNestedValue(outputObj, 'clinician_view.pico.primary_outcome') || '';
+      document.getElementById('gate-section').innerHTML = `
+        <div class="border border-amber-600 rounded-lg p-4" style="background:rgba(120,53,15,0.15)">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-amber-300 font-semibold text-sm">⚠ Consistency Gate</span>
+            <span class="text-amber-600 text-xs">— chart data not structured for this extraction</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">
+            Structured endpoint data was not produced for this paper. Review the primary outcome text below,
+            then confirm coherence before grading.
+          </p>
+          ${picoText ? `<div class="rounded p-3 mb-4 text-xs text-slate-200" style="background:#0f172a;border:1px solid #334155">
+            <div class="text-slate-500 uppercase tracking-wide text-xs mb-2">Primary outcome (from PICO)</div>
+            ${escHtml(picoText)}
+          </div>` : '<div class="text-xs text-slate-500 mb-4 italic">No primary outcome text available.</div>'}
+          <div class="flex gap-2">
+            <button onclick="confirmGate(true)"
+              class="text-xs px-3 py-1.5 rounded border font-medium"
+              style="background:#14532d;color:#86efac;border-color:#16a34a">
+              Proceed to grading
+            </button>
+          </div>
+        </div>`;
+      return;
+    }
 
     const effectMeasure = ep.effect_measure || '—';
     const pe   = ep.point_estimate != null ? ep.point_estimate : '—';

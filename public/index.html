@@ -982,6 +982,23 @@ function populateDashboard(data) {
 
 window.populateDashboard = populateDashboard;
 
+// ── Pilot study: load output from sessionStorage ─────────────────────
+// pilot.html stores output_json under 'pilot_preview_output' and opens
+// index.html?from=pilot — we detect this and render without an API call.
+(function checkPilotPreview() {
+  if (new URLSearchParams(window.location.search).get('from') !== 'pilot') return;
+  const raw = sessionStorage.getItem('pilot_preview_output');
+  if (!raw) return;
+  sessionStorage.removeItem('pilot_preview_output');
+  try {
+    const data = JSON.parse(raw);
+    window._lastAnalysis = data;
+    populateDashboard(data);
+  } catch (e) {
+    console.warn('[pilot preview] Failed to parse stored output:', e);
+  }
+})();
+
 // ── Adverse Events Table ─────────────────────────────────────────────
 function extractArmName(picoText, fallback = 'Arm') {
   if (!picoText) return fallback;
