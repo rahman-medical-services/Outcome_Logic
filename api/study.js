@@ -82,8 +82,8 @@ async function handlePapers(req, res) {
       return {
         ...p,
         study_extractions: undefined,
+        v3_output: extractions.find(o => o.version === 'v3') || null,
         v1_output: extractions.find(o => o.version === 'v1') || null,
-        v2_output: extractions.find(o => o.version === 'v2') || null,
       };
     });
 
@@ -161,9 +161,13 @@ async function handleOutput(req, res) {
 // ─────────────────────────────────────────────
 // RESOURCE: run
 // POST /api/study?resource=run
-// Body: { paper_id, version?, force?, pdf_base64? }
+// Body: { paper_id?, version?, force?, pdf_base64 }
+//
+// Phase 0 and Phase 1 require uploaded PDFs.
+// DOI/PMID-based text fetching is not used for study runs — it introduces
+// source-type variability that would confound the validation study.
+// All study extractions must have source_type = 'full-text-pdf'.
 // ─────────────────────────────────────────────
-const MIN_CHARS = { FULLTEXT: 2000, ABSTRACT: 200 };
 
 async function sourceFromPdf(pdf_base64, paper) {
   const buf  = Buffer.from(pdf_base64, 'base64');
@@ -176,104 +180,17 @@ async function sourceFromPdf(pdf_base64, paper) {
   return { text, sourceType: 'full-text-pdf', pmid: paper.pmid || null, pmcid: null, doi: null, authors: paper.authors || null };
 }
 
-async function fetchFullTextPMC(pmcid, pmid) {
-  if (!pmcid) return null;
-  try {
-    const res  = await fetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/${pmcid}/fullTextXML`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml  = await res.text();
-    const text = xml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (text.length < MIN_CHARS.FULLTEXT) return null;
-    console.log(`[study-run Tier 1] PMC full text: ${text.length} chars`);
-    return { text, sourceType: 'full-text-pmc', pmcid, pmid: pmid || null };
-  } catch (err) {
-    console.log(`[study-run Tier 1] PMC failed: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchFullTextJina(pmcid) {
-  if (!pmcid) return null;
-  try {
-    const res  = await fetch(`https://r.jina.ai/https://europepmc.org/article/PMC/${pmcid}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    if (!text || text.includes('Access Denied') || text.length < 1000) return null;
-    console.log(`[study-run Tier 2] Jina/PMC: ${text.length} chars`);
-    return { text, sourceType: 'full-text-jina', pmcid };
-  } catch (err) {
-    console.log(`[study-run Tier 2] Jina failed: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchAbstract(pmid) {
-  try {
-    const url     = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`ext_id:${pmid}`)}&resultType=core&format=json`;
-    const res     = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data    = await res.json();
-    const article = data.resultList?.result?.[0];
-    if (!article) return null;
-    const abstract = article.abstractText ? article.abstractText.replace(/<[^>]*>?/gm, '') : null;
-    if (!abstract || abstract.length < MIN_CHARS.ABSTRACT) return null;
-    console.log(`[study-run Tier 4] Abstract: ${abstract.length} chars`);
-    const authorList = (article.authorString || '').split(',').map(a => a.trim()).filter(Boolean);
-    const authorsStr = authorList.length === 0 ? null
-      : authorList.length <= 3 ? authorList.join(', ')
-      : authorList.slice(0, 3).join(', ') + ' et al.';
-    return {
-      text:       `TITLE: ${article.title}\n\n[ABSTRACT ONLY]\n${abstract}`,
-      sourceType: 'abstract-only',
-      pmid:       article.pmid  || pmid || null,
-      pmcid:      article.pmcid || null,
-      doi:        article.doi   || null,
-      authors:    authorsStr,
-    };
-  } catch (err) {
-    console.log(`[study-run Tier 4] Abstract failed: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchTrialByPmid(pmid) {
-  let meta = { pmid, pmcid: null, doi: null, authors: null };
-  try {
-    const url  = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(`ext_id:${pmid}`)}&resultType=core&format=json`;
-    const res  = await fetch(url);
-    if (res.ok) {
-      const data    = await res.json();
-      const article = data.resultList?.result?.[0];
-      if (article) {
-        const authorList = (article.authorString || '').split(',').map(a => a.trim()).filter(Boolean);
-        meta = {
-          pmid:    article.pmid  || pmid,
-          pmcid:   article.pmcid || null,
-          doi:     article.doi   || null,
-          authors: authorList.length === 0 ? null
-            : authorList.length <= 3 ? authorList.join(', ')
-            : authorList.slice(0, 3).join(', ') + ' et al.',
-        };
-      }
-    }
-  } catch (err) {
-    console.log(`[study-run Meta] ${err.message}`);
-  }
-  const tier1 = await fetchFullTextPMC(meta.pmcid, meta.pmid);
-  if (tier1) return { ...meta, ...tier1 };
-  const tier2 = await fetchFullTextJina(meta.pmcid);
-  if (tier2) return { ...meta, ...tier2 };
-  const tier4 = await fetchAbstract(pmid);
-  if (tier4) return { ...meta, ...tier4 };
-  return null;
-}
-
 async function handleRun(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  const { paper_id, version = 'v2', force = false, pdf_base64 } = req.body;
-  if (version !== 'v2') return res.status(400).json({ error: 'Only version v2 supported for now.' });
-  if (!paper_id && !pdf_base64) return res.status(400).json({ error: 'Provide paper_id or pdf_base64.' });
+  const { paper_id, version = 'v3', force = false, pdf_base64 } = req.body;
+
+  // PDF is mandatory — no PMID/DOI fallback for study runs
+  if (!pdf_base64) {
+    return res.status(400).json({
+      error: 'pdf_base64 is required. Study runs must use uploaded PDFs — PMID/DOI fetching is not permitted for Phase 0/1 to ensure source-type consistency.',
+    });
+  }
 
   const supabase = getAdminClient();
   let paper = null;
@@ -286,10 +203,6 @@ async function handleRun(req, res) {
       .single();
     if (paperErr || !data) return res.status(404).json({ error: 'Paper not found.' });
     paper = data;
-
-    if (!pdf_base64 && !paper.pmid) {
-      return res.status(400).json({ error: 'No PMID on record. Add a PMID first, or upload a PDF.' });
-    }
 
     if (!force) {
       const { data: existing } = await supabase
@@ -308,22 +221,11 @@ async function handleRun(req, res) {
   }
 
   let source;
-  if (pdf_base64) {
-    console.log(`[study-run] Parsing uploaded PDF`);
-    try {
-      source = await sourceFromPdf(pdf_base64, paper || {});
-    } catch (err) {
-      return res.status(422).json({ error: err.message });
-    }
-  } else {
-    console.log(`[study-run] Fetching PMID ${paper.pmid}`);
-    source = await fetchTrialByPmid(paper.pmid);
-    if (!source) {
-      return res.status(422).json({
-        error: 'Source fetch failed.',
-        message: `Could not retrieve content for PMID ${paper.pmid}. Upload a PDF instead.`,
-      });
-    }
+  console.log(`[study-run] Parsing uploaded PDF`);
+  try {
+    source = await sourceFromPdf(pdf_base64, paper || {});
+  } catch (err) {
+    return res.status(422).json({ error: err.message });
   }
 
   console.log(`[study-run] Source: ${source.sourceType}, ${source.text.length} chars`);

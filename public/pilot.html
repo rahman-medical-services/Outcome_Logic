@@ -145,6 +145,7 @@
       <!-- RIGHT: Field grading cards -->
       <div class="right-panel" id="right-panel">
         <div id="fields-loading" class="text-center py-12 text-slate-500 text-sm">Loading fields…</div>
+        <div id="gate-section"  class="hidden mb-5"></div>
         <div id="field-cards"   class="hidden space-y-4"></div>
       </div>
     </div>
@@ -171,8 +172,8 @@
     { id: 'baseline_characteristics', label: 'Baseline Characteristics',       path: 'clinician_view.baseline_characteristics' },
     { id: 'primary_result_values',    label: 'Primary Result: Numeric Values', path: 'clinician_view.interactive_data.endpoints[0].arms' },
     { id: 'primary_result_synthesis', label: 'Primary Result: Synthesis',      path: 'clinician_view.interactive_data.endpoints[0].clinical_synthesis' },
-    { id: 'grade_certainty',          label: 'GRADE Certainty',                path: 'clinician_view.critical_appraisal.grade_certainty' },
-    { id: 'risk_of_bias',             label: 'Risk of Bias Rating',            path: 'clinician_view.critical_appraisal.risk_of_bias' },
+    { id: 'grade_certainty',          label: 'GRADE Certainty',                path: 'clinician_view.critical_appraisal.grade_certainty', evaluative: true },
+    { id: 'risk_of_bias',             label: 'Risk of Bias Rating',            path: 'clinician_view.critical_appraisal.risk_of_bias',     evaluative: true },
     { id: 'risk_of_bias_rationale',   label: 'Risk of Bias Rationale',         path: 'clinician_view.critical_appraisal.risk_of_bias_rationale' },
     { id: 'limitations',              label: 'Limitations',                    path: 'clinician_view.critical_appraisal.limitations' },
     { id: 'adverse_events',           label: 'Adverse Events',                 path: 'clinician_view.adverse_events' },
@@ -187,14 +188,26 @@
     { id: 'library_meta',             label: 'Library Metadata',               path: 'library_meta' },
   ];
 
+  // ── Taxonomy — 7-class error system (docs/ERROR_TAXONOMY.md) ────────────
+  const TAX_OPTIONS = [
+    { val: 'recall_failure',         label: 'Class 1 — Recall Failure' },
+    { val: 'correlated_recall',      label: 'Class 2 — Correlated Recall Failure' },
+    { val: 'ranking_failure',        label: 'Class 3 — Ranking Failure' },
+    { val: 'misclassification',      label: 'Class 4 — Misclassification' },
+    { val: 'interpretation_failure', label: 'Class 5 — Interpretation Failure' },
+    { val: 'hallucination',          label: 'Class 6 — Hallucination' },
+    { val: 'formatting_enum',        label: 'Class 7 — Formatting / Enum Error' },
+  ];
+
   // ── State ─────────────────────────────────────────────────────────────────
-  let authToken    = null;
-  let currentView  = 'list';
-  let papers       = [];
+  let authToken     = null;
+  let currentView   = 'list';
+  let papers        = [];
   let currentOutput = null;
   let currentPaper  = null;
-  let grades       = {};   // { field_id: grade_object }
-  let saveTimers   = {};   // debounce timers per field
+  let grades        = {};   // { field_id: grade_object }
+  let saveTimers    = {};   // debounce timers per field
+  let gateConfirmed = false; // true once PI confirms consistency gate
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   async function getAuthHeaders() {
@@ -462,6 +475,7 @@
     }
 
     currentOutput = { id: outputId, version, json: output };
+    gateConfirmed = false;
 
     // Fetch existing grades
     try {
@@ -474,13 +488,143 @@
     // Populate left panel
     populateLeftPanel(paper, output, version);
 
-    // Render field cards
+    // Render field cards (stays hidden until gate confirmed)
     renderFieldCards(output);
 
+    // Render consistency gate
+    renderGate(output);
+
     document.getElementById('fields-loading').classList.add('hidden');
-    document.getElementById('field-cards').classList.remove('hidden');
+    document.getElementById('gate-section').classList.remove('hidden');
+    // #field-cards stays hidden — unlocked by gate confirmation
 
     updateProgressBar();
+  }
+
+  // ── Consistency gate ──────────────────────────────────────────────────────
+  function renderGate(output) {
+    const outputObj = output?.output_json || output;
+    const ep = (getNestedValue(outputObj, 'clinician_view.interactive_data.endpoints') || [])[0] || {};
+    const arms = ep.arms || [];
+
+    const effectMeasure = ep.effect_measure || '—';
+    const pe   = ep.point_estimate != null ? ep.point_estimate : '—';
+    const ciL  = ep.ci_lower       != null ? ep.ci_lower       : '—';
+    const ciU  = ep.ci_upper       != null ? ep.ci_upper       : '—';
+    const armA = arms[0]?.group_name || '—';
+    const armB = arms[1]?.group_name || '—';
+    const pop  = ep.analysis_population || '—';
+    const adj  = ep.adjusted === true ? 'Yes' : (ep.adjusted === false ? 'No' : '—');
+    const epLabel = ep.label || 'Primary endpoint';
+
+    document.getElementById('gate-section').innerHTML = `
+      <div class="border border-amber-600 rounded-lg p-4" style="background:rgba(120,53,15,0.15)">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-amber-300 font-semibold text-sm">⚠ Consistency Gate</span>
+          <span class="text-amber-600 text-xs">— must be completed before grading individual fields</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-3">
+          Confirm that the extracted primary effect size, CI, and arm labels are jointly coherent.
+          This is a blocking check — it cannot be skipped.
+        </p>
+
+        <div class="rounded p-3 mb-4 text-xs space-y-1.5" style="background:#0f172a;border:1px solid #334155">
+          <div class="text-slate-500 uppercase tracking-wide text-xs mb-2">Extracted primary result — ${escHtml(epLabel)}</div>
+          <div><span class="text-slate-500 w-36 inline-block">Effect measure:</span> <span class="text-slate-200 font-mono">${escHtml(String(effectMeasure))}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">Point estimate:</span> <span class="text-slate-200 font-mono">${escHtml(String(pe))}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">95% CI:</span> <span class="text-slate-200 font-mono">${escHtml(String(ciL))} – ${escHtml(String(ciU))}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">Arm A (intervention):</span> <span class="text-slate-200">${escHtml(armA)}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">Arm B (control):</span> <span class="text-slate-200">${escHtml(armB)}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">Population:</span> <span class="text-slate-200">${escHtml(pop)}</span>
+               <span class="text-slate-500 ml-3">Adjusted:</span> <span class="text-slate-200 ml-1">${escHtml(adj)}</span></div>
+        </div>
+
+        <div id="gate-q">
+          <div class="text-xs text-slate-300 mb-2">Are the direction of effect, CI, and arm labels jointly coherent?</div>
+          <div class="flex gap-2">
+            <button onclick="confirmGate(true)"
+              class="text-xs px-3 py-1.5 rounded border font-medium"
+              style="background:#14532d;color:#86efac;border-color:#16a34a">
+              Coherent — proceed to grading
+            </button>
+            <button onclick="confirmGate(false)"
+              class="text-xs px-3 py-1.5 rounded border font-medium"
+              style="background:#1e293b;color:#94a3b8;border-color:#475569">
+              Not coherent
+            </button>
+          </div>
+        </div>
+
+        <div id="gate-incoherent" class="hidden mt-3">
+          <div class="text-xs text-slate-300 mb-2">Which element is wrong?
+            <span class="text-slate-500">(primary_result_values will be pre-marked Fail)</span>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <select id="gate-wrong-field" class="text-xs">
+              <option value="">— select —</option>
+              <option value="direction">Direction of effect</option>
+              <option value="ci">Confidence interval</option>
+              <option value="arm_labels">Arm labels (intervention vs control swapped)</option>
+              <option value="value">Point estimate value</option>
+              <option value="multiple">Multiple elements</option>
+            </select>
+            <button onclick="confirmGateIncoherent()"
+              class="text-xs px-3 py-1.5 rounded border font-medium"
+              style="background:#7f1d1d;color:#fca5a5;border-color:#dc2626">
+              Confirm — pre-mark Fail &amp; unlock fields
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function confirmGate(coherent) {
+    if (coherent) {
+      gateConfirmed = true;
+      document.getElementById('gate-section').innerHTML = `
+        <div class="rounded p-3 mb-1 text-xs" style="border:1px solid #16a34a;background:rgba(20,83,45,0.2);color:#86efac">
+          ✓ Consistency gate passed — all fields unlocked for grading
+        </div>`;
+      document.getElementById('field-cards').classList.remove('hidden');
+    } else {
+      document.getElementById('gate-q').classList.add('hidden');
+      document.getElementById('gate-incoherent').classList.remove('hidden');
+    }
+  }
+
+  function confirmGateIncoherent() {
+    const wrongField = document.getElementById('gate-wrong-field')?.value;
+    if (!wrongField) return;
+
+    gateConfirmed = true;
+
+    // Pre-populate primary_result_values as Fail with taxonomy
+    if (!grades['primary_result_values']) grades['primary_result_values'] = {};
+    grades['primary_result_values'].match_status   = 'fail';
+    grades['primary_result_values'].error_taxonomy = wrongField === 'arm_labels' ? 'misclassification' : 'recall_failure';
+
+    // Apply to the rendered card immediately
+    setMatchStatus('primary_result_values', 'fail');
+    const corrEl = document.getElementById('corr-primary_result_values');
+    if (corrEl && !corrEl.value) {
+      corrEl.value = `Consistency gate: ${wrongField.replace(/_/g, ' ')} was incoherent`;
+    }
+    const taxEl = document.getElementById('tax-primary_result_values');
+    if (taxEl) taxEl.value = grades['primary_result_values'].error_taxonomy;
+
+    const label = document.getElementById('gate-wrong-field')
+      .options[document.getElementById('gate-wrong-field').selectedIndex].text;
+    document.getElementById('gate-section').innerHTML = `
+      <div class="rounded p-3 mb-1 text-xs" style="border:1px solid #dc2626;background:rgba(127,29,29,0.2);color:#fca5a5">
+        ✗ Consistency issue identified: <strong>${escHtml(label)}</strong> —
+        primary_result_values pre-marked Fail. All other fields now unlocked.
+      </div>`;
+    document.getElementById('field-cards').classList.remove('hidden');
+
+    // Scroll to primary_result_values card
+    setTimeout(() => {
+      document.getElementById('card-primary_result_values')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
   }
 
   // ── Left panel ────────────────────────────────────────────────────────────
@@ -622,8 +766,8 @@
         ${n}
       </button>`).join('');
 
-    const taxOptions = ['omission','misclassification','formatting_syntax','semantic']
-      .map(t => `<option value="${t}" ${tax === t ? 'selected' : ''}>${t.replace(/_/g, ' ')}</option>`)
+    const taxOptions = TAX_OPTIONS
+      .map(t => `<option value="${t.val}" ${tax === t.val ? 'selected' : ''}>${escHtml(t.label)}</option>`)
       .join('');
 
     const psOptions = ['extractor','adjudicator','post_processing']
@@ -647,14 +791,25 @@
         >${escHtml(existing?.suspicious_agreement_note || '')}</textarea>
       </div>` : '';
 
+    const evaluativeBanner = field.evaluative ? `
+      <div class="mb-3 rounded px-3 py-2 text-xs" style="background:rgba(30,58,95,0.5);border:1px solid #1e3a5f;color:#93c5fd">
+        <span class="font-semibold">Evaluative field</span> — secondary agreement analysis only.
+        Record your independent PI assessment below <em>before</em> looking at the extracted value.
+        match_status = agreement with your assessment (exact / adjacent / discordant), not source accuracy.
+        Excluded from primary exact-match rate.
+      </div>` : '';
+
     return `
       <div class="flex items-start justify-between mb-2 gap-2">
         <div>
           <span class="font-semibold text-slate-100 text-sm">${escHtml(field.label)}</span>
           <span class="text-slate-600 text-xs ml-2">${escHtml(field.id)}</span>
           ${field.conditional ? '<span class="ml-1 text-xs text-blue-400 bg-blue-900 px-1.5 py-0.5 rounded">conditional</span>' : ''}
+          ${field.evaluative  ? '<span class="ml-1 text-xs px-1.5 py-0.5 rounded font-medium" style="background:#1e3a5f;color:#93c5fd">evaluative</span>' : ''}
         </div>
       </div>
+
+      ${evaluativeBanner}
 
       <!-- Extracted value -->
       <div class="mb-3">
@@ -662,10 +817,10 @@
         <div class="extracted-val">${formattedValue}</div>
       </div>
 
-      <!-- Reference standard -->
+      <!-- Reference standard / PI assessment -->
       <div class="mb-3">
-        <div class="text-xs text-slate-500 mb-1">Reference standard</div>
-        <textarea id="ref-${field.id}" rows="2" placeholder="What should the value be? (leave blank if correct)"
+        <div class="text-xs text-slate-500 mb-1">${field.evaluative ? 'PI assessment (your independent judgement)' : 'Reference standard'}</div>
+        <textarea id="ref-${field.id}" rows="2" placeholder="${field.evaluative ? 'Your GRADE/RoB assessment (record before viewing extracted value)' : 'What should the value be? (leave blank if correct)'}"
           >${escHtml(existing?.reference_standard_value || '')}</textarea>
       </div>
 

@@ -28,15 +28,6 @@ These must be complete before any Phase 0 paper runs.
 **Status:** Complete (Session 2, 2026-04-12).
 **Location:** `lib/pipeline.js` — `ADJUDICATOR_PROMPT_BASE` rewritten. `extraction_flags` added to output schema.
 
-### ⬜ `lib/pipeline-v1.js` — single-node V1 baseline
-**Status:** Not started.
-**Spec:** Single mega-prompt, no parallel extractors, no adjudicator. Condensed extractor prompt only. NO source citations, NO adversarial framing. Serves as Phase 1 comparison baseline.
-**Effort:** Medium (1–2 hrs).
-
-### ⬜ `api/analyze-v1.js` — V1 endpoint
-**Status:** Not started.
-**Spec:** Thin wrapper calling `pipeline-v1.js`. Same rate limiting as `analyze.js`.
-**Effort:** Easy (30 min, mostly copying analyze.js structure).
 
 ---
 
@@ -132,15 +123,23 @@ These must be complete before any Phase 0 paper runs.
 **Location:** `supabase/schema-study.sql` — `study_extractions` and `study_rater_assignments`.
 **What it does:** Removed `CHECK (version IN ('v1', 'v2'))`. Free-form TEXT for Phase 0 prompt iteration. Add formal CHECK before Phase 1 freeze.
 
-### ⬜ Pilot UI consistency gate generalisation **[High — before Phase 0 grading]**
-**Status:** Not started.
-**Problem:** PIPELINE_SPEC.md specifies the blocking consistency gate as "HR numeric value" — will prevent grading non-survival trials (SPORT/ORBITA/TKR use MD/continuous outcomes).
-**Fix:** Generalise to "Primary Effect Size". Gate text: "direction of effect, 95% CI, and arm labels are jointly coherent." Field label must be dynamic from adjudicator `effect_measure` output.
-**Effort:** 30 min (spec update + pilot.html gate logic). **Must be done before grading begins.**
+### ✅ Pilot UI consistency gate **[Completed Session 7, 2026-04-15]**
+**Status:** Complete.
+**What was built:** Blocking gate rendered at top of grading view before field cards are unlocked. Displays extracted effect measure, point estimate, 95% CI, arm labels, population, and adjusted status from `clinician_view.interactive_data.endpoints[0]`. Two paths: (a) Coherent → all fields unlock; (b) Not coherent → reviewer identifies which element is wrong → `primary_result_values` pre-marked Fail + correction pre-populated → all fields unlock. Gate is dynamic from `effect_measure` output — works for HR, OR, RR, MD, SMD, RD.
 
 ---
 
 ## Phase 1 — Scale and Publication
+
+### ⬜ `lib/pipeline-v1.js` — single-node V1 baseline
+**Status:** Not started. Required before Phase 1 powered validation study — not needed for Phase 0.
+**Spec:** Single mega-prompt, no parallel extractors, no adjudicator. Condensed extractor prompt only. NO source citations, NO adversarial framing. Serves as comparison arm for Phase 1 statistical validation.
+**Effort:** Medium (1–2 hrs).
+
+### ⬜ `api/analyze-v1.js` — V1 endpoint
+**Status:** Not started.
+**Spec:** Thin wrapper calling `pipeline-v1.js`. Same rate limiting as `analyze.js`.
+**Effort:** Easy (30 min, mostly copying analyze.js structure).
 
 ---
 
@@ -245,7 +244,7 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 
 ## Notes
 
-- **Priority for next session:** Deploy schema → build V1 baseline → fill PROTOCOL.md anchor vignettes → run Phase 0 papers → review heatmap
+- **Priority for next session:** Deploy schema → generalise pilot UI consistency gate → fill PROTOCOL.md anchor vignettes → run Phase 0 papers (V3 only) → review heatmap
 - **Do not begin Phase 2 meta-analysis until Phase 0 go/no-go** (≥85% exact match on primary numeric fields)
 - **The Phase 0/Phase 1 validation paper is the commercial moat** — it is not optional quality assurance
 - Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated

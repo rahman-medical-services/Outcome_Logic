@@ -53,6 +53,15 @@ async function requireAdmin(req, res) {
 }
 
 // ─────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────
+
+// Evaluative fields are excluded from primary exact-match rate.
+// They measure agreement between pipeline clinical judgement and PI assessment,
+// not extraction accuracy against the source document. See PROTOCOL.md Section 2.1.
+const EVALUATIVE_FIELDS = new Set(['grade_certainty', 'risk_of_bias']);
+
+// ─────────────────────────────────────────────
 // AGGREGATION HELPERS
 // ─────────────────────────────────────────────
 
@@ -88,7 +97,10 @@ function computeFieldAggregations(grades) {
       : 0;
 
     // Error taxonomy distribution
-    const error_taxonomy_dist = { omission: 0, misclassification: 0, formatting_syntax: 0, semantic: 0 };
+    const error_taxonomy_dist = {
+      recall_failure: 0, correlated_recall: 0, ranking_failure: 0,
+      misclassification: 0, interpretation_failure: 0, hallucination: 0, formatting_enum: 0,
+    };
     for (const r of rows) {
       if (r.error_taxonomy && r.error_taxonomy in error_taxonomy_dist) {
         error_taxonomy_dist[r.error_taxonomy]++;
@@ -121,13 +133,14 @@ function computeFieldAggregations(grades) {
 
     fieldSummaries.push({
       field_name,
+      evaluative:              EVALUATIVE_FIELDS.has(field_name),
       total_graded,
       exact_count,
       partial_count,
       fail_count,
       hallucinated_count,
       avg_severity:            Math.round(avg_severity * 100) / 100,
-      priority_score:          Math.round(priority_score * 100) / 100,
+      priority_score:          EVALUATIVE_FIELDS.has(field_name) ? null : Math.round(priority_score * 100) / 100,
       error_taxonomy_dist,
       pipeline_section_dist,
       latest_correction_text,
@@ -143,8 +156,9 @@ function computeFieldAggregations(grades) {
 }
 
 function computeVersionBreakdown(grades) {
-  const v1Grades = grades.filter(g => g.version === 'v1');
-  const v2Grades = grades.filter(g => g.version === 'v2');
+  // Phase 0: v3 only. Phase 1 will add v1 for comparison.
+  // Only count fact-extraction fields in exact-match rate.
+  const factGrades = grades.filter(g => !EVALUATIVE_FIELDS.has(g.field_name));
 
   function breakdown(rows) {
     const total      = rows.length;
@@ -157,16 +171,37 @@ function computeVersionBreakdown(grades) {
   }
 
   return {
-    v1: breakdown(v1Grades),
-    v2: breakdown(v2Grades),
+    v3: breakdown(factGrades.filter(g => g.version === 'v3')),
+    v1: breakdown(factGrades.filter(g => g.version === 'v1')),
   };
+}
+
+function computeEvaluativeAgreement(grades) {
+  return Array.from(EVALUATIVE_FIELDS).map(field_name => {
+    const rows = grades.filter(g => g.field_name === field_name);
+    const total = rows.length;
+    const exact   = rows.filter(r => r.match_status === 'exact_match').length;
+    const adjacent = rows.filter(r => r.match_status === 'partial_match').length;
+    const discordant = rows.filter(r => r.match_status === 'fail' || r.match_status === 'hallucinated').length;
+    return {
+      field_name,
+      total_graded: total,
+      exact_agreement:    total > 0 ? Math.round((exact / total) * 10000) / 100 : null,
+      adjacent_agreement: total > 0 ? Math.round((adjacent / total) * 10000) / 100 : null,
+      discordant_rate:    total > 0 ? Math.round((discordant / total) * 10000) / 100 : null,
+      note: 'Kappa reported in Phase 1 with 2-rater consensus reference standard.',
+    };
+  });
 }
 
 function computeTaxonomyBreakdown(grades) {
   const nonExact = grades.filter(g => g.match_status !== 'exact_match' && g.match_status !== null);
   const total    = nonExact.length;
 
-  const categories = ['omission', 'misclassification', 'formatting_syntax', 'semantic'];
+  const categories = [
+    'recall_failure', 'correlated_recall', 'ranking_failure',
+    'misclassification', 'interpretation_failure', 'hallucination', 'formatting_enum',
+  ];
   return categories.map(taxonomy => {
     const rows      = nonExact.filter(g => g.error_taxonomy === taxonomy);
     const count     = rows.length;
@@ -220,7 +255,7 @@ export default async function handler(req, res) {
 
   const supabase = getAdminClient();
 
-  // 1. Fetch all grades for pilot papers (join through outputs → papers)
+  // 1. Fetch all grades for pilot papers (join through extractions → papers)
   const { data: grades, error: gradesErr } = await supabase
     .from('study_grades')
     .select(`
@@ -234,7 +269,7 @@ export default async function handler(req, res) {
       reference_standard_value,
       suspicious_agreement,
       graded_at,
-      study_outputs!inner (
+      study_extractions!inner (
         id,
         paper_id,
         version,
@@ -245,7 +280,7 @@ export default async function handler(req, res) {
         )
       )
     `)
-    .eq('study_outputs.study_papers.is_pilot', true);
+    .eq('study_extractions.study_papers.is_pilot', true);
 
   if (gradesErr) {
     console.error('[study-summary] Grades fetch error:', gradesErr.message);
@@ -275,23 +310,24 @@ export default async function handler(req, res) {
     reference_standard_value: g.reference_standard_value,
     suspicious_agreement:    g.suspicious_agreement,
     graded_at:               g.graded_at,
-    output_id:               g.study_outputs?.id,
-    paper_id:                g.study_outputs?.study_papers?.id,
-    version:                 g.study_outputs?.version,
-    paper_title:             g.study_outputs?.study_papers?.title,
+    extraction_id:           g.study_extractions?.id,
+    paper_id:                g.study_extractions?.study_papers?.id,
+    version:                 g.study_extractions?.version,
+    paper_title:             g.study_extractions?.study_papers?.title,
   }));
 
-  // 4. Count distinct output_ids with at least one grade
-  const gradedOutputIds = new Set(flatGrades.map(g => g.output_id).filter(Boolean));
-  const gradedOutputCount = gradedOutputIds.size;
+  // 4. Count distinct extraction_ids with at least one grade
+  const gradedExtractionIds = new Set(flatGrades.map(g => g.extraction_id).filter(Boolean));
+  const gradedOutputCount = gradedExtractionIds.size;
 
   // 5. Count distinct papers with at least one grade
   const gradedPaperIds = new Set(flatGrades.map(g => g.paper_id).filter(Boolean));
   const papersGraded   = gradedPaperIds.size;
 
-  // 6. Compute overall metrics
-  const totalGrades    = flatGrades.length;
-  const exactCount     = flatGrades.filter(g => g.match_status === 'exact_match').length;
+  // 6. Compute overall metrics — fact-extraction fields only
+  const factGrades       = flatGrades.filter(g => !EVALUATIVE_FIELDS.has(g.field_name));
+  const totalGrades      = factGrades.length;
+  const exactCount       = factGrades.filter(g => g.match_status === 'exact_match').length;
   const overallExactRate = totalGrades > 0
     ? Math.round((exactCount / totalGrades) * 10000) / 100
     : null;
@@ -308,9 +344,12 @@ export default async function handler(req, res) {
   // 10. Pipeline section breakdown
   const pipeline_breakdown = computePipelineBreakdown(flatGrades, fieldSummaries);
 
-  // 11. Prompt modification queue: fields with priority_score > 1.0, ordered
+  // 11. Evaluative field agreement (secondary analysis)
+  const evaluative_agreement = computeEvaluativeAgreement(flatGrades);
+
+  // 12. Prompt modification queue: fact-extraction fields with priority_score > 1.0
   const prompt_queue = fieldSummaries
-    .filter(f => f.priority_score > 1.0)
+    .filter(f => !f.evaluative && f.priority_score > 1.0)
     .map(f => ({
       field_name:               f.field_name,
       priority_score:           f.priority_score,
@@ -320,10 +359,12 @@ export default async function handler(req, res) {
     }));
 
   return res.status(200).json({
-    summary: fieldSummaries,
+    summary:   fieldSummaries.filter(f => !f.evaluative),
+    evaluative_summary: fieldSummaries.filter(f => f.evaluative),
     overall: {
       exact_rate:           overallExactRate,
       total_grades:         totalGrades,
+      note:                 'Fact-extraction fields only (24). Evaluative fields (grade_certainty, risk_of_bias) reported separately.',
       papers_graded:        papersGraded,
       pilot_paper_count:    pilotPaperCount,
       graded_output_count:  gradedOutputCount,
@@ -331,6 +372,7 @@ export default async function handler(req, res) {
     version_breakdown,
     taxonomy_breakdown,
     pipeline_breakdown,
+    evaluative_agreement,
     prompt_queue,
   });
 }

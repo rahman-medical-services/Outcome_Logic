@@ -1,92 +1,55 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 3
-session: "Session — 2026-04-14"
+version: 4
+session: "Session 6 — 2026-04-15"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
 
 # HANDOVER — OutcomeLogic
 
-Read this at the start of every new session before touching any code. It describes the current state of the project, the architecture, known gotchas, and what to do next.
+Read at the start of every new session before touching any code.
 
 ---
 
 ## Project in One Sentence
 
-OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users supply a PDF or DOI/PMID and receive a structured extraction dashboard (PICO, outcomes, risk of bias, GRADE, subgroups, adverse events, expert context). A 3-node Gemini pipeline extracts and adjudicates; a Phase 0 validation study is in progress to identify and fix systematic extraction errors.
+OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users supply a PDF or DOI/PMID and receive a structured extraction dashboard (PICO, outcomes, risk of bias, GRADE, subgroups, adverse events, expert context). A 3-node pipeline (Gemini + OpenAI) extracts and adjudicates; Phase 0 validation study is in progress.
 
 ---
 
-## Current State (as of 14 April 2026 — v4.4.0)
+## Current State (as of 15 April 2026 — v4.5.0)
 
-**Branch:** `claude/sweet-mccarthy` — current working branch.
+**Branch:** All work committed directly to `main`. No active feature branches. See CLAUDE.md git workflow.
 
-**⚠️ CRITICAL — READ BEFORE TOUCHING GEMINI CODE:**
-The Gemini API has severe undocumented constraints. Read `LEARNINGS.md` section "Gemini API — Systematic 503 Failures (2026-04-13)" before any AI-related changes. Summary:
-- **No SDK** — both `@google/generative-ai` and `@google/genai` cause 503s. Raw `fetch()` only.
-- **Model: `gemini-2.5-flash-lite`** — not flash. Flash has persistent 503s.
-- **`thinkingBudget: 512`** — always set this. 0 causes 503 on flash. Missing causes TPM exhaustion.
-- **Sequential calls only** — parallel calls trigger concurrency 503s.
-- **5 retries with backoff** — built into `callGemini()` in pipeline.js and commentary.js.
+**⚠️ CRITICAL — READ BEFORE TOUCHING AI CODE:**
+- **Gemini:** No SDK — raw `fetch()` only. `gemini-2.5-flash-lite`. `thinkingBudget: 512` always. Sequential Gemini calls only (same key). See LEARNINGS.md "Gemini API — Systematic 503 Failures".
+- **OpenAI:** `gpt-4o-mini`. Raw `fetch()` only. `max_completion_tokens` not `max_tokens`. Temperature 0.05 supported. No reasoning tokens. ~3–40s depending on paper length.
+- **gpt-5-mini is a reasoning model** — no temperature control, internal reasoning tokens, very slow on large inputs. Do NOT use for extraction.
 
 **What is working:**
-- 3-node AI pipeline (Extractor A → B sequential, Adjudicator) — confirmed working on flash-lite
+- 3-node pipeline: Extractor A (Gemini flash-lite) + Extractor B (gpt-4o-mini) run in **parallel**, then Adjudicator (Gemini flash-lite)
+- Typical timing: A+B parallel ~33s, Adjudicator ~13s, total ~47s on full paper
 - Node 4 (Expert Context): Europe PMC + PubMed Entrez + web synthesis — functional
 - Supabase save/load (library) — working
-- PDF export (4-page clinical report) — working
-- `study.html` + `api/study.js` (consolidated) — study admin working
+- PDF export — working
+- Phase 0 pilot UI: `pilot.html` + `pilot-summary.html` — built and functional
+- `study.html` + `api/study.js` — study admin working
+- First successful Phase 0 run: HIP ATTACK — all primary outcomes, subgroups, secondary outcomes correct
 
-**Completed in Session 2 (2026-04-12) — Pipeline hardening:**
-- ✅ Extractor diversity — EXTRACTOR_PROMPT_A (adjusted/ITT) + EXTRACTOR_PROMPT_B (first-reported)
-- ✅ Source citation requirement — mandatory `[SRC: verbatim | location]` in both extractor prompts
-- ✅ Adversarial adjudicator — `extraction_flags` schema, suspicious_agreement detection
-- ✅ `verifySource()` keyword filter tightened (length > 5, threshold 0.50)
-- ✅ `_scoreCitation()` pubType scoring added (follow-up RCTs no longer excluded)
-- ✅ `supabase/schema-study.sql` rebuilt — 5 tables, per-field grading, 10 Phase 0 papers seeded
-- ✅ NI trial handling in extractor prompts
-- ✅ Meta-analysis fields: effect_measure, ci_lower, ci_upper, arm_a_n, arm_b_n, time_point_weeks, analysis_population, adjusted
-
-**Completed in Session 4 (2026-04-13) — Gemini stability:**
-- ✅ Removed all SDK dependencies (`@google/generative-ai`, `@google/genai`)
-- ✅ All Gemini calls use raw `fetch()` to v1beta REST endpoint
-- ✅ Switched primary model to `gemini-2.5-flash-lite`
-- ✅ `thinkingBudget: 512` on all calls
-- ✅ Sequential extractors (not parallel)
-- ✅ 5 retries with exponential backoff + jitter in `callGemini()`
-- ✅ `api/study-papers.js` + `api/study-run.js` + `api/study-output.js` consolidated into `api/study.js`
-- ✅ `vercel.json` updated to remove deleted files, add `api/study.js`
-- ✅ First successful pipeline run confirmed on flash-lite
-
-**Completed in Session 5 (2026-04-14) — Adversarial critique review + pre-Phase 0 hardening:**
-
-*Source: independent Gemini and GPT critiques of the pipeline, stress-tested against codebase by adversarial agents.*
-
-- ✅ **`candidate_values` array** — extractors now list all plausible primary endpoint values (max 3, labelled: adjusted/unadjusted, ITT/PP, interim/final). Adjudicator compiles into `primary_endpoint_candidates` and ranks with `selected: true`. Converts adjudication from search → ranking problem. Addresses GPT failure cases 1, 4, 6, 7.
-- ✅ **Extractor B co-primary and abstract/full-text rules** — explicit instruction to list all co-primary endpoints without selecting one. Explicit rule: when abstract and full-text differ, record both and flag; do NOT default to abstract.
-- ✅ **`capOutput()` truncation flag** — returns `{ text, truncated }`. `TRUNCATION NOTICE` injected into adjudicator input when either extractor is capped. Adjudicator treats truncated-report absences as UNKNOWN, not omissions.
-- ✅ **Node 4 `Promise.allSettled()`** — all three Node 4 external API calls (EPMC citations, name search, PubMed), abstract batch fetch, and `_runSynthesis` now use `Promise.allSettled`. Partial results salvaged when one API hangs. Addresses Gemini critique point 5.
-- ✅ **`MIN_ITEMS_FOR_SYNTHESIS` raised to 3** — was 2 (insufficient for synthesis).
-- ✅ **Schema version constraint relaxed** — `CHECK (version IN ('v1', 'v2'))` removed from `study_extractions` and `study_rater_assignments`. Free-form TEXT for Phase 0 iteration (v2.1-adj-fix etc.). Add formal CHECK before Phase 1 freeze.
-- ✅ **Language audit** — `lay_summary` instructions explicitly prohibit "is better", "recommends", "confirms", "establishes". `shared_decision_making_takeaway` rewritten to prevent prescriptive framing. Liability risk reduced.
-- ✅ **SDK re-removal applied to this branch** — `claude/sweet-mccarthy` was branched before the Session 4 SDK fixes landed on main. Session 5 re-applied all SDK removal, flash-lite constants, sequential extractor logic to this branch.
-
-**What is NOT yet built (in priority order):**
-1. **Deploy `schema-study.sql` to Supabase** — run SQL in Dashboard → SQL Editor. BLOCKING for Phase 0.
-2. **`lib/pipeline-v1.js` + `api/analyze-v1.js`** — single-node V1 baseline for ablation comparison.
-3. **Pilot UI consistency gate generalisation** — when building `pilot.html` gate: use "Primary Effect Size" not "HR numeric value". Gate text: "direction of effect, CI, and arm labels are jointly coherent." Field label must be dynamic based on `effect_measure` from the trial's adjudicator output (HR for survival trials, MD for continuous outcomes like SPORT/ORBITA/TKR).
-4. **`docs/PROTOCOL.md` anchor vignettes** — Saqib to fill clinical anchors before first paper is graded.
-5. **Verify HALT-IT post-deploy** — check Vercel logs for `[Node 4] PubMed Entrez resolved "HALT-IT"`.
-6. **Run Phase 0** — 10 papers through pipeline, grade 26 fields each in pilot.html.
-
-**Phase 0 can begin after:** schema deployed + V1 baseline built.
-
-**Still deferred to Phase 1 (genuinely not fixable now):**
-- Model diversity: Extractor B = Claude Sonnet or GPT-4o (correlated table misread risk remains for Phase 0)
-- Citation hallucination grounding: external document-grounded validation layer
-- CI anchor error detection: statistical validation rules (HR must lie within its own CI bounds)
-- `riskTable1/riskTable2` rendering: verify after merge
+**Completed in Session 6 (2026-04-15):**
+- ✅ **gpt-4o-mini as Extractor B** — cross-model diversity. Gemini (A) + OpenAI (B) + Claude (code). Correlated table misreads now produce detectable discrepancies. `callOpenAI()` in pipeline.js.
+- ✅ **Parallel extractor execution** — A and B now run with `Promise.all` when `OPENAI_API_KEY` set (different providers, no concurrency conflict). Falls back to sequential Gemini if key absent. Saves ~20s.
+- ✅ **Vercel `maxDuration` raised to 120s** for `api/analyze.js` — was 60s, caused timeouts with sequential extractors.
+- ✅ **ChatGPT critique F1** — candidate completeness check: extractors must verify adjusted primary, abstract value, and competing table value are all present before finalising `candidate_values`.
+- ✅ **ChatGPT critique F3** — adjudicator ranking tiebreaker: explicit priority order (adjusted > unadjusted, ITT > PP, final > interim, pre-specified > post-hoc). Do not rely on label text alone.
+- ✅ **ChatGPT critique F6** — truncation notice extended: when truncated, adjudicator notes candidate list may be incomplete.
+- ✅ **ChatGPT critique F5** — synthetic citations logged in LEARNINGS as known, tolerated limitation.
+- ✅ **Subgroup extraction clarity** — `pre_specified`, `post_hoc`, `cis_all_cross_one`, `direction_vs_hypothesis`, `interaction_note`, `ci_crosses_one` per arm, `absolute_events` per arm. Exposed by HIP ATTACK: troponin subgroup was post-hoc and CI-crossing was not visible.
+- ✅ **Subgroup UI update** — pre-specified (green) / post-hoc (orange) badges; amber warning when all CIs cross 1; direction note; per-arm CI-crosses-one + absolute events; plain-language interaction note.
+- ✅ **PIPELINE_SPEC.md updated** — reflects current architecture.
+- ✅ **CLAUDE.md git workflow** — no worktrees; direct feature branches, merge to main at session end.
 
 ---
 
@@ -98,45 +61,41 @@ PDF / DOI / PMID
       ▼
 api/analyze.js  OR  api/study.js
       │
-      ├─── Extractor A (gemini-2.5-flash-lite, sequential) ─┐
-      │                                                       ├─► Adjudicator (gemini-2.5-flash-lite) ──► unified JSON
-      └─── Extractor B (gemini-2.5-flash-lite, sequential) ─┘
-                                                              │
-                                                              ├─► postProcess() — enum enforcement, taxonomy, clinician_view / patient_view
-                                                              │
-                                                              └─► Node 4 / commentary.js (async, never throws)
-                                                                    ├── Europe PMC citation graph
-                                                                    ├── EPMC full-text phrase search
-                                                                    └── PubMed Entrez + web synthesis (Gemini googleSearch)
+      ├─── Extractor A (gemini-2.5-flash-lite) ─┐  ← run in parallel
+      │                                           ├─► Adjudicator (gemini-2.5-flash-lite) ──► unified JSON
+      └─── Extractor B (gpt-4o-mini, OpenAI) ───┘
+                                                  │
+                                                  ├─► postProcess() — enum enforcement, taxonomy, clinician_view / patient_view
+                                                  │
+                                                  └─► Node 4 / commentary.js (async, never throws)
+                                                        ├── Europe PMC citation graph
+                                                        ├── EPMC full-text phrase search
+                                                        └── PubMed Entrez + web synthesis (Gemini googleSearch)
 ```
 
 **Key constants (lib/pipeline.js):**
-- `GEMINI_MODEL = 'gemini-2.5-flash-lite'` (all nodes)
-- `GEMINI_MODEL_PRO = 'gemini-2.5-flash'` (escalation path only, rarely triggered)
+- `GEMINI_MODEL = 'gemini-2.5-flash-lite'` (Extractor A, Adjudicator)
+- `OPENAI_MODEL_B = 'gpt-4o-mini'` (Extractor B)
 - `EXTRACTOR_OUTPUT_CAP = 40000`
-- All calls: `thinkingBudget: 512`, 5 retries with backoff, raw fetch() — NO SDK
+- Gemini calls: `thinkingBudget: 512`, 5 retries with backoff, raw fetch() — NO SDK
+- OpenAI calls: `max_completion_tokens: 8000`, temperature: 0.05, 5 retries, raw fetch() — NO SDK
+- Parallel when `OPENAI_API_KEY` present; sequential Gemini fallback otherwise
+
+**Vercel env vars required (server-side):**
+- `GEMINI_API_KEY` — Extractor A, Adjudicator, Node 4
+- `OPENAI_API_KEY` — Extractor B (gpt-4o-mini). If absent, falls back to Gemini for both.
 
 ---
 
 ## Node 4 Architecture (lib/commentary.js)
 
-### Three parallel search paths:
-1. Europe PMC citation graph (`MED/{pmid}/citations`) — formal citations
-2. Europe PMC full-text search — `"TRIAL NAME trial"` phrase in body text
-3. PubMed Entrez — `"TRIAL NAME"[Title/Abstract]`
+Three search paths via `Promise.allSettled` (partial results survive any single API hang):
+1. Europe PMC citation graph (`MED/{pmid}/citations`)
+2. Europe PMC full-text search
+3. PubMed Entrez + web synthesis (Gemini googleSearch)
 
-### PMID resolution cascade (PDF uploads):
-1. Pre-scan raw PDF text for DOI/PMID (head + tail of text)
-2. `_extractIdentityFromReport(reportA)` — regex on extractor output
-3. If DOI → `_resolvePmidFromDoi` (Lancet parentheses fix applied)
-4. If trial_name + year → `_resolvePmidViaPubMed` (Entrez fallback)
-5. No identifier → `pmid_unresolved` (silent, no section shown)
-
-### Key constants (commentary.js):
-- `MEANINGFUL_THRESHOLD = 3`
-- `MEANINGFUL_THRESHOLD_NAMED = 1`
-- `MIN_ITEMS_FOR_SYNTHESIS = 2`
-- `MAX_ITEMS_TO_FETCH = 15`
+**Key constants:**
+- `MIN_ITEMS_FOR_SYNTHESIS = 3`
 - `NODE4_TIMEOUT_MS = 45000`
 
 ---
@@ -145,230 +104,71 @@ api/analyze.js  OR  api/study.js
 
 | File | Purpose |
 |------|---------|
-| `lib/pipeline.js` | 3-node pipeline — dual extractors + adjudicator |
+| `lib/pipeline.js` | 3-node pipeline — Extractor A (Gemini) + B (OpenAI) + Adjudicator |
 | `lib/commentary.js` | Node 4 expert context |
-| `api/analyze.js` | Main analysis endpoint (rate-limited) |
+| `api/analyze.js` | Main analysis endpoint (rate-limited, maxDuration: 120s) |
 | `api/analyze-v1.js` | V1 single-node endpoint — **NOT YET BUILT** |
 | `lib/pipeline-v1.js` | V1 single-node pipeline — **NOT YET BUILT** |
 | `api/library-save.js` | Saves analysis to Supabase |
 | `api/library-get.js` | Retrieves trials (paginated) |
 | `api/library-batch.js` | Bulk processing |
-| `api/study.js` | Consolidated study admin: `?resource=papers\|run\|output` |
-| `public/index.html` | Main SPA (~1300 lines) |
-| `public/study.html` | Study admin UI (exists, needs Phase 0 review UI) |
-| `public/app.js` | Router, global state, tab switching |
-| `supabase/schema-study.sql` | Validation study schema (NEEDS REBUILD — see Section 4) |
+| `api/study.js` | Study admin: `?resource=papers\|run\|output` |
+| `public/index.html` | Main SPA |
+| `public/pilot.html` | Phase 0 per-field grading UI |
+| `public/pilot-summary.html` | Phase 0 aggregate heatmap |
+| `supabase/schema-study.sql` | Validation study schema (ready to deploy) |
 | `scripts/generate-env.js` | Injects env vars at build time |
-
----
-
-## Pipeline Changes Required Before Phase 0 Runs
-
-### 3.1 Extractor Diversity — CRITICAL
-
-Both extractors currently receive the same `EXTRACTOR_PROMPT` (lines 476–477, `pipeline.js`). Fix: split into two distinct prompts.
-
-**Extractor A prompt** — add at top:
-```
-EXTRACTION PRIORITY: Prefer adjusted estimates over unadjusted.
-If multiple effect sizes are reported, select the primary analysis result
-as pre-specified in the methods section. If ITT and per-protocol results
-both appear, extract ITT. Always cite exact sentence/table location.
-```
-
-**Extractor B prompt** — add at top:
-```
-EXTRACTION PRIORITY: Prefer the primary reported outcome exactly as
-labelled in the results section, regardless of statistical adjustment.
-If multiple effect sizes appear, extract the first one reported in the
-abstract results. Do not infer primacy from methods — extract what is
-presented first. Always cite exact sentence/table location.
-```
-
-**Rationale:** These will genuinely disagree on ambiguous papers (adjusted vs unadjusted HR, ITT vs per-protocol). Agreement on ambiguous papers becomes a risk signal, not quality signal.
-
-### 3.2 Source Citation Requirement — CRITICAL
-
-Add to both extractor prompts:
-```
-For every extracted value, you MUST include a source_citation field:
-- Verbatim text (max 30 words)
-- Location: "Abstract", "Results paragraph N", "Table N", "Figure N legend"
-If two citations are possible, cite both and flag as AMBIGUOUS_SOURCE.
-```
-
-### 3.3 Adversarial Adjudicator — IMPORTANT
-
-Replace current passive adjudicator framing ("Compare two reports, resolve discrepancies") with:
-> "For each discrepancy, identify why EACH extractor might be wrong before determining the correct value. For fields where both extractors agree, check: (a) do they cite the same source? (b) is there an alternative value in the paper not extracted? If both agree AND multiple candidate values exist, flag as SUSPICIOUS_AGREEMENT. Do not treat agreement as correctness."
-
-Add to adjudicator output schema:
-```json
-"extraction_flags": {
-  "suspicious_agreement": false,
-  "suspicious_agreement_note": null,
-  "ambiguous_source": false,
-  "source_conflict": false,
-  "source_conflict_note": null
-}
-```
-
----
-
-## Supabase Schema — Needs Rebuild
-
-Current `supabase/schema-study.sql` has wrong structure (5-point Likert grading, `study_outputs` not `study_extractions`, wrong pilot papers). Required tables:
-
-1. **`study_papers`** — trial registry (`pmid`, `title`, `authors`, `journal`, `year`, `specialty`, `phase`, `is_pilot`, `status`)
-2. **`study_extractions`** — V1 and V2 outputs per paper (`paper_id`, `version`, `output_json`, `source_type`)
-3. **`study_grades`** — per-field structured grades:
-   - `field_name`, `match_status` (exact_match / partial_match / fail / hallucinated)
-   - `error_taxonomy` (omission / misclassification / formatting_syntax / semantic)
-   - `correction_text`, `harm_severity` (1–5), `frequency_count` (auto-incremented)
-   - `pipeline_section` (extractor / adjudicator / post_processing)
-   - `suspicious_agreement` (bool), `suspicious_agreement_note`
-4. **`study_rater_assignments`** — Phase 2 blinding assignments
-5. **`study_sessions`** — session metadata, timestamps, reviewer_id
-
-**Phase 0 pilot papers (10 — replace current SQL inserts):**
-ORBITA, HIP ATTACK, SPORT (disc herniation), UK FASHIoN, TKR RCT (Skou 2015), STICH, EXCEL, PROFHER, SCOT-HEART, SPORT (spinal stenosis). All `is_pilot = true`, `phase = 0`. PMIDs to be verified.
-
----
-
-## Phase 0 Review UI — `/pilot` Route
-
-Split-panel view (PI only, no blinding):
-- Left panel: paper metadata + V1 output fields
-- Right panel: V2 output fields
-- PDF opens in separate tab
-
-**Per-field assessment criteria:**
-A. Match status (radio): Exact Match / Partial Match / Fail / Hallucinated
-B. Error taxonomy (dropdown, required on non-Exact): Omission / Misclassification / Formatting_Syntax / Semantic
-C. Correction (text input, required on non-Exact)
-D. Harm severity (1–5 selector) + auto-frequency counter
-E. Pipeline section tag (3-option selector): Extractor / Adjudicator / Post-processing
-F. Suspicious agreement flag (checkbox + note)
-
-**Consistency gate (blocking):** Before any primary endpoint field can be marked Exact Match, reviewer must confirm HR value, 95% CI, and arm labels are jointly coherent. If not coherent, reviewer selects which is wrong → that field pre-marked Fail. This gate CANNOT be optional.
-
-**`/pilot/summary`** aggregate view:
-- Error rate by field (% non-Exact Match)
-- Error rate by pipeline section
-- Severity × frequency heatmap
-- Suspicious agreement flag list
-- Prompt modification queue ranked by severity × frequency
-
----
-
-## V1 Baseline to Build
-
-- `lib/pipeline-v1.js` — single-node mega-prompt (no parallel extraction, no adjudicator). Condensed version of current extractor prompt. NO source citations. NO adversarial framing. Naive baseline.
-- `api/analyze-v1.js` — thin wrapper calling pipeline-v1.js
-
----
-
-## Environment / Deployment
-
-- No .env files in repo — all secrets in Vercel environment variables
-- `API_BASE_URL` must always be `/api` (relative) — never hardcode production URL
-- `generate-env.js` injects: SUPABASE_URL, SUPABASE_ANON_KEY, API_BASE_URL, INTERNAL_API_TOKEN
-
-**Deployment checklist before pushing to main:**
-1. `grep "API_BASE_URL" public/index.html` → must show `/api`
-2. `grep -c "<style>" public/index.html` → must show `1`
-3. `node -e "import('./lib/pipeline.js')"` — syntax check
-4. `node -e "import('./lib/commentary.js')"` — syntax check
-5. Resolve GitHub conflicts — keep local working versions
-6. Push and verify Vercel deployment log shows no import errors
-7. Verify HALT-IT post-deploy: check `[Node 4] PubMed Entrez resolved "HALT-IT"` log
+| `docs/PIPELINE_SPEC.md` | Full technical spec — read on demand |
+| `docs/ERROR_TAXONOMY.md` | 7-class extraction error taxonomy + Phase 0 analysis sheet + phase scope |
 
 ---
 
 ## Known Issues / Watch Points
 
-1. **`expertContextSection` stays hidden if `expert_context` absent** — correct silent behaviour. Console check: `window._lastAnalysis?.clinician_view?.expert_context?.status`
-2. **`[postProcess] expertContext status: error`** = Node 4 timed out (45s). Usually PubMed esummary slow on large PMID list. Acceptable for now.
-3. **Web synthesis "not yet available"** even when items found = googleSearch returned sparse results. Item cards still render correctly.
-4. **FNCLCC:** institution blocklist prevents name search noise. Citation path correct.
-5. **`riskTable1/riskTable2`** HTML elements present in output — verify renderRiskTable wiring after merge.
-6. **`candidate_values` is prompt-level only** — extractors are instructed to output a `candidate_values` block in free text. The adjudicator parses it and emits `primary_endpoint_candidates` as structured JSON. If an extractor omits the block (low-complexity papers with only one value), the adjudicator will still produce a single-item array. This is correct behaviour.
-7. **Correlated table misread remains undetectable** — `candidate_values` helps when alternatives are surfaced. If both extractors misread the same table in the same way and produce identical candidates, neither the flag system nor PI review will catch it without checking the source. This is the residual highest-risk failure mode entering Phase 0.
-8. **`_runWebSearchSynthesis` uses `tools: [{ googleSearch: {} }]`** — confirm this key works in raw fetch v1beta for flash-lite. If web synthesis silently returns null, check Vercel logs for `[Node 4] Web-search synthesis failed`.
-
----
-
-## Design Warning — Correlated Extraction Bias
-
-This is the highest-probability failure mode for the meta-analysis product.
-
-**The problem:** Both extractors share the same model family, same input, similar prompts. On ambiguous papers, they make the same wrong inference. The adjudicator confirms consensus. Output looks clean but is systematically wrong.
-
-**Why this matters for meta-analysis:** Random errors cancel in pooling. Systematic correlated errors do not — they shift the pooled estimate in a consistent direction while appearing methodologically clean.
-
-**Mental model:** Agreement = correctness → **Agreement without diversity = risk.**
+1. **`expertContextSection` stays hidden if `expert_context` absent** — correct. Console: `window._lastAnalysis?.clinician_view?.expert_context?.status`
+2. **`[postProcess] expertContext status: error`** = Node 4 timed out (45s). Usually PubMed slow. Acceptable.
+3. **`_runWebSearchSynthesis` uses `tools: [{ googleSearch: {} }]`** — confirm works in raw fetch v1beta. Check Vercel logs for `[Node 4] Web-search synthesis failed` if web synthesis returns null.
+4. **Extractor A truncation on long papers** — HIP ATTACK produced 49,818 chars, capped at 40,000. AEs were missing. Truncation notice correctly sent to adjudicator. Primary fields survived intact.
+5. **`candidate_values` is prompt-level** — extractors output free text; adjudicator parses into `primary_endpoint_candidates`. If extractor omits the block (single-value paper), adjudicator produces single-item array. Correct behaviour.
+6. **Correlated table misread residual risk** — now reduced by cross-model diversity (Gemini A + OpenAI B). If both still converge on same wrong value, it remains undetectable. Residual risk for Phase 0.
+7. **Source citations may be partially synthetic** — see LEARNINGS.md. Used for ranking context only, not displayed verbatim. Tolerated.
+8. **gpt-4o-mini model string in logs** — actual model returned is `gpt-4o-mini-2024-07-18`. Normal.
 
 ---
 
 ## Priority Order — Next Session
 
+### Phase 0 is V3-only
+Phase 0 runs the current pipeline (V3) against 10 papers. Goal: identify and eliminate systematic extraction errors before scaling. There is no comparison arm in Phase 0 — V1 is deferred to Phase 1.
+
 ### Immediate (unblocking Phase 0)
-1. ✅ Pipeline hardening — complete
-2. ✅ Schema rebuild — complete
-3. ✅ Phase 0 grading UI — complete (`public/pilot.html`, `public/pilot-summary.html`)
-4. ✅ Merge dev → main — complete
-5. ✅ Pre-Phase 0 hardening (Session 5) — candidate_values, truncation flag, Node 4 allSettled, language audit, schema version constraint relaxed
-6. **Deploy `schema-study.sql` to Supabase** — run SQL in Dashboard → SQL Editor → New query. BLOCKING.
-7. **Build `lib/pipeline-v1.js` + `api/analyze-v1.js`** — V1 baseline (medium effort, 2–3 hrs)
-8. **Add harm severity anchor vignettes to `docs/PROTOCOL.md`** — Saqib's clinical judgement needed (2–3 hrs). Template written; needs clinical examples filled in.
-9. **Verify HALT-IT** post-deploy
-10. **Run Phase 0** — 10 papers through V1 + V2, grade 26 fields each in pilot.html
+1. **Fill `docs/PROTOCOL.md` anchor vignettes** — Saqib's clinical judgement needed before first paper is graded.
+2. **Run Phase 0** — 10 papers through V3, grade 26 fields each in pilot.html.
 
 ### Required before Phase 1 clinical deployment
-11. **NI structured output fields** — add `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label` as structured fields to adjudicator JSON schema and `postProcess()`. High clinical safety. PROFHER will expose this immediately.
-12. **Pilot UI consistency gate generalisation** — gate must use "Primary Effect Size" not "HR numeric value". Dynamic label based on `effect_measure` from adjudicator output. Will block grading of SPORT/ORBITA/TKR if built as HR-only.
-13. **Model diversity** — Extractor B = Claude Sonnet or GPT-4o. Prompt diversity (A vs B priorities) is Phase 0 solution. Model diversity is Phase 1 solution for correlated deep-inference errors.
+5. **NI structured output fields** — `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label`. PROFHER is NI design — paper 8 of Phase 0 will expose this.
+6. **Verify HALT-IT post-deploy** — check Vercel logs for `[Node 4] PubMed Entrez resolved "HALT-IT"`.
 
-### Meta-analysis module — build order (do not start before Phase 0 results)
-15. **Python statistical microservice** — DerSimonian-Laird/REML, I², tau², forest plot coordinates. Deploy as Vercel serverless Python function.
-16. **ClinicalTrials.gov API** — add to search.js alongside PubMed. Free API, required for defensible literature search.
-17. **PICO disambiguation layer** — extend buildPubmedQueryWithGemini to structured PICO JSON.
-18. **Abstract screening step** — flash-lite batch classify relevant/irrelevant/uncertain + human gate.
-19. **Outcome harmonisation check** — pairwise outcome similarity, flag heterogeneous definitions.
-20. **Meta-analysis synthesis view** — forest plot rendering, I² display, hedged narrative, GRADE component review.
+### Phase 1 (after Phase 0 findings)
+- **Build `lib/pipeline-v1.js` + `api/analyze-v1.js`** — V1 single-node baseline for Phase 1 comparison arm. Required for powered validation study (N≥25 papers, ≥2 raters, Kappa ≥0.6).
+
+### Study Runner — PDF-Only (Phase 0 and Phase 1)
+
+`api/study.js` (`resource=run`) requires `pdf_base64` for all study runs. PMID/DOI-based text fetching has been removed from the study runner. This is deliberate — it eliminates source-type variability from the validation study. All study extractions will have `source_type = 'full-text-pdf'`. The PI must obtain and upload the full-text PDF for each paper.
+
+The public `api/analyze.js` is unaffected — it continues to accept PDF, DOI, and PMID inputs.
+
+### Design Warning — Correlated Extraction Bias
+Both extractors now use different model families (Gemini + OpenAI). Correlated errors are substantially reduced but not eliminated — if both models make the same inference from ambiguous text, it remains undetectable. This is the residual highest-risk failure mode entering Phase 0. Phase 0 PI review is the primary control.
 
 ---
 
-## Strategic Review Findings (Session 3, 2026-04-12)
+## Session Log
 
-Four-persona adversarial review (HAWK=methodologist, FALCON=clinical, EAGLE=commercial, OWL=technical). All findings grounded in source code.
-
-### Pipeline architecture — accepted limitations
-- **Extractor diversity is prompt-only, not model-level.** Shared model = correlated deep-inference errors persist. Accepted for Phase 0; model diversity required for Phase 1. Documented.
-- **Adjudicator is blind to omissions absent from both reports.** By design — cannot detect what neither extractor mentioned. PI review is the primary control.
-- **`suspicious_agreement` has high specificity, low sensitivity.** Fires only when both reports mention an alternative candidate. Supplementary to PI review, not a replacement.
-- **Source citation is an audit trail, not hallucination detection.** Must not be described as such in publications.
-
-### Pipeline architecture — required fixes
-- **NI handling lacks structured output fields.** `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label` must be added to adjudicator schema. PROFHER (NI design) is paper 7 of Phase 0 — this will be exposed immediately.
-- **`capOutput()` truncation not propagated to adjudicator.** Lopsided adjudication risk for complex papers (STICH, SPORT with extensive supplementary tables).
-
-### Validation plan — Phase 0 is a calibration exercise, not a publishable accuracy study
-- N=10 PI-only unblinded = correct for Phase 0. Zero statistical power for inferential claims.
-- Phase 0 is publishable only as Methods section material within a Phase 1 paper.
-- Phase 1 requirements for publication: ≥2 raters, kappa≥0.6 for primary fields, power calculation (~25–30 papers per version), prospective blinding, CONSORT-AI compliance.
-- Harm severity rubric with anchor vignettes must be written before first paper is graded (template in `docs/PROTOCOL.md` — needs clinical anchors added by Saqib).
-- Ground truth: PI must establish reference standard before reviewing AI output for Phase 1. Phase 0 is unblinded — this is disclosed as a pilot limitation.
-
-### Meta-analysis module — strategic position
-- **Frame:** "AI-assisted evidence synthesis for clinician review" — NOT "automated meta-analysis."
-- **Fully automated meta-analysis is not scientifically defensible** (PRISMA requires dual screening, dual extraction, registered protocol).
-- **Three human curation gates are non-negotiable:** study selection, data extraction sign-off, GRADE confirmation.
-- **The Phase 0/Phase 1 validation paper is the commercial moat.** Not the architecture.
-- **Three highest-risk assumptions:**
-  1. Extraction accuracy too low to support meta-analysis (Phase 0 data answers this — 85%+ exact match on primary numeric values is the go/no-go threshold)
-  2. Wrong use case (clinicians may want paper-finding help, not extraction — user-test before investing in Phase 1)
-  3. Regulatory reclassification (MHRA/FDA may classify as SaMD — manage with precise IUC language, no recommendation/prescriptive wording anywhere in UI)
-- **Intended use claim:** "clinical research tool for evidence synthesis and trial data extraction for review by qualified clinicians" — not "clinical decision support."
-- **Business model:** Institutional subscription (medical schools, hospital departments) for research/education use. Freemium for individual clinicians. Pharma as separate product line with different compliance.
-- **3-month MVP:** (1) Phase 0 complete → (2) Python stats microservice + ClinicalTrials.gov → (3) PICO disambiguation + abstract screening → (4) end-to-end test on one surgical question. Go/no-go: can it produce a defensible evidence synthesis in <30 minutes of human time?
+- Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated
+- Session 2 (2026-04-12): Pipeline hardening (extractor diversity, adversarial adjudicator, source citations, NI handling)
+- Session 3 (2026-04-12): Phase 0 grading infrastructure, strategic adversarial review (HAWK/FALCON/EAGLE/OWL)
+- Session 4 (2026-04-13): Gemini SDK removal, flash-lite, sequential extractors, thinkingBudget:512, 5-retry backoff
+- Session 5 (2026-04-14): candidate_values, Extractor B strengthening, capOutput truncation flag, Node 4 allSettled, language audit, ChatGPT/Gemini critique review
+- Session 6 (2026-04-15): gpt-4o-mini Extractor B, parallel extractors, 120s timeout, ChatGPT critique F1/F3/F5/F6 fixes, subgroup clarity (pre/post-hoc, CI-crosses-one, interaction note), first HIP ATTACK run confirmed
+- Session 7 (2026-04-15): Adjudicator anti-bias rule (no preference for extreme effects or abstract prominence), Phase 0 clarified as V3-only (V1 deferred to Phase 1), ERROR_TAXONOMY.md (7-class system), pilot.html consistency gate (blocking, dynamic from effect_measure, pre-marks Fail on incoherence), taxonomy dropdown updated to 7-class, pilot-summary.html CSV + api/study-summary.js updated to 7-class taxonomy

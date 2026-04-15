@@ -31,6 +31,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 - `public/index.html` — Main SPA (~1300 lines). Read specific sections on demand.
 - `supabase/schema-study.sql` — Validation study schema. Read when working on study infrastructure.
 - `docs/PIPELINE_SPEC.md` — Full technical specification for the pipeline and Phase 0 study.
+- `docs/ERROR_TAXONOMY.md` — 7-class extraction error taxonomy, Phase 0 analysis sheet, phase scope. Read when grading or designing grading infrastructure.
 
 ## Critical deployment checks (before every push to main)
 

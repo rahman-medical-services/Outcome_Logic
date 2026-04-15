@@ -189,13 +189,15 @@ Runs asynchronously after adjudication. See `lib/commentary.js` for implementati
 
 ## V1 Single-Node Baseline
 
-**Status:** Not yet built. Required before Phase 0 papers are run.
+**Status:** Not yet built. Required before Phase 1 powered validation study — not needed for Phase 0.
 
-Single mega-prompt. No parallel extraction. No adjudicator. No source citations. No adversarial framing. No `candidate_values`. Used as naive baseline for Phase 0 comparison.
+Phase 0 runs V3 only. Phase 1 will compare V1 vs V3 across N≥25 papers with ≥2 independent raters.
+
+Single mega-prompt. No parallel extraction. No adjudicator. No source citations. No adversarial framing. No `candidate_values`. Used as naive baseline for Phase 1 comparison.
 
 **Files to build:** `lib/pipeline-v1.js` + `api/analyze-v1.js`
 
-The V1 prompt is a condensed single-pass version of the current extractor core. Its job is to reflect what a simple, off-the-shelf extraction approach would produce. Do not include any Phase 0 hardening features — no adversarial framing, no truncation flags, no candidate values.
+The V1 prompt is a condensed single-pass version of the current extractor core. Its job is to reflect what a simple, off-the-shelf extraction approach would produce. Do not include any Phase 0/Phase 1 hardening features — no adversarial framing, no truncation flags, no candidate values.
 
 ---
 
@@ -203,7 +205,7 @@ The V1 prompt is a condensed single-pass version of the current extractor core. 
 
 ### Purpose
 
-Unblinded pilot run by PI (Saqib). 10 papers. Goal: identify extraction errors and pipeline failure modes, modify prompts accordingly, before finalising V1/V2 architecture for Phase 1 power calculation.
+Unblinded pilot run by PI (Saqib). 10 papers. Goal: identify and eliminate systematic extraction errors in V3 before scaling to Phase 1. No comparison arm — Phase 0 is V3-only. V1 comparison is deferred to Phase 1.
 
 **This is NOT a statistical phase.** No Kappa, no formal analysis. Pure qualitative error identification and prompt improvement.
 
@@ -211,7 +213,7 @@ Go/no-go gate for Phase 1: ≥85% exact match on primary numeric fields.
 
 ### Papers
 
-Run ALL 10 through BOTH V1 and V2. All seeded in `supabase/schema-study.sql` with `is_pilot = true`, `phase = 0`.
+Run all 10 through V3. All seeded in `supabase/schema-study.sql` with `is_pilot = true`, `phase = 0`.
 
 1. ORBITA (PMID 29126895) — sham-controlled RCT, blinding extraction
 2. HIP ATTACK — time-to-event, surgical specialty
@@ -229,7 +231,7 @@ Run ALL 10 through BOTH V1 and V2. All seeded in `supabase/schema-study.sql` wit
 **Canonical source:** `supabase/schema-study.sql` — do not duplicate SQL here. The schema has been rebuilt (Session 2, updated Session 5). Key points:
 
 - 6 tables: `study_papers`, `study_extractions`, `study_raters`, `study_grades`, `study_rater_assignments`, `study_sessions`
-- `study_extractions.version` is **free-form TEXT** (no CHECK constraint) for Phase 0 prompt iteration. Add `CHECK (version IN ('v1', 'v2'))` before Phase 1 freeze.
+- `study_extractions.version` is **free-form TEXT** (no CHECK constraint) for Phase 0 prompt iteration. Add `CHECK (version IN ('v1', 'v3'))` before Phase 1 freeze.
 - `study_grades` uses `extraction_id` (not `output_id` — earlier name was changed in Session 2)
 - RLS enabled on all tables — service role key bypasses automatically
 - Run `schema-study.sql` in Supabase SQL Editor before first Phase 0 paper is graded. DROP TABLE statements at top wipe existing data.
@@ -247,7 +249,8 @@ Run ALL 10 through BOTH V1 and V2. All seeded in `supabase/schema-study.sql` wit
 - Exact Match | Partial Match | Fail | Hallucinated
 
 **B. Error Taxonomy** (dropdown, required on non-Exact Match):
-- Omission | Misclassification | Formatting/Syntax | Semantic
+- Class 1: Recall Failure | Class 2: Correlated Recall Failure | Class 3: Ranking Failure | Class 4: Misclassification | Class 5: Interpretation Failure | Class 6: Hallucination | Class 7: Formatting/Enum
+- Full definitions and decision tree in `docs/ERROR_TAXONOMY.md`
 
 **C. Correction** (text, required on non-Exact Match)
 
@@ -259,22 +262,23 @@ Run ALL 10 through BOTH V1 and V2. All seeded in `supabase/schema-study.sql` wit
 - Extractor | Adjudicator | Post-processing
 
 **F. Suspicious Agreement Flag** (checkbox + note, optional):
-- Check when both V1 and V2 extracted the same wrong value. Highest-priority error type for Phase 1 prompt work.
+- Check when both extractors (A and B) extracted the same wrong value. Highest-priority error type — indicates correlated bias that persisted through adjudication.
 
 ### Consistency Gate (blocking, before primary endpoint field grading)
 
-⚠️ **PENDING GENERALISATION** — current gate is HR-specific. Needs to be generalised to "Primary Effect Size" before SPORT/ORBITA/TKR are graded (continuous/non-survival outcomes). See FEATURES.md "Pilot UI consistency gate generalisation".
+Gate is **built and generalised** (Session 7, 2026-04-15). Dynamic from `effect_measure` — works for HR, OR, RR, MD, SMD, RD.
 
-Current gate checks:
-- Primary effect size numeric value (as extracted)
-- 95% CI (as extracted)
-- Arm labels: which arm is intervention, which is control
+Gate displays from `clinician_view.interactive_data.endpoints[0]`:
+- Effect measure type
+- Point estimate + 95% CI
+- Arm A / Arm B group names
+- Analysis population (ITT/PP/mITT) and adjusted flag
 
-Reviewer confirms: "The direction of effect, the CI, and the arm labels are jointly coherent."
-- Coherent → individual fields unlock for grading
-- Not coherent → reviewer selects which field is wrong → pre-marked Fail
+Reviewer confirms: "The direction of effect, CI, and arm labels are jointly coherent."
+- **Coherent** → all field cards unlock
+- **Not coherent** → reviewer identifies which element is wrong (direction / CI / arm labels / value / multiple) → `primary_result_values` pre-marked Fail with pre-populated correction → all other field cards unlock
 
-**This gate MUST block field-level marking. It cannot be optional.**
+**This gate blocks field-level marking. It cannot be skipped.**
 
 ### `/pilot/summary` Aggregate View
 
@@ -284,7 +288,7 @@ Reviewer confirms: "The direction of effect, the CI, and the arm labels are join
 - Suspicious agreement flags: fields with correlated bias detected
 - Prompt modification queue: fields ranked by priority score
 - CSV download
-- Version comparison delta (V1 vs V2)
+- Version comparison delta (Phase 1: V1 vs V3 — not applicable in Phase 0)
 
 ---
 

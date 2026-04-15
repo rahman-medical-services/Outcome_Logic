@@ -177,11 +177,33 @@
       </div>
     </div>
 
+    <!-- Evaluative field agreement (secondary analysis) -->
+    <div class="bg-slate-800 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-700">
+        <h2 class="text-sm font-semibold text-slate-300">Evaluative Field Agreement <span class="text-xs font-normal text-slate-500 ml-1">— secondary analysis, excluded from primary exact-match rate</span></h2>
+        <p class="text-xs text-slate-500 mt-0.5">GRADE Certainty and Risk of Bias measure pipeline–PI agreement, not source accuracy. Kappa reported in Phase 1 with 2-rater consensus.</p>
+      </div>
+      <table class="w-full">
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Graded</th>
+            <th>Exact agreement</th>
+            <th>Adjacent (±1 level)</th>
+            <th>Discordant</th>
+          </tr>
+        </thead>
+        <tbody id="evaluative-tbody">
+          <tr><td colspan="5" class="text-center py-6 text-slate-500">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- Prompt modification queue -->
     <div class="bg-slate-800 rounded-lg overflow-hidden">
       <div class="px-4 py-3 border-b border-slate-700">
         <h2 class="text-sm font-semibold text-slate-300">Prompt Modification Queue</h2>
-        <p class="text-xs text-slate-500 mt-0.5">Fields with priority score &gt; 1.0 — ordered by urgency</p>
+        <p class="text-xs text-slate-500 mt-0.5">Fact-extraction fields with priority score &gt; 1.0 — ordered by urgency</p>
       </div>
       <div id="prompt-queue-list" class="divide-y divide-slate-700">
         <div class="px-4 py-6 text-center text-slate-500 text-sm">Loading…</div>
@@ -254,6 +276,7 @@
     renderHeatmap(data.summary || []);
     renderTaxonomy(data.taxonomy_breakdown || []);
     renderPipeline(data.pipeline_breakdown || []);
+    renderEvaluative(data.evaluative_agreement || []);
     renderPromptQueue(data.prompt_queue || []);
   }
 
@@ -386,6 +409,27 @@
       </tr>`).join('');
   }
 
+  // ── Evaluative field agreement ────────────────────────────────────────────
+  function renderEvaluative(rows) {
+    const tbody = document.getElementById('evaluative-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-500">No evaluative grades recorded yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => {
+      const pct = v => v != null ? `${v}%` : '—';
+      const exactCls    = r.exact_agreement   >= 70 ? 'text-green-400' : r.exact_agreement >= 50 ? 'text-amber-400' : 'text-red-400';
+      const discordCls  = r.discordant_rate   >= 30 ? 'text-red-400'   : 'text-slate-400';
+      return `<tr>
+        <td class="font-medium text-slate-200">${escHtml(r.field_name.replace(/_/g, ' '))}</td>
+        <td class="text-center text-slate-400">${r.total_graded}</td>
+        <td class="text-center font-mono ${exactCls}">${pct(r.exact_agreement)}</td>
+        <td class="text-center font-mono text-slate-400">${pct(r.adjacent_agreement)}</td>
+        <td class="text-center font-mono ${discordCls}">${pct(r.discordant_rate)}</td>
+      </tr>`;
+    }).join('');
+  }
+
   // ── Prompt modification queue ─────────────────────────────────────────────
   function renderPromptQueue(queue) {
     const container = document.getElementById('prompt-queue-list');
@@ -435,7 +479,9 @@
     const headers = [
       'field_name','total_graded','exact_count','partial_count','fail_count',
       'hallucinated_count','avg_severity','priority_score',
-      'taxonomy_omission','taxonomy_misclassification','taxonomy_formatting_syntax','taxonomy_semantic',
+      'tax_c1_recall_failure','tax_c2_correlated_recall','tax_c3_ranking_failure',
+      'tax_c4_misclassification','tax_c5_interpretation_failure',
+      'tax_c6_hallucination','tax_c7_formatting_enum',
       'pipeline_extractor','pipeline_adjudicator','pipeline_post_processing',
     ];
 
@@ -448,13 +494,16 @@
       f.hallucinated_count,
       f.avg_severity,
       f.priority_score,
-      f.error_taxonomy_dist?.omission          || 0,
-      f.error_taxonomy_dist?.misclassification || 0,
-      f.error_taxonomy_dist?.formatting_syntax || 0,
-      f.error_taxonomy_dist?.semantic          || 0,
-      f.pipeline_section_dist?.extractor       || 0,
-      f.pipeline_section_dist?.adjudicator     || 0,
-      f.pipeline_section_dist?.post_processing || 0,
+      f.error_taxonomy_dist?.recall_failure         || 0,
+      f.error_taxonomy_dist?.correlated_recall       || 0,
+      f.error_taxonomy_dist?.ranking_failure         || 0,
+      f.error_taxonomy_dist?.misclassification       || 0,
+      f.error_taxonomy_dist?.interpretation_failure  || 0,
+      f.error_taxonomy_dist?.hallucination           || 0,
+      f.error_taxonomy_dist?.formatting_enum         || 0,
+      f.pipeline_section_dist?.extractor             || 0,
+      f.pipeline_section_dist?.adjudicator           || 0,
+      f.pipeline_section_dist?.post_processing       || 0,
     ]);
 
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
