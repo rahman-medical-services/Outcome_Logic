@@ -41,6 +41,10 @@ node -e "import('./lib/pipeline.js')"          # syntax check
 node -e "import('./lib/commentary.js')"        # syntax check
 ```
 
+Required Vercel environment variables (server-side — never in public/env.js):
+- `GEMINI_API_KEY` — Extractor A, Adjudicator, Node 4
+- `OPENAI_API_KEY` — Extractor B (gpt-4o-mini). If absent, pipeline falls back to Gemini for both extractors.
+
 ## Git workflow
 
 Work directly on a feature branch in the main checkout — do NOT use worktrees.
