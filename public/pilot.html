@@ -294,7 +294,7 @@
     if (!headers) return;
 
     try {
-      const r    = await fetch(`${API}/study-papers`, { headers });
+      const r    = await fetch(`${API}/study?resource=papers`, { headers });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
 
@@ -465,7 +465,7 @@
 
     let output = null;
     try {
-      const r = await fetch(`${API}/study-output?id=${outputId}`, { headers });
+      const r = await fetch(`${API}/study?resource=output&id=${outputId}`, { headers });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || r.statusText);
       output = d.output || d;

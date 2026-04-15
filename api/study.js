@@ -82,7 +82,7 @@ async function handlePapers(req, res) {
       return {
         ...p,
         study_extractions: undefined,
-        v3_output: extractions.find(o => o.version === 'v3') || null,
+        v3_output: extractions.find(o => o.version === 'v3') || extractions.find(o => o.version === 'v2') || null,
         v1_output: extractions.find(o => o.version === 'v1') || null,
       };
     });
