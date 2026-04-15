@@ -678,8 +678,12 @@
 
   // ── Left panel ────────────────────────────────────────────────────────────
   function populateLeftPanel(paper, output, version) {
+    // output is the DB row: { id, paper_id, version, output_json, source_type, ... }
+    // Pipeline data lives under output_json
+    const pipelineData = output?.output_json || output;
+
     // Title & meta
-    const rm = output?.reportMeta || {};
+    const rm = pipelineData?.reportMeta || {};
     document.getElementById('left-title').textContent = rm.trial_identification || paper?.title || '';
     document.getElementById('left-meta').textContent  = [rm.authors, rm.journal, rm.year].filter(Boolean).join(' · ');
 
@@ -701,13 +705,13 @@
       </a>`;
     }
 
-    // Source badge
-    const srcType = output?.source_type || output?.library_meta?.source_type || '—';
+    // Source badge — source_type is a top-level DB column, pipeline also has it in reportMeta
+    const srcType = output?.source_type || pipelineData?.reportMeta?.source_type || pipelineData?.library_meta?.source_type || '—';
     document.getElementById('left-source-badge').textContent = srcType;
     document.getElementById('left-pmid').textContent = pmid ? `PMID: ${pmid}` : '';
 
     // Extraction flags
-    const flags    = output?.extraction_flags || {};
+    const flags    = pipelineData?.extraction_flags || {};
     const flagsEl  = document.getElementById('left-flags');
     flagsEl.innerHTML = '';
 
@@ -736,7 +740,7 @@
     }
 
     // Source citations
-    const cits    = output?.source_citations || {};
+    const cits    = pipelineData?.source_citations || {};
     const citsEl  = document.getElementById('left-citations');
     citsEl.innerHTML = '';
 
