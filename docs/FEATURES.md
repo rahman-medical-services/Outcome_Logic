@@ -170,6 +170,51 @@ These must be complete before any Phase 0 paper runs.
 
 **Go/no-go gate:** Phase 0 heatmap must show ≥85% exact match on primary numeric fields before committing Phase 1 engineering investment.
 
+---
+
+### Meta-Analysis Extraction Gap Items (identified Session 8 — add to pipeline before Phase 2)
+
+These are data fields not currently extracted that are required for defensible pooling. **Do not add until after Phase 0** — they are low-risk (JSONB storage, no migration needed) but should be assessed against Phase 0 findings first.
+
+#### ⬜ SD per arm for continuous outcomes **[High — Phase 2 blocker]**
+**Status:** Not started.
+**Gap:** DerSimonian-Laird and REML random-effects pooling require mean ± SD per arm for continuous outcomes. Currently only the between-arm effect size (MD, SMD) is extracted. Without SD, continuous outcome pooling is impossible.
+**Fix:** Add `arm_a_mean`, `arm_a_sd`, `arm_b_mean`, `arm_b_sd` to primary outcome schema in `lib/pipeline.js`. Only populated when `effect_measure` is MD or SMD.
+**Effort:** Low (prompt addition + schema field). No DB migration needed.
+
+#### ⬜ Structured outcome timepoint **[High — Phase 2 blocker]**
+**Status:** Not started.
+**Gap:** Outcome timepoint is currently embedded in free text. For pooling, timepoint must be structured (e.g. `{ value: 12, unit: "months" }`) to detect heterogeneous follow-up lengths before pooling.
+**Fix:** Add `primary_outcome_timepoint: { value, unit }` to adjudicator output schema. Extractor already surfaces timepoint in narrative — parse it into structured form.
+**Effort:** Low.
+
+#### ⬜ Explicit outcome type flag **[High — Phase 2 blocker]**
+**Status:** Not started.
+**Gap:** No machine-readable flag distinguishing continuous / binary / time-to-event / ordinal. The Python stats microservice needs this to select the correct pooling method and variance formula.
+**Fix:** Add `outcome_type: 'continuous' | 'binary' | 'time-to-event' | 'ordinal'` to adjudicator output schema.
+**Effort:** Trivial (one enum field + prompt instruction).
+
+#### ⬜ Structured secondary endpoints array **[Medium]**
+**Status:** Not started.
+**Gap:** `secondary_outcomes_list` is currently a freetext string. For systematic review, secondary outcomes must be a structured array `[{ name, effect_size, ci, p_value, direction }]` to allow cross-trial comparison.
+**Fix:** Change `secondary_outcomes_list` in the adjudicator output schema to an array of structured objects. Update pilot.html grading view to handle array display.
+**Effort:** Medium (prompt change + schema change + UI update). Breaking change — complete Phase 0 first.
+
+#### ⬜ N randomised vs N analysed distinction **[Medium]**
+**Status:** Not started.
+**Gap:** Currently conflates randomised N with analysed N (ITT vs modified ITT vs per-protocol). Attrition bias assessment and pooled N calculation require both.
+**Fix:** Add `n_randomised_arm_a`, `n_randomised_arm_b` alongside existing `n_arm_a`, `n_arm_b` (which become analysed N). Add `analysis_population` classification: `ITT | modified_ITT | per_protocol | unknown`.
+**Note:** `arm_a_n` and `arm_b_n` already exist for primary outcome. This is a global trial-level field.
+**Effort:** Low.
+
+#### ⬜ Follow-up duration **[Medium]**
+**Status:** Not started.
+**Gap:** No structured follow-up duration field. Required for heterogeneity detection (pooling 1-month and 12-month mortality is a clinical error). Related to outcome timepoint but distinct — follow-up duration is the total observation window, not the outcome assessment time.
+**Fix:** Add `followup_duration: { value, unit, type: 'median' | 'mean' | 'planned' }` to adjudicator output schema.
+**Effort:** Low.
+
+---
+
 **3-month MVP build order:**
 
 ### ⬜ Python statistical microservice **[Month 1]**
@@ -244,7 +289,7 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 
 ## Notes
 
-- **Priority for next session:** Deploy schema → generalise pilot UI consistency gate → fill PROTOCOL.md anchor vignettes → run Phase 0 papers (V3 only) → review heatmap
+- **Priority for next session:** Run `supabase/schema-study.sql` in Supabase dashboard → batch-upload all 10 pilot PDFs via study.html → run Phase 0 papers (V3) → grade in pilot.html → review heatmap
 - **Do not begin Phase 2 meta-analysis until Phase 0 go/no-go** (≥85% exact match on primary numeric fields)
 - **The Phase 0/Phase 1 validation paper is the commercial moat** — it is not optional quality assurance
 - Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated
@@ -253,3 +298,5 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 - Session 4 (2026-04-13): Gemini SDK removal, flash-lite primary model, sequential extractors, thinkingBudget:512, 5-retry backoff, api/study.js consolidation — first successful pipeline run confirmed
 - Session 5 (2026-04-14): Adversarial critique review (Gemini + GPT, stress-tested against codebase by agents). candidate_values array, Extractor B strengthening, capOutput truncation flag, Node 4 allSettled, MIN_ITEMS_FOR_SYNTHESIS=3, schema version constraint relaxed, language audit. All SDK removal re-applied to branch.
 - Session 6 (2026-04-15): gpt-4o-mini Extractor B (cross-model diversity), parallel A+B extractors (different providers), Vercel maxDuration 60→120s, ChatGPT critique F1 (candidate completeness check), F3 (adjudicator ranking tiebreaker), F5 (synthetic citations logged), F6 (truncation notice for incomplete candidate list), subgroup clarity (pre/post-hoc badges, CI-crosses-one per arm, cis_all_cross_one flag, direction_vs_hypothesis, interaction_note), subgroup UI update. First HIP ATTACK Phase 0 run confirmed at ~47s.
+- Session 7 (2026-04-15): Adjudicator anti-bias rule, Phase 0 V3-only clarification, ERROR_TAXONOMY.md (7-class), pilot.html consistency gate (blocking, dynamic), taxonomy dropdowns updated to 7-class.
+- Session 8 (2026-04-15): All 10 pilot PMIDs verified against live PubMed (was: AI-generated and wrong). Schema/API alignment: study_outputs→study_extractions, output_id→extraction_id, 7-class taxonomy CHECK, reference_standard_value column, UNIQUE constraint fixed. Batch PDF upload with pilot-paper matching in study.html. Endpoint bugs fixed in pilot.html. study.js v2 fallback for v3_output. DESIGN_DECISIONS.md created. Meta-analysis data gaps identified and added to Phase 2 backlog.

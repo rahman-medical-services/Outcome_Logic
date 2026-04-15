@@ -1,8 +1,8 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 4
-session: "Session 6 — 2026-04-15"
+version: 5
+session: "Session 8 — 2026-04-15"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -19,7 +19,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ---
 
-## Current State (as of 15 April 2026 — v4.5.0)
+## Current State (as of 15 April 2026 — v4.6.0)
 
 **Branch:** All work committed directly to `main`. No active feature branches. See CLAUDE.md git workflow.
 
@@ -35,21 +35,27 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 - Supabase save/load (library) — working
 - PDF export — working
 - Phase 0 pilot UI: `pilot.html` + `pilot-summary.html` — built and functional
-- `study.html` + `api/study.js` — study admin working
+- `study.html` + `api/study.js` — study admin working, batch PDF upload with pilot-paper matching
 - First successful Phase 0 run: HIP ATTACK — all primary outcomes, subgroups, secondary outcomes correct
+
+**⚠️ SCHEMA NOT YET DEPLOYED — must run `supabase/schema-study.sql` before grading any paper**
+The schema was rewritten in Session 8 to fix critical bugs. The Supabase instance still has the old broken schema. Run via Dashboard → SQL Editor before touching pilot.html.
+
+**Completed in Session 8 (2026-04-15):**
+- ✅ **All 10 pilot paper PMIDs verified against live PubMed** — previous PMIDs were AI-generated and wrong (e.g. 29126895 was an ECMO paper, not ORBITA). All 10 now corrected in `supabase/schema-study.sql` via E-utilities API verification. Notable: PROFHER is JAMA not Lancet; SCOT-HEART is 2018 not 2019.
+- ✅ **Schema/API alignment** — `study_outputs` → `study_extractions`, `output_id` → `extraction_id` throughout `api/study-grade.js`. `reference_standard_value TEXT` column added to `study_grades`. `error_taxonomy` CHECK constraint updated from 4-class to 7-class. `rater_id` removed from UNIQUE constraint (was blocking all Phase 0 upserts since API never sends rater_id).
+- ✅ **Batch PDF upload with pilot-paper matching** — `study.html` now accepts multiple PDFs, normalises filenames, fuzzy-matches against `trial_name` (ORBITA, EXCEL etc), and auto-selects the pilot record in a per-file dropdown. User can override or allow new-record creation.
+- ✅ **pilot.html endpoint fixes** — was calling `/api/study-papers` (old endpoint, file deleted) → fixed to `/api/study?resource=papers`. Was calling `/api/study-output?id=` → fixed to `/api/study?resource=output&id=`.
+- ✅ **study.js v2 fallback** — `v3_output` now falls back to any `v2` extraction so papers run before the v2→v3 rename remain visible.
+- ✅ **DESIGN_DECISIONS.md created** — comprehensive record of pipeline and study design decisions for Phase 1 publication.
+- ✅ **Meta-analysis data gap assessment** — 6 missing fields identified (SD per arm, structured timepoint, outcome type flag, structured secondary endpoints, N randomised vs analysed, follow-up duration). All are low-risk JSONB additions. Added to Phase 2 backlog in FEATURES.md. Recommendation: add after Phase 0 findings, not before.
 
 **Completed in Session 6 (2026-04-15):**
 - ✅ **gpt-4o-mini as Extractor B** — cross-model diversity. Gemini (A) + OpenAI (B) + Claude (code). Correlated table misreads now produce detectable discrepancies. `callOpenAI()` in pipeline.js.
 - ✅ **Parallel extractor execution** — A and B now run with `Promise.all` when `OPENAI_API_KEY` set (different providers, no concurrency conflict). Falls back to sequential Gemini if key absent. Saves ~20s.
 - ✅ **Vercel `maxDuration` raised to 120s** for `api/analyze.js` — was 60s, caused timeouts with sequential extractors.
-- ✅ **ChatGPT critique F1** — candidate completeness check: extractors must verify adjusted primary, abstract value, and competing table value are all present before finalising `candidate_values`.
-- ✅ **ChatGPT critique F3** — adjudicator ranking tiebreaker: explicit priority order (adjusted > unadjusted, ITT > PP, final > interim, pre-specified > post-hoc). Do not rely on label text alone.
-- ✅ **ChatGPT critique F6** — truncation notice extended: when truncated, adjudicator notes candidate list may be incomplete.
-- ✅ **ChatGPT critique F5** — synthetic citations logged in LEARNINGS as known, tolerated limitation.
-- ✅ **Subgroup extraction clarity** — `pre_specified`, `post_hoc`, `cis_all_cross_one`, `direction_vs_hypothesis`, `interaction_note`, `ci_crosses_one` per arm, `absolute_events` per arm. Exposed by HIP ATTACK: troponin subgroup was post-hoc and CI-crossing was not visible.
-- ✅ **Subgroup UI update** — pre-specified (green) / post-hoc (orange) badges; amber warning when all CIs cross 1; direction note; per-arm CI-crosses-one + absolute events; plain-language interaction note.
-- ✅ **PIPELINE_SPEC.md updated** — reflects current architecture.
-- ✅ **CLAUDE.md git workflow** — no worktrees; direct feature branches, merge to main at session end.
+- ✅ **Subgroup extraction clarity** — `pre_specified`, `post_hoc`, `cis_all_cross_one`, `direction_vs_hypothesis`, `interaction_note`, `ci_crosses_one` per arm, `absolute_events` per arm.
+- ✅ **Subgroup UI update** — pre-specified (green) / post-hoc (orange) badges; amber warning when all CIs cross 1; per-arm CI-crosses-one + absolute events; plain-language interaction note.
 
 ---
 
@@ -142,12 +148,13 @@ Three search paths via `Promise.allSettled` (partial results survive any single 
 Phase 0 runs the current pipeline (V3) against 10 papers. Goal: identify and eliminate systematic extraction errors before scaling. There is no comparison arm in Phase 0 — V1 is deferred to Phase 1.
 
 ### Immediate (unblocking Phase 0)
-1. **Fill `docs/PROTOCOL.md` anchor vignettes** — Saqib's clinical judgement needed before first paper is graded.
-2. **Run Phase 0** — 10 papers through V3, grade 26 fields each in pilot.html.
+1. **Deploy `supabase/schema-study.sql`** — Dashboard → SQL Editor → paste file → Run. This is the rebuilt schema with correct PMIDs, fixed constraints, and `reference_standard_value` column. DROP TABLE statements at top will clear existing study data (acceptable — no valid grades exist yet given the broken schema).
+2. **Batch-upload 10 pilot PDFs via study.html** — use the new batch upload panel; auto-matching should link to the correct pilot records.
+3. **Fill `docs/PROTOCOL.md` anchor vignettes** — Saqib's clinical judgement needed before first paper is graded.
+4. **Run Phase 0** — 10 papers through V3, grade 26 fields each in pilot.html.
 
 ### Required before Phase 1 clinical deployment
 5. **NI structured output fields** — `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label`. PROFHER is NI design — paper 8 of Phase 0 will expose this.
-6. **Verify HALT-IT post-deploy** — check Vercel logs for `[Node 4] PubMed Entrez resolved "HALT-IT"`.
 
 ### Phase 1 (after Phase 0 findings)
 - **Build `lib/pipeline-v1.js` + `api/analyze-v1.js`** — V1 single-node baseline for Phase 1 comparison arm. Required for powered validation study (N≥25 papers, ≥2 raters, Kappa ≥0.6).
@@ -172,3 +179,4 @@ Both extractors now use different model families (Gemini + OpenAI). Correlated e
 - Session 5 (2026-04-14): candidate_values, Extractor B strengthening, capOutput truncation flag, Node 4 allSettled, language audit, ChatGPT/Gemini critique review
 - Session 6 (2026-04-15): gpt-4o-mini Extractor B, parallel extractors, 120s timeout, ChatGPT critique F1/F3/F5/F6 fixes, subgroup clarity (pre/post-hoc, CI-crosses-one, interaction note), first HIP ATTACK run confirmed
 - Session 7 (2026-04-15): Adjudicator anti-bias rule (no preference for extreme effects or abstract prominence), Phase 0 clarified as V3-only (V1 deferred to Phase 1), ERROR_TAXONOMY.md (7-class system), pilot.html consistency gate (blocking, dynamic from effect_measure, pre-marks Fail on incoherence), taxonomy dropdown updated to 7-class, pilot-summary.html CSV + api/study-summary.js updated to 7-class taxonomy
+- Session 8 (2026-04-15): All 10 pilot PMIDs verified (was AI-generated/wrong). Schema/API alignment (study_outputs→extractions, output_id→extraction_id, 7-class taxonomy CHECK, reference_standard_value, UNIQUE fix). Batch PDF upload with fuzzy pilot-paper matching (study.html). pilot.html endpoint bugs fixed. study.js v2 fallback for v3_output. DESIGN_DECISIONS.md. Meta-analysis gap analysis → 6 items added to Phase 2 backlog.
