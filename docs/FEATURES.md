@@ -149,6 +149,27 @@ These must be complete before any Phase 0 paper runs.
 **Cross-model diversity achieved:** Gemini (A) + OpenAI (B). Correlated table misreads now produce detectable discrepancies rather than silent consensus.
 **Timing:** gpt-4o-mini responds in ~3–10s (vs ~26s for Gemini flash-lite on same input).
 
+### ⬜ Utility layer — blind clinical usability assessment **[Phase 2 — introduce alongside powered V1 vs V3]**
+**Status:** Not started. Designed following GPT critique (2026-04-16).
+**Rationale:** Exact-match rate measures "is the extraction correct?" — the utility layer measures "can a clinician trust and use this without re-reading the paper?" These are orthogonal axes. High accuracy + low usability is a real failure mode. The utility layer is required to identify which error classes actually break trust (vs which are invisible to clinicians).
+**Design:**
+- Document-level (not field-level). 4 questions, coarse scale. Blind to extraction internals.
+- Reviewer sees the rendered report only (index.html output), not raw JSON or pilot.html grading.
+- Grader A (taxonomy grading) and Grader B (utility assessment) must be different people — same person anchors on known errors.
+- Internal hidden field (not shown to reviewer): "Was the primary outcome direction correct?" (yes/no). Enables calibrated trust analysis — identifies dangerous false-trust cases (report wrong but trusted) vs UX/framing failures (report correct but not trusted).
+**4 utility questions:**
+1. "Would you use this without opening the paper?" (Yes / Yes with minor verification / No)
+2. "Do you trust the primary outcome result?" (High / Moderate / Low)
+3. "What is the main issue, if any?" (free text — high value, treat as qualitative data)
+4. "How much time does this save you?" (None / Some / Significant)
+**Implementation dependencies:**
+- Clean utility review URL (read-only index.html report with questions appended) — no grading interface, no raw JSON visible
+- `study_utility_assessments` table in Supabase (paper_id, reviewer_id, q1–q4, direction_correct, assessed_at)
+- Post-hoc linkage analysis: utility score cross-tabulated with error taxonomy + severity by paper
+**Target:** 10–20 papers, 1–2 reviewers, Phase 2 alongside powered validation. Not powered for statistics — calibrating intuition and identifying catastrophic failure modes.
+**Strategic output:** "% of reports usable with minimal correction" — product KPI, sales story, pricing anchor.
+**Effort:** Medium (utility review UI ~2hrs, schema ~30min, linkage analysis script ~1hr).
+
 ### ⬜ Phase 1 powered validation study **[Publication path]**
 **Status:** Planned. Depends on Phase 0 findings.
 **Requirements for JAMIA/JBI/npj Digital Medicine publication:**
