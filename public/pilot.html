@@ -495,6 +495,12 @@
       const d2  = await r2.json();
       grades = {};
       (d2.grades || []).forEach(g => { grades[g.field_name] = g; });
+      // Remove stale grades for conditional fields that no longer apply
+      // (e.g. ni_handling grade saved when pipeline flagged ni_trial=true, then re-run corrected it)
+      const pd = output?.output_json || output;
+      GRADE_FIELDS.forEach(f => {
+        if (f.conditional === 'ni_trial' && !pd?.extraction_flags?.ni_trial) delete grades[f.id];
+      });
     } catch (_) {}
 
     // Populate left panel
