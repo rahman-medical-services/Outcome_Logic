@@ -86,6 +86,7 @@ export default async function handler(req, res) {
         'error_taxonomy',
         'harm_severity',
         'pipeline_section',
+        'root_cause_stage',
         'correction_text',
         'reference_standard_value',
         'suspicious_agreement',
@@ -112,6 +113,7 @@ export default async function handler(req, res) {
       error_taxonomy,
       harm_severity,
       pipeline_section,
+      root_cause_stage,
       correction_text,
       reference_standard_value,
       suspicious_agreement,
@@ -130,7 +132,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `match_status must be one of: ${validMatchStatuses.join(', ')}` });
     }
     const validTaxonomies = [
-      'recall_failure', 'correlated_recall', 'ranking_failure',
+      'recall_failure', 'correlated_recall', 'ranking_hierarchy', 'ranking_ambiguity',
       'misclassification', 'interpretation_failure', 'hallucination', 'formatting_enum',
     ];
     if (error_taxonomy && !validTaxonomies.includes(error_taxonomy)) {
@@ -145,6 +147,10 @@ export default async function handler(req, res) {
     const validSections = ['extractor', 'adjudicator', 'post_processing'];
     if (pipeline_section && !validSections.includes(pipeline_section)) {
       return res.status(400).json({ error: `pipeline_section must be one of: ${validSections.join(', ')}` });
+    }
+    const validRCS = ['extractor', 'adjudicator', 'schema_design', 'prompt_guidance', 'document_structure'];
+    if (root_cause_stage && !validRCS.includes(root_cause_stage)) {
+      return res.status(400).json({ error: `root_cause_stage must be one of: ${validRCS.join(', ')}` });
     }
 
     // Verify the extraction exists
@@ -171,6 +177,7 @@ export default async function handler(req, res) {
     if (error_taxonomy         !== undefined) payload.error_taxonomy          = error_taxonomy;
     if (harm_severity          !== undefined) payload.harm_severity           = harm_severity !== null ? Number(harm_severity) : null;
     if (pipeline_section       !== undefined) payload.pipeline_section        = pipeline_section;
+    if (root_cause_stage       !== undefined) payload.root_cause_stage        = root_cause_stage;
     if (correction_text        !== undefined) payload.correction_text         = correction_text;
     if (reference_standard_value !== undefined) payload.reference_standard_value = reference_standard_value;
     if (suspicious_agreement   !== undefined) payload.suspicious_agreement    = Boolean(suspicious_agreement);

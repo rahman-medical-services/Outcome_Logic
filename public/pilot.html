@@ -210,11 +210,20 @@
   const TAX_OPTIONS = [
     { val: 'recall_failure',         label: 'Class 1 — Recall Failure' },
     { val: 'correlated_recall',      label: 'Class 2 — Correlated Recall Failure' },
-    { val: 'ranking_failure',        label: 'Class 3 — Ranking Failure' },
+    { val: 'ranking_hierarchy',      label: 'Class 3a — Ranking: Hierarchy Violation' },
+    { val: 'ranking_ambiguity',      label: 'Class 3b — Ranking: Ambiguity Resolution Failure' },
     { val: 'misclassification',      label: 'Class 4 — Misclassification' },
     { val: 'interpretation_failure', label: 'Class 5 — Interpretation Failure' },
     { val: 'hallucination',          label: 'Class 6 — Hallucination' },
     { val: 'formatting_enum',        label: 'Class 7 — Formatting / Enum Error' },
+  ];
+
+  const RCS_OPTIONS = [
+    { val: 'extractor',          label: 'Extractor (A or B)' },
+    { val: 'adjudicator',        label: 'Adjudicator' },
+    { val: 'schema_design',      label: 'Schema Design' },
+    { val: 'prompt_guidance',    label: 'Prompt Guidance' },
+    { val: 'document_structure', label: 'Document Structure' },
   ];
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -802,6 +811,7 @@
     const sev = existing?.harm_severity || null;
     const tax = existing?.error_taxonomy || null;
     const ps  = existing?.pipeline_section || null;
+    const rcs = existing?.root_cause_stage || null;
     const showExtra = ms && ms !== 'exact_match';
 
     const msBtns = [
@@ -829,6 +839,10 @@
 
     const psOptions = ['extractor','adjudicator','post_processing']
       .map(p => `<option value="${p}" ${ps === p ? 'selected' : ''}>${p.replace(/_/g, ' ')}</option>`)
+      .join('');
+
+    const rcsOptions = RCS_OPTIONS
+      .map(r => `<option value="${r.val}" ${rcs === r.val ? 'selected' : ''}>${escHtml(r.label)}</option>`)
       .join('');
 
     const savedIndicator = existing
@@ -908,6 +922,15 @@
               ${psOptions}
             </select>
           </div>
+        </div>
+
+        <!-- Root cause stage (optional) -->
+        <div class="mb-3">
+          <div class="text-xs text-slate-500 mb-1">Root cause stage <span class="text-slate-600">(optional — deepest fixable origin)</span></div>
+          <select id="rcs-${field.id}" onchange="onRcsChange('${field.id}')">
+            <option value="">— not specified —</option>
+            ${rcsOptions}
+          </select>
         </div>
 
         <!-- Severity -->
@@ -1062,6 +1085,12 @@
     scheduleSave(fieldId);
   }
 
+  function onRcsChange(fieldId) {
+    if (!grades[fieldId]) grades[fieldId] = {};
+    grades[fieldId].root_cause_stage = document.getElementById(`rcs-${fieldId}`)?.value || null;
+    scheduleSave(fieldId);
+  }
+
   // ── Progress bar ──────────────────────────────────────────────────────────
   function updateProgressBar() {
     const total  = document.querySelectorAll('[id^="card-"]').length;
@@ -1084,6 +1113,7 @@
     const g   = grades[fieldId] || {};
     const tax = document.getElementById(`tax-${fieldId}`)?.value || null;
     const ps  = document.getElementById(`ps-${fieldId}`)?.value  || null;
+    const rcs = document.getElementById(`rcs-${fieldId}`)?.value || null;
     const ref = document.getElementById(`ref-${fieldId}`)?.value || null;
     const corr = document.getElementById(`corr-${fieldId}`)?.value || null;
     const suspCb   = document.getElementById(`susp-cb-${fieldId}`);
@@ -1096,6 +1126,7 @@
       error_taxonomy:           tax || null,
       harm_severity:            g.harm_severity || null,
       pipeline_section:         ps || null,
+      root_cause_stage:         rcs || null,
       correction_text:          corr || null,
       reference_standard_value: ref || null,
       suspicious_agreement:     suspCb?.checked || false,
