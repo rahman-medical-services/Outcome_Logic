@@ -2,7 +2,7 @@
 id: "handover"
 type: "session-handover"
 version: 5
-session: "Session 8 — 2026-04-15"
+session: "Session 9 — 2026-04-16"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -19,7 +19,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ---
 
-## Current State (as of 15 April 2026 — v4.6.0)
+## Current State (as of 16 April 2026 — v4.7.0)
 
 **Branch:** All work committed directly to `main`. No active feature branches. See CLAUDE.md git workflow.
 
@@ -40,6 +40,14 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 **⚠️ SCHEMA NOT YET DEPLOYED — must run `supabase/schema-study.sql` before grading any paper**
 The schema was rewritten in Session 8 to fix critical bugs. The Supabase instance still has the old broken schema. Run via Dashboard → SQL Editor before touching pilot.html.
+
+**Completed in Session 9 (2026-04-16):**
+- ✅ **Error taxonomy C3 split** — `ranking_failure` (C3) split into `ranking_hierarchy` (C3a: extraction picks wrong position in known hierarchy, e.g. co-primary vs secondary) and `ranking_ambiguity` (C3b: true tie between reported values, right level but wrong pick). `docs/ERROR_TAXONOMY.md` updated. `pilot.html`, `api/study-grade.js`, `supabase/schema-study.sql`, `api/study-summary.js` all updated. BLOCKER fixed: study-summary.js was silently dropping all C3 grades — both the `error_taxonomy_dist` initialiser and the `categories` array had `ranking_failure` and neither had the split names.
+- ✅ **`root_cause_stage` field** — new optional attribution field on `study_grades`. Separate from `pipeline_section` (which node failed) — this tracks *why* (extractor | adjudicator | schema_design | prompt_guidance | document_structure). `pilot.html` grading card, `api/study-grade.js`, `supabase/schema-study.sql`, `api/study-summary.js` (SELECT, flatGrades, `computeRootCauseBreakdown()`), `docs/ERROR_TAXONOMY.md` all updated.
+- ✅ **`zero_event_arm` + `multi_arm_trial` flags** — two new boolean flags in `extraction_flags` schema in `lib/pipeline.js`. ARM VALUE RULE reinforced: arm_a/arm_b = per-arm observed values, NOT between-group effect size. ARM VALUE RULE violation warning added to `postProcess()` for synthetic endpoints. `postProcess()` exported for import by pipeline-v1.js.
+- ✅ **Utility layer backlog** — GPT critique reviewed and accepted. Separate document-level clinical usability assessment (4 questions, blind reviewer, Phase 2). Added to `docs/FEATURES.md`.
+- ✅ **V1 single-node pipeline** (`lib/pipeline-v1.js`) — built following adversarial code review. Single Gemini flash-lite call, `thinkingBudget: 512`, identical output schema to V3. `callGemini` deliberately duplicated (not imported) to isolate V1 from any future V3 prompt changes during Phase 1. `postProcess()` shared. `api/study.js` imports `runPipelineV1` and routes `version: 'v1'` to it.
+- ✅ **study.html V1 column** — V1 Run / Re-V1 / V1-PDF buttons, purple badge, `runV1()` function, `runFromPdf()` generalised to accept `version` param, `viewOutput()` accepts version with [V1]/[V3] modal prefix, stats bar shows V1 complete + "ready to compare" counts.
 
 **Completed in Session 8 (2026-04-15):**
 - ✅ **All 10 pilot paper PMIDs verified against live PubMed** — previous PMIDs were AI-generated and wrong (e.g. 29126895 was an ECMO paper, not ORBITA). All 10 now corrected in `supabase/schema-study.sql` via E-utilities API verification. Notable: PROFHER is JAMA not Lancet; SCOT-HEART is 2018 not 2019.
@@ -113,8 +121,8 @@ Three search paths via `Promise.allSettled` (partial results survive any single 
 | `lib/pipeline.js` | 3-node pipeline — Extractor A (Gemini) + B (OpenAI) + Adjudicator |
 | `lib/commentary.js` | Node 4 expert context |
 | `api/analyze.js` | Main analysis endpoint (rate-limited, maxDuration: 120s) |
-| `api/analyze-v1.js` | V1 single-node endpoint — **NOT YET BUILT** |
-| `lib/pipeline-v1.js` | V1 single-node pipeline — **NOT YET BUILT** |
+| `api/analyze-v1.js` | V1 single-node endpoint — not yet built (not needed for Phase 0) |
+| `lib/pipeline-v1.js` | V1 single-node pipeline — **built and integrated into study.js** |
 | `api/library-save.js` | Saves analysis to Supabase |
 | `api/library-get.js` | Retrieves trials (paginated) |
 | `api/library-batch.js` | Bulk processing |
@@ -157,7 +165,8 @@ Phase 0 runs the current pipeline (V3) against 10 papers. Goal: identify and eli
 5. **NI structured output fields** — `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label`. PROFHER is NI design — paper 8 of Phase 0 will expose this.
 
 ### Phase 1 (after Phase 0 findings)
-- **Build `lib/pipeline-v1.js` + `api/analyze-v1.js`** — V1 single-node baseline for Phase 1 comparison arm. Required for powered validation study (N≥25 papers, ≥2 raters, Kappa ≥0.6).
+- **`lib/pipeline-v1.js`** — ✅ built. Integrated into `api/study.js` for study runs. `api/analyze-v1.js` (public endpoint) not yet needed — build for Phase 1 if separate rate-limiting required.
+- **Run Phase 1**: N≥25 papers, ≥2 raters, Kappa ≥0.6. Both V3 and V1 must be run on the same papers via `study.html`. Grading is per-extraction (pilot.html). Statistical comparison of V3 vs V1 exact-match rate.
 
 ### Study Runner — PDF-Only (Phase 0 and Phase 1)
 
@@ -180,3 +189,4 @@ Both extractors now use different model families (Gemini + OpenAI). Correlated e
 - Session 6 (2026-04-15): gpt-4o-mini Extractor B, parallel extractors, 120s timeout, ChatGPT critique F1/F3/F5/F6 fixes, subgroup clarity (pre/post-hoc, CI-crosses-one, interaction note), first HIP ATTACK run confirmed
 - Session 7 (2026-04-15): Adjudicator anti-bias rule (no preference for extreme effects or abstract prominence), Phase 0 clarified as V3-only (V1 deferred to Phase 1), ERROR_TAXONOMY.md (7-class system), pilot.html consistency gate (blocking, dynamic from effect_measure, pre-marks Fail on incoherence), taxonomy dropdown updated to 7-class, pilot-summary.html CSV + api/study-summary.js updated to 7-class taxonomy
 - Session 8 (2026-04-15): All 10 pilot PMIDs verified (was AI-generated/wrong). Schema/API alignment (study_outputs→extractions, output_id→extraction_id, 7-class taxonomy CHECK, reference_standard_value, UNIQUE fix). Batch PDF upload with fuzzy pilot-paper matching (study.html). pilot.html endpoint bugs fixed. study.js v2 fallback for v3_output. DESIGN_DECISIONS.md. Meta-analysis gap analysis → 6 items added to Phase 2 backlog.
+- Session 9 (2026-04-16): C3 taxonomy split (ranking_hierarchy / ranking_ambiguity) + BLOCKER fix in study-summary.js. root_cause_stage field across schema/API/grading UI/summary. zero_event_arm + multi_arm_trial flags. postProcess() exported; ARM VALUE RULE warning. Utility layer added to Phase 2 backlog. V1 single-node pipeline (lib/pipeline-v1.js) — callGemini duplicated for Phase 1 isolation. study.html V1 column complete. api/study.js routes version:v1.

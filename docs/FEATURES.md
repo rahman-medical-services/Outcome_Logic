@@ -131,15 +131,12 @@ These must be complete before any Phase 0 paper runs.
 
 ## Phase 1 — Scale and Publication
 
-### ⬜ `lib/pipeline-v1.js` — single-node V1 baseline
-**Status:** Not started. Required before Phase 1 powered validation study — not needed for Phase 0.
-**Spec:** Single mega-prompt, no parallel extractors, no adjudicator. Condensed extractor prompt only. NO source citations, NO adversarial framing. Serves as comparison arm for Phase 1 statistical validation.
-**Effort:** Medium (1–2 hrs).
+### ✅ `lib/pipeline-v1.js` — single-node V1 baseline **[Completed Session 9, 2026-04-16]**
+**Status:** Complete. Single Gemini flash-lite call, `thinkingBudget:512`, identical output schema to V3. `callGemini` deliberately duplicated (not imported) to isolate V1 from V3 prompt changes during Phase 1. `postProcess()` shared via export from pipeline.js. Integrated into `api/study.js` (`version:'v1'` routing). study.html V1 column complete (Run V1, Re-V1, V1-PDF buttons, purple badge, [V1] modal prefix).
 
-### ⬜ `api/analyze-v1.js` — V1 endpoint
-**Status:** Not started.
-**Spec:** Thin wrapper calling `pipeline-v1.js`. Same rate limiting as `analyze.js`.
-**Effort:** Easy (30 min, mostly copying analyze.js structure).
+### ⬜ `api/analyze-v1.js` — V1 public endpoint
+**Status:** Not started. Not needed for Phase 0 or Phase 1 study runs (those go via api/study.js). Build only if V1 needs separate rate-limited public access.
+**Effort:** Easy (30 min).
 
 ---
 
