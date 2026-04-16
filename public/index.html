@@ -468,17 +468,24 @@
               <div id="chartSection" class="mb-8">
                 <div class="chart-unit">
                   <h2 id="chartTitle" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4">Endpoint Visualisation</h2>
-                  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
+                  <!-- bar chart — shown for rate_pct, mean_score, median, count outcomes -->
+                  <div id="canvasWrapper1" class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
                     <canvas id="endpointChart"></canvas>
                   </div>
+                  <!-- forest plot — shown for time_to_event / HR outcomes -->
+                  <div id="forestWrapper1" class="hidden py-6 px-2"></div>
+                  <!-- treatment effect annotation — shown for all outcomes that have point_estimate -->
+                  <div id="effectRow1" class="hidden"></div>
                   <p id="ui-synthesis" class="text-slate-700 text-sm mt-4 text-center italic"></p>
                 </div>
 
                 <div id="chart2Section" class="hidden mt-8 chart-unit">
                   <h2 id="chartTitle2" class="text-lg font-bold text-slate-800 border-b pb-2 mb-4"></h2>
-                  <div class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
+                  <div id="canvasWrapper2" class="relative h-72 w-full" style="max-width:100%;overflow:hidden;">
                     <canvas id="endpointChart2"></canvas>
                   </div>
+                  <div id="forestWrapper2" class="hidden py-6 px-2"></div>
+                  <div id="effectRow2" class="hidden"></div>
                   <p id="ui-synthesis2" class="text-slate-700 text-sm mt-4 text-center italic"></p>
                 </div>
               </div>
@@ -943,14 +950,36 @@ function populateDashboard(data) {
   document.getElementById('ui-synthesis').innerText  = '';
   document.getElementById('chartTitle2').innerText   = '';
   document.getElementById('ui-synthesis2').innerText = '';
+  // Reset new elements
+  ['forestWrapper1','forestWrapper2'].forEach(id => { const el = document.getElementById(id); if (el) { el.innerHTML = ''; el.classList.add('hidden'); } });
+  ['effectRow1','effectRow2'].forEach(id => { const el = document.getElementById(id); if (el) { el.innerHTML = ''; el.classList.add('hidden'); } });
+  ['canvasWrapper1','canvasWrapper2'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); });
   chartSection.classList.remove('chart-visible');
   chartSection.style.display = 'none';
   chart2Section.classList.add('hidden');
 
+  function renderEndpoint(ep, canvasId, canvasWrapperId, forestWrapperId, effectRowId) {
+    const isForest = ep.effect_measure === 'HR' || ep.value_type === 'time_to_event';
+    if (isForest) {
+      document.getElementById(canvasWrapperId)?.classList.add('hidden');
+      document.getElementById(forestWrapperId)?.classList.remove('hidden');
+      renderForestPlot(forestWrapperId, ep);
+      renderEffectAnnotation(effectRowId, ep);
+      return true;
+    }
+    const chart = renderChart(canvasId, ep);
+    if (chart) {
+      if (canvasId === 'endpointChart') currentChart = chart; else currentChart2 = chart;
+      renderEffectAnnotation(effectRowId, ep);
+      return true;
+    }
+    return false;
+  }
+
   if (endpoints.length > 0) {
     const ep1 = endpoints[0];
-    currentChart = renderChart('endpointChart', ep1);
-    if (currentChart) {
+    const rendered = renderEndpoint(ep1, 'endpointChart', 'canvasWrapper1', 'forestWrapper1', 'effectRow1');
+    if (rendered) {
       chartSection.classList.add('chart-visible');
       chartSection.style.display = 'block';
       document.getElementById('chartTitle').innerText   = ep1.label || '';
@@ -960,8 +989,8 @@ function populateDashboard(data) {
 
   if (endpoints.length > 1) {
     const ep2 = endpoints[1];
-    currentChart2 = renderChart('endpointChart2', ep2);
-    if (currentChart2) {
+    const rendered = renderEndpoint(ep2, 'endpointChart2', 'canvasWrapper2', 'forestWrapper2', 'effectRow2');
+    if (rendered) {
       document.getElementById('chartTitle2').innerText   = ep2.label || '';
       document.getElementById('ui-synthesis2').innerText = ep2.clinical_synthesis || '';
       chart2Section.classList.remove('hidden');
@@ -1286,6 +1315,91 @@ function renderChart(canvasId, endpointData) {
     console.error('renderChart error:', err);
     return null;
   }
+}
+
+// ── Treatment effect annotation (bar chart outcomes) ─────────────────
+function renderEffectAnnotation(elementId, ep) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const pe = ep.point_estimate;
+  const lo = ep.ci_lower;
+  const hi = ep.ci_upper;
+  if (pe == null) { el.classList.add('hidden'); return; }
+  const measure = ep.effect_measure || 'Effect';
+  const isRatio = ['HR','OR','RR','RRR'].includes(measure);
+  const sig = lo != null && hi != null && (isRatio ? (hi < 1 || lo > 1) : (hi < 0 || lo > 0));
+  const pStr  = ep.p_value ? ` · p=${ep.p_value}` : '';
+  const ciStr = (lo != null && hi != null) ? ` (95% CI ${lo} to ${hi})` : '';
+  const sigStr = sig ? ' · statistically significant' : ' · not statistically significant';
+  const cls = sig
+    ? 'border-green-200 bg-green-50 text-green-800'
+    : 'border-slate-200 bg-slate-50 text-slate-500';
+  el.className = `mt-2 px-3 py-1.5 rounded border text-xs text-center ${cls}`;
+  el.textContent = `Treatment effect: ${measure} ${pe}${ciStr}${pStr}${sigStr}`;
+  el.classList.remove('hidden');
+}
+
+// ── Forest plot (time_to_event / HR outcomes) ────────────────────────
+function renderForestPlot(containerId, ep) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const pe = ep.point_estimate;
+  const lo = ep.ci_lower;
+  const hi = ep.ci_upper;
+  if (pe == null) {
+    container.innerHTML = '<p class="text-slate-400 text-xs text-center py-6">Treatment effect data not available for visualisation</p>';
+    return;
+  }
+  const measure  = ep.effect_measure || 'Effect';
+  const isRatio  = ['HR','OR','RR','RRR'].includes(measure);
+  const nullVal  = isRatio ? 1.0 : 0.0;
+  // axis bounds
+  const xMin = isRatio ? 0.1 : (lo != null ? Math.min(lo * 1.5, -0.1) : -1);
+  const xMax = isRatio ? 10.0 : (hi != null ? Math.max(hi * 1.5, 0.1) : 1);
+  const toFrac = isRatio
+    ? v => (Math.log(Math.max(v, 0.001)) - Math.log(xMin)) / (Math.log(xMax) - Math.log(xMin))
+    : v => (v - xMin) / (xMax - xMin);
+  const clamp = f => Math.max(0, Math.min(1, f));
+  // SVG layout
+  const W = 520; const H = 100;
+  const LP = 10; const RP = 150;
+  const PW = W - LP - RP;
+  const midY = 46;
+  const xPe   = LP + clamp(toFrac(pe))      * PW;
+  const xNull  = LP + clamp(toFrac(nullVal)) * PW;
+  const xLo   = lo != null ? LP + clamp(toFrac(lo)) * PW : null;
+  const xHi   = hi != null ? LP + clamp(toFrac(hi)) * PW : null;
+  const sig   = lo != null && hi != null && (isRatio ? (hi < 1 || lo > 1) : (hi < 0 || lo > 0));
+  const col   = sig ? '#16a34a' : '#64748b';
+  // tick marks
+  const rawTicks = isRatio ? [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
+                           : [xMin, xMin/2, 0, xMax/2, xMax].map(v => +v.toFixed(2));
+  const ticks = rawTicks.map(t => {
+    const f = toFrac(t); if (f < -0.01 || f > 1.01) return '';
+    const tx = (LP + clamp(f) * PW).toFixed(1);
+    const lbl = isRatio ? (t < 1 ? t.toFixed(1) : String(t)) : t.toFixed(1);
+    return `<line x1="${tx}" y1="${midY+12}" x2="${tx}" y2="${midY+18}" stroke="#94a3b8" stroke-width="1"/>
+            <text x="${tx}" y="${midY+30}" text-anchor="middle" font-size="9" fill="#94a3b8">${lbl}</text>`;
+  }).join('');
+  const ciSvg = (xLo != null && xHi != null) ? `
+    <line x1="${xLo.toFixed(1)}" y1="${midY}" x2="${xHi.toFixed(1)}" y2="${midY}" stroke="${col}" stroke-width="2.5"/>
+    <line x1="${xLo.toFixed(1)}" y1="${midY-8}" x2="${xLo.toFixed(1)}" y2="${midY+8}" stroke="${col}" stroke-width="2.5"/>
+    <line x1="${xHi.toFixed(1)}" y1="${midY-8}" x2="${xHi.toFixed(1)}" y2="${midY+8}" stroke="${col}" stroke-width="2.5"/>` : '';
+  const pStr   = ep.p_value ? `p=${ep.p_value}` : (sig ? 'p<0.05' : 'p≥0.05');
+  const valLbl = `${measure} ${pe.toFixed ? pe.toFixed(2) : pe}${(lo!=null&&hi!=null) ? ` (${lo}–${hi})` : ''}, ${pStr}`;
+  const [favL, favR] = isRatio
+    ? ['← Favours intervention', 'Favours control →']
+    : ['← Favours control',      'Favours intervention →'];
+  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+  <line x1="${LP}" y1="${midY}" x2="${LP+PW}" y2="${midY}" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="${xNull.toFixed(1)}" y1="${midY-24}" x2="${xNull.toFixed(1)}" y2="${midY+18}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+  ${ciSvg}
+  <rect x="${(xPe-6).toFixed(1)}" y="${(midY-6).toFixed(1)}" width="12" height="12" fill="${col}" transform="rotate(45,${xPe.toFixed(1)},${midY})"/>
+  ${ticks}
+  <text x="${LP}" y="${midY-28}" font-size="9" fill="#94a3b8">${favL}</text>
+  <text x="${(LP+PW).toFixed(1)}" y="${midY-28}" text-anchor="end" font-size="9" fill="#94a3b8">${favR}</text>
+  <text x="${(LP+PW+8).toFixed(1)}" y="${(midY+4).toFixed(1)}" font-size="10" fill="${col}" font-weight="600">${valLbl}</text>
+</svg>`;
 }
 
 function exportReport() {
