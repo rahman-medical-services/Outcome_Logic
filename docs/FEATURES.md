@@ -207,6 +207,13 @@ These are data fields not currently extracted that are required for defensible p
 **Note:** `arm_a_n` and `arm_b_n` already exist for primary outcome. This is a global trial-level field.
 **Effort:** Low.
 
+#### ⬜ Exclusion criteria structured field **[Low — applicability assessment]**
+**Status:** Not started.
+**Gap:** PICO population field captures inclusion criteria only. Key exclusion criteria (e.g. prior revascularisation, LVEF threshold) are not extracted but are clinically important for applicability assessment — determining whether a trial's result generalises to a specific patient.
+**Fix:** Add `exclusion_criteria` as a subfield under `clinician_view.pico` in the adjudicator output schema. Free-text string or short array. Not required for pooling but improves per-trial applicability display.
+**Effort:** Low (prompt addition only, no DB migration).
+**Note:** Absence of exclusion criteria from the Population field is NOT an extraction error — graders should not penalise for this in Phase 0.
+
 #### ⬜ Follow-up duration **[Medium]**
 **Status:** Not started.
 **Gap:** No structured follow-up duration field. Required for heterogeneity detection (pooling 1-month and 12-month mortality is a clinical error). Related to outcome timepoint but distinct — follow-up duration is the total observation window, not the outcome assessment time.
@@ -263,6 +270,11 @@ See PIPELINE_SPEC.md for `callWithRetry()` and `runWithConcurrency()`. Must be a
 
 ### ⬜ Phase 1 rater UI (`/registrar-review`, `/consultant-review`)
 **Status:** Not started. Phase 0 completes first; Phase 1 architecture follows from its findings.
+
+### ⬜ Grading completion gate — Phase 1 pilot.html **[Phase 1 — data integrity]**
+**Status:** Not started.
+**Spec:** Block navigation away from a paper (or submission of grades) if any field card is incomplete. Incomplete = match_status not set, OR match_status is not exact_match and taxonomy/severity/pipeline_section are unset. Highlight incomplete cards visually (red border or scroll-to). Phase 0 relies on PI discipline; Phase 1 with multiple raters requires enforcement.
+**Effort:** Low — add validation pass before any navigation/submit action in pilot.html.
 
 ---
 

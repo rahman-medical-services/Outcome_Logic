@@ -402,8 +402,9 @@
          </button>`;
 
     if (hasOut) {
-      // Async: fetch grade count
-      fetchGradeCount(outputId);
+      // Async: fetch grade count — pass NI flag so denominator is correct (25 vs 26)
+      const isNI = !!(output?.output_json?.extraction_flags?.ni_trial);
+      fetchGradeCount(outputId, isNI);
     }
 
     return `
@@ -420,7 +421,7 @@
     `;
   }
 
-  async function fetchGradeCount(outputId) {
+  async function fetchGradeCount(outputId, isNI = false) {
     if (!outputId) return;
     const headers = await getAuthHeaders();
     if (!headers) return;
@@ -431,10 +432,10 @@
       const count = (data.grades || []).length;
       const el    = document.getElementById(`gc-${outputId}`);
       if (!el) return;
-      const pct   = Math.round((count / 26) * 100);
-      const cls   = count === 26 ? 'bg-green-900 text-green-300' : count > 0 ? 'bg-amber-900 text-amber-300' : 'bg-slate-700 text-slate-400';
+      const total = isNI ? 26 : 25;
+      const cls   = count >= total ? 'bg-green-900 text-green-300' : count > 0 ? 'bg-amber-900 text-amber-300' : 'bg-slate-700 text-slate-400';
       el.className = `text-xs px-2 py-0.5 rounded ${cls}`;
-      el.textContent = `${count} / 26 fields`;
+      el.textContent = `${count} / ${total} fields`;
     } catch (_) {}
   }
 
@@ -748,7 +749,17 @@
         return;
       }
 
-      const extractedRaw = getNestedValue(pipelineData, field.path);
+      // For primary result fields, fall back to candidates when endpoints[0] is empty
+      let extractedRaw = getNestedValue(pipelineData, field.path);
+      if (!extractedRaw) {
+        const candidates = pipelineData?.primary_endpoint_candidates || [];
+        const selected   = candidates.find(c => c.selected) || candidates[0] || null;
+        if (field.id === 'primary_result_values' && selected) {
+          extractedRaw = selected;
+        } else if (field.id === 'primary_result_synthesis' && selected) {
+          extractedRaw = pipelineData?.clinician_view?.pico?.primary_outcome || null;
+        }
+      }
       const formatted    = formatExtractedValue(extractedRaw);
       const existing     = grades[field.id] || null;
 
@@ -969,9 +980,9 @@
   function updateProgressBar() {
     const total  = document.querySelectorAll('[id^="card-"]').length;
     const graded = Object.keys(grades).length;
-    const pct    = total > 0 ? Math.round((graded / 26) * 100) : 0;
+    const pct    = total > 0 ? Math.round((graded / total) * 100) : 0;
     document.getElementById('grading-progress-fill').style.width = pct + '%';
-    document.getElementById('grading-progress-text').textContent = `${graded} / 26 fields graded`;
+    document.getElementById('grading-progress-text').textContent = `${graded} / ${total} fields graded`;
   }
 
   // ── Save grade ────────────────────────────────────────────────────────────
