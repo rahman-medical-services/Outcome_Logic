@@ -95,17 +95,21 @@ CREATE TABLE IF NOT EXISTS study_raters (
 --   pico | primary_endpoint | secondary_endpoints | appraisal |
 --   adverse_events | subgroups | patient_view
 --
--- error_taxonomy (7-class — see docs/ERROR_TAXONOMY.md):
+-- error_taxonomy (8-class — see docs/ERROR_TAXONOMY.md):
 --   recall_failure         — value present, both extractors missed it
 --   correlated_recall      — both extractors anchored to same wrong prominent text
---   ranking_failure        — correct value in candidates, adjudicator ranked it wrong
+--   ranking_hierarchy      — C3a: correct candidate present; adjudicator violated ranking rules (adjusted > unadjusted etc.)
+--   ranking_ambiguity      — C3b: correct candidate present; adjudicator chose wrong when candidates were genuinely ambiguous
 --   misclassification      — wrong category/label (e.g. wrong effect measure type)
 --   interpretation_failure — value extracted but meaning misunderstood
 --   hallucination          — extracted value has no basis in the source document
 --   formatting_enum        — correct value, wrong format or enum string
 --
--- pipeline_section: where the error likely originated
+-- pipeline_section: where the error manifested in the pipeline
 --   extractor | adjudicator | post_processing
+--
+-- root_cause_stage: deepest fixable origin of the error (optional)
+--   extractor | adjudicator | schema_design | prompt_guidance | document_structure
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS study_grades (
   id                        UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -123,7 +127,8 @@ CREATE TABLE IF NOT EXISTS study_grades (
                             )),
   error_taxonomy            TEXT
                             CHECK (error_taxonomy IN (
-                              'recall_failure', 'correlated_recall', 'ranking_failure',
+                              'recall_failure', 'correlated_recall',
+                              'ranking_hierarchy', 'ranking_ambiguity',
                               'misclassification', 'interpretation_failure',
                               'hallucination', 'formatting_enum'
                             )),
@@ -133,6 +138,11 @@ CREATE TABLE IF NOT EXISTS study_grades (
   pipeline_section          TEXT
                             CHECK (pipeline_section IN (
                               'extractor', 'adjudicator', 'post_processing'
+                            )),
+  root_cause_stage          TEXT
+                            CHECK (root_cause_stage IN (
+                              'extractor', 'adjudicator', 'schema_design',
+                              'prompt_guidance', 'document_structure'
                             )),
   -- suspicious_agreement: both V1 and V3 give the same wrong answer
   -- (more dangerous than one-sided failure — set by rater during Phase 1/2 comparison)

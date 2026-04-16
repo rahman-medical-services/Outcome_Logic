@@ -87,11 +87,11 @@ Any node        Hallucination
 
 ---
 
-### Class 3 — Ranking Failure (Adjudicator)
+### Class 3a — Ranking: Hierarchy Violation (Adjudicator)
 
-**Definition:** The correct value was present in `primary_endpoint_candidates` but was not selected. The adjudicator ranked a less appropriate candidate above it.
+**Definition:** The correct value was present in `primary_endpoint_candidates` but was not selected because the adjudicator violated the pre-specified ranking hierarchy (adjusted > unadjusted, ITT > PP, pre-specified > post-hoc, etc.).
 
-**Detectable by:** Checking whether the correct value is in the array but has `selected: false`.
+**Detectable by:** Checking whether the correct value is in the array but has `selected: false`, and whether the selected candidate ranks lower by explicit hierarchy rules.
 
 **Pipeline origin:** Adjudicator.
 
@@ -99,12 +99,32 @@ Any node        Hallucination
 
 | Subtype | Description | Example |
 |---|---|---|
-| 3a — Priority violation | Adjudicator ignored the ranking hierarchy (adjusted > unadjusted, ITT > PP, etc.) | Unadjusted HR selected despite adjusted HR being present and correctly labelled |
-| 3b — Label trust | Adjudicator trusted extractor label over analytical appropriateness | Candidate labelled "secondary analysis" deprioritised even though it matched pre-specified primary endpoint in Methods |
-| 3c — Anti-bias failure | Adjudicator selected more extreme value or abstract-prominent value | HR of 0.61 selected over HR of 0.74 because it was further from null, not because it was analytically superior |
-| 3d — Source trust | Adjudicator weighted synthetic or uncertain citation as confirmation | Both extractors produced similar-looking citations for wrong value; adjudicator treated this as source grounding |
+| 3a-i — Analysis type hierarchy | Unadjusted selected over adjusted | Unadjusted HR selected despite adjusted Cox HR being present and correctly labelled |
+| 3a-ii — Population hierarchy | PP or mITT selected over ITT | Per-protocol result selected when ITT result was available |
+| 3a-iii — Anti-bias failure | More extreme or abstract-prominent value selected | HR 0.61 selected over HR 0.74 because it was further from null, not analytically superior |
+| 3a-iv — Source trust | Synthetic/uncertain citation weighted as confirmation | Both extractors cite wrong table; adjudicator treats agreement as grounding |
 
-**Fix target:** Adjudicator prompt — ranking rules, anti-bias rule, or source verification instructions.
+**Fix target:** Adjudicator ranking rules — add explicit hierarchy enforcement and anti-bias check.
+
+---
+
+### Class 3b — Ranking: Ambiguity Resolution Failure (Adjudicator)
+
+**Definition:** The correct value was present in `primary_endpoint_candidates` but was not selected because the candidates were genuinely ambiguous — multiple candidates were plausibly defensible — and the adjudicator chose the wrong one. Distinguished from 3a in that no clear hierarchy rule was violated; the failure was a judgement call under uncertainty.
+
+**Detectable by:** Multiple candidates exist with similar labels and similar plausibility; the correct one is present but the selection rationale is not clearly wrong by rule.
+
+**Pipeline origin:** Adjudicator.
+
+**Mechanism subtypes:**
+
+| Subtype | Description | Example |
+|---|---|---|
+| 3b-i — Label trust failure | Adjudicator trusted extractor label without cross-checking Methods | Candidate labelled "secondary analysis" deprioritised though it matched pre-specified primary endpoint |
+| 3b-ii — Timepoint ambiguity | Multiple timepoints present; wrong one selected | 3-year composite selected when 5-year was the pre-specified primary |
+| 3b-iii — Subgroup/overall confusion | Subgroup result promoted over overall trial result | STICH geographic subgroup result selected as primary endpoint |
+
+**Fix target:** Adjudicator prompt — require Methods section cross-check for pre-specified primary endpoint before ranking candidates.
 
 ---
 
@@ -192,6 +212,26 @@ Any node        Hallucination
 
 ---
 
+---
+
+## Root Cause Stage
+
+`root_cause_stage` is an optional field recorded alongside `pipeline_section` in the grading schema. It captures the deepest fixable origin of the error — the thing that, if changed, would prevent the error from occurring again.
+
+**Why this is separate from `pipeline_section`:** `pipeline_section` records where the error *manifested* (e.g. adjudicator chose the wrong value). `root_cause_stage` records *why* — which could be: the extractor never surfaced the right candidate (extractor), the adjudicator ranking logic was wrong (adjudicator), the schema didn't have a slot for the right data type (schema_design), the prompt didn't instruct correctly (prompt_guidance), or the source document was structured in an ambiguous way that no prompt change would fix (document_structure).
+
+**Interaction effects:** Adjudicator errors often have their root cause in extractor omission (Class 3 errors can be reclassified as Class 1 if the correct candidate was never in the array). `root_cause_stage` captures this without requiring reclassification of the primary taxonomy.
+
+| Stage | Definition | Fix |
+|---|---|---|
+| `extractor` | Root cause is in Extractor A or B — candidate recall or labelling | Extractor prompt |
+| `adjudicator` | Root cause is in adjudicator ranking or synthesis logic | Adjudicator prompt |
+| `schema_design` | The output schema has no field or type for the correct value | Schema change |
+| `prompt_guidance` | A prompt rule is absent, ambiguous, or contradictory | Prompt revision |
+| `document_structure` | The source document structure caused the failure regardless of prompt | No pipeline fix; document-level annotation needed |
+
+---
+
 ## Phase 0 Analysis Sheet
 
 For each paper, for each field, ask these questions in order. Stop at the first yes.
@@ -245,7 +285,8 @@ Derived from GPT critique (2026-04-15). These are the operationally meaningful s
 |---|---|---|
 | 1 — Recall failure | Extractor prompt (candidate coverage check, field instructions) | Medium |
 | 2 — Correlated recall | Extractor prompt diversity; escalation logic | High |
-| 3 — Ranking failure | Adjudicator ranking rules + anti-bias rule | Low–Medium |
+| 3a — Ranking: hierarchy | Adjudicator ranking rules + anti-bias rule | Low |
+| 3b — Ranking: ambiguity | Adjudicator Methods cross-check requirement | Medium |
 | 4 — Misclassification | Extractor label verification instructions | Low |
 | 5 — Interpretation | Language audit; GRADE/RoB rubric; NI framing | Medium |
 | 6 — Hallucination | Source grounding requirements; verifySource() | Medium |
@@ -268,5 +309,7 @@ Derived from GPT critique (2026-04-15). These are the operationally meaningful s
 | Date | Change | Reason |
 |---|---|---|
 | 2026-04-15 | v1 created | Initial taxonomy based on pipeline architecture review and GPT critique |
+| 2026-04-16 | C3 split into C3a (hierarchy violation) and C3b (ambiguity resolution failure) | GPT critique identified that C3 conflated two structurally different failures with different fix targets |
+| 2026-04-16 | Added root_cause_stage concept | GPT critique identified interaction effects between pipeline_section and true root cause |
 
 *Update this table whenever a category is added, split, merged, or redefined. Note the paper that prompted the revision.*

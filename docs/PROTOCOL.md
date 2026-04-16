@@ -195,6 +195,8 @@ Scale: 1 = Cosmetic → 5 = Dangerous clinical
 
 No clinical implication. The error does not affect any clinical or meta-analytic use of the output.
 
+**Decision test:** Would a systematic review researcher care? If no, grade 1.
+
 **Anchor vignettes:**
 - Author initial format error: `R Al-Lamee` extracted as `Al-Lamee R`. No clinical relevance.
 - Journal name abbreviated vs full: `N Engl J Med` vs `New England Journal of Medicine`.
@@ -204,6 +206,8 @@ No clinical implication. The error does not affect any clinical or meta-analytic
 ### Severity 2 — Minor clinical
 
 The error introduces a minor inaccuracy that would not change any clinical decision in any plausible scenario. Would not affect systematic review inclusion/exclusion.
+
+**Decision test:** Would this affect a meta-analyst's data extraction? If no, grade 2. If yes, grade 3+.
 
 **Anchor vignettes:**
 - Year off by one: `2017` extracted as `2018` for ORBITA (published online 2017, in print 2018).
@@ -215,6 +219,8 @@ The error introduces a minor inaccuracy that would not change any clinical decis
 ### Severity 3 — Moderate clinical
 
 The error introduces imprecision that could cause minor recalibration of treatment confidence but would not reverse the clinical decision. May affect systematic review data extraction quality but would not invert a meta-analytic conclusion.
+
+**Decision test:** Would a meta-analyst extract a different value, but reach the same pooled conclusion? If yes, grade 3.
 
 **Anchor vignettes:**
 - Primary outcome timeframe omitted: `mortality` extracted instead of `90-day mortality` — the timeframe is known from context but missing from the extracted field.
@@ -229,6 +235,8 @@ The error introduces imprecision that could cause minor recalibration of treatme
 
 The error would materially affect clinical guideline development, systematic review conclusions, or meta-analytic synthesis. A clinician using this output would have meaningfully wrong information.
 
+**Decision test:** Would a clinician or guideline committee reach a materially different conclusion — same direction but wrong magnitude or wrong population? If yes, grade 4.
+
 **Anchor vignettes:**
 - Primary result CI extracted from a subgroup table instead of the primary analysis (e.g., SPORT: CI from per-protocol analysis instead of ITT).
 - Non-inferiority margin value wrong — would affect NI test interpretation.
@@ -241,6 +249,8 @@ The error would materially affect clinical guideline development, systematic rev
 ### Severity 5 — Dangerous clinical
 
 The error directly inverts a clinical treatment recommendation. Any clinician acting on this output would be advised to take the opposite action to what the evidence supports.
+
+**Decision test:** Does the error flip direction, invert arms, or conflate NI with superiority? If yes, grade 5.
 
 **Anchor vignettes:**
 - Intervention and control arms inverted: HR 0.68 favouring intervention extracted as HR 0.68 favouring control — opposite treatment recommendation.
@@ -267,7 +277,9 @@ Full definitions, subtypes, and the Phase 0 analysis sheet are in `docs/ERROR_TA
      → Only one extractor failed?               →  Class 1 (Recall Failure)
 
 2. Was the correct value in candidates but not selected?
-   → YES  →  Class 3 (Ranking Failure)
+   → YES  →  Was a clear hierarchy rule violated (adjusted > unadjusted, ITT > PP)?
+               → YES  →  Class 3a (Ranking: Hierarchy Violation)
+               → NO   →  Class 3b (Ranking: Ambiguity Resolution Failure)
 
 3. Is the value numerically/categorically correct but the label, population tag,
    analysis type, or timeframe wrong?
