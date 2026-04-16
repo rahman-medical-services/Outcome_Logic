@@ -1140,7 +1140,7 @@ function renderSubgroups(subgroups) {
   const section = document.getElementById('subgroupSection');
   const content = document.getElementById('subgroup-content');
   if (!section || !content) return;
-  if (!subgroups?.has_significant_interactions || !subgroups.items?.length) { section.classList.add('hidden'); return; }
+  if (!subgroups?.items?.length) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
   content.innerHTML = subgroups.items.map(item => {
     const badges = [];

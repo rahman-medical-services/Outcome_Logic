@@ -521,50 +521,20 @@
   }
 
   // ── Consistency gate ──────────────────────────────────────────────────────
+  // Reads from primary_endpoint_candidates (near top of schema, always populated)
+  // and clinician_view.pico.primary_outcome (reliable text summary).
+  // Does NOT read from interactive_data.endpoints — that is a chart field,
+  // placed late in the schema and frequently truncated.
   function renderGate(output) {
     const outputObj = output?.output_json || output;
-    const endpoints = getNestedValue(outputObj, 'clinician_view.interactive_data.endpoints') || [];
-    const ep   = endpoints[0] || {};
-    const arms = ep.arms || [];
 
-    // Fallback: if no structured endpoint data, show PICO primary outcome text
-    const hasStructuredData = endpoints.length > 0 && (ep.point_estimate != null || ep.effect_measure);
-    if (!hasStructuredData) {
-      const picoText = getNestedValue(outputObj, 'clinician_view.pico.primary_outcome') || '';
-      document.getElementById('gate-section').innerHTML = `
-        <div class="border border-amber-600 rounded-lg p-4" style="background:rgba(120,53,15,0.15)">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="text-amber-300 font-semibold text-sm">⚠ Consistency Gate</span>
-            <span class="text-amber-600 text-xs">— chart data not structured for this extraction</span>
-          </div>
-          <p class="text-xs text-slate-400 mb-3">
-            Structured endpoint data was not produced for this paper. Review the primary outcome text below,
-            then confirm coherence before grading.
-          </p>
-          ${picoText ? `<div class="rounded p-3 mb-4 text-xs text-slate-200" style="background:#0f172a;border:1px solid #334155">
-            <div class="text-slate-500 uppercase tracking-wide text-xs mb-2">Primary outcome (from PICO)</div>
-            ${escHtml(picoText)}
-          </div>` : '<div class="text-xs text-slate-500 mb-4 italic">No primary outcome text available.</div>'}
-          <div class="flex gap-2">
-            <button onclick="confirmGate(true)"
-              class="text-xs px-3 py-1.5 rounded border font-medium"
-              style="background:#14532d;color:#86efac;border-color:#16a34a">
-              Proceed to grading
-            </button>
-          </div>
-        </div>`;
-      return;
-    }
+    const picoText  = getNestedValue(outputObj, 'clinician_view.pico.primary_outcome') || '';
+    const candidates = outputObj?.primary_endpoint_candidates || [];
+    const selected   = candidates.find(c => c.selected) || candidates[0] || null;
 
-    const effectMeasure = ep.effect_measure || '—';
-    const pe   = ep.point_estimate != null ? ep.point_estimate : '—';
-    const ciL  = ep.ci_lower       != null ? ep.ci_lower       : '—';
-    const ciU  = ep.ci_upper       != null ? ep.ci_upper       : '—';
-    const armA = arms[0]?.group_name || '—';
-    const armB = arms[1]?.group_name || '—';
-    const pop  = ep.analysis_population || '—';
-    const adj  = ep.adjusted === true ? 'Yes' : (ep.adjusted === false ? 'No' : '—');
-    const epLabel = ep.label || 'Primary endpoint';
+    const valueStr = selected?.value  != null ? String(selected.value) : '—';
+    const labelStr = selected?.label  || '—';
+    const popStr   = selected?.population || '—';
 
     document.getElementById('gate-section').innerHTML = `
       <div class="border border-amber-600 rounded-lg p-4" style="background:rgba(120,53,15,0.15)">
@@ -578,18 +548,18 @@
         </p>
 
         <div class="rounded p-3 mb-4 text-xs space-y-1.5" style="background:#0f172a;border:1px solid #334155">
-          <div class="text-slate-500 uppercase tracking-wide text-xs mb-2">Extracted primary result — ${escHtml(epLabel)}</div>
-          <div><span class="text-slate-500 w-36 inline-block">Effect measure:</span> <span class="text-slate-200 font-mono">${escHtml(String(effectMeasure))}</span></div>
-          <div><span class="text-slate-500 w-36 inline-block">Point estimate:</span> <span class="text-slate-200 font-mono">${escHtml(String(pe))}</span></div>
-          <div><span class="text-slate-500 w-36 inline-block">95% CI:</span> <span class="text-slate-200 font-mono">${escHtml(String(ciL))} – ${escHtml(String(ciU))}</span></div>
-          <div><span class="text-slate-500 w-36 inline-block">Arm A (intervention):</span> <span class="text-slate-200">${escHtml(armA)}</span></div>
-          <div><span class="text-slate-500 w-36 inline-block">Arm B (control):</span> <span class="text-slate-200">${escHtml(armB)}</span></div>
-          <div><span class="text-slate-500 w-36 inline-block">Population:</span> <span class="text-slate-200">${escHtml(pop)}</span>
-               <span class="text-slate-500 ml-3">Adjusted:</span> <span class="text-slate-200 ml-1">${escHtml(adj)}</span></div>
+          <div class="text-slate-500 uppercase tracking-wide text-xs mb-2">Selected primary endpoint candidate</div>
+          <div><span class="text-slate-500 w-36 inline-block">Value:</span> <span class="text-slate-200 font-mono">${escHtml(valueStr)}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">Label:</span> <span class="text-slate-200">${escHtml(labelStr)}</span></div>
+          <div><span class="text-slate-500 w-36 inline-block">Population:</span> <span class="text-slate-200">${escHtml(popStr)}</span></div>
         </div>
+        ${picoText ? `<div class="rounded p-3 mb-4 text-xs" style="background:#0f172a;border:1px solid #334155">
+          <div class="text-slate-500 uppercase tracking-wide text-xs mb-2">Primary outcome (PICO summary)</div>
+          <div class="text-slate-200 leading-relaxed">${escHtml(picoText)}</div>
+        </div>` : ''}
 
         <div id="gate-q">
-          <div class="text-xs text-slate-300 mb-2">Are the direction of effect, CI, and arm labels jointly coherent?</div>
+          <div class="text-xs text-slate-300 mb-2">Does the selected value match the primary outcome description above?</div>
           <div class="flex gap-2">
             <button onclick="confirmGate(true)"
               class="text-xs px-3 py-1.5 rounded border font-medium"
@@ -769,15 +739,16 @@
     const container = document.getElementById('field-cards');
     container.innerHTML = '';
 
-    const suspFlag = output?.extraction_flags?.suspicious_agreement;
+    const pipelineData = output?.output_json || output;
+    const suspFlag = pipelineData?.extraction_flags?.suspicious_agreement;
 
     GRADE_FIELDS.forEach(field => {
       // Skip conditional fields if condition not met
-      if (field.conditional === 'ni_trial' && !output?.extraction_flags?.ni_trial) {
+      if (field.conditional === 'ni_trial' && !pipelineData?.extraction_flags?.ni_trial) {
         return;
       }
 
-      const extractedRaw = getNestedValue(output?.output_json || output, field.path);
+      const extractedRaw = getNestedValue(pipelineData, field.path);
       const formatted    = formatExtractedValue(extractedRaw);
       const existing     = grades[field.id] || null;
 
