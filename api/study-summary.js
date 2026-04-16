@@ -98,7 +98,8 @@ function computeFieldAggregations(grades) {
 
     // Error taxonomy distribution
     const error_taxonomy_dist = {
-      recall_failure: 0, correlated_recall: 0, ranking_failure: 0,
+      recall_failure: 0, correlated_recall: 0,
+      ranking_hierarchy: 0, ranking_ambiguity: 0,
       misclassification: 0, interpretation_failure: 0, hallucination: 0, formatting_enum: 0,
     };
     for (const r of rows) {
@@ -199,7 +200,8 @@ function computeTaxonomyBreakdown(grades) {
   const total    = nonExact.length;
 
   const categories = [
-    'recall_failure', 'correlated_recall', 'ranking_failure',
+    'recall_failure', 'correlated_recall',
+    'ranking_hierarchy', 'ranking_ambiguity',
     'misclassification', 'interpretation_failure', 'hallucination', 'formatting_enum',
   ];
   return categories.map(taxonomy => {
@@ -218,6 +220,20 @@ function computeTaxonomyBreakdown(grades) {
       .map(([f]) => f);
 
     return { taxonomy, count, pct_of_non_exact: pct, most_affected_fields: mostAffected };
+  });
+}
+
+function computeRootCauseBreakdown(grades) {
+  const nonExact = grades.filter(g => g.match_status !== 'exact_match' && g.root_cause_stage);
+  const stages   = ['extractor', 'adjudicator', 'schema_design', 'prompt_guidance', 'document_structure'];
+  const total    = nonExact.length;
+  return stages.map(stage => {
+    const count = nonExact.filter(g => g.root_cause_stage === stage).length;
+    return {
+      stage,
+      count,
+      pct_of_attributed: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
+    };
   });
 }
 
@@ -265,6 +281,7 @@ export default async function handler(req, res) {
       error_taxonomy,
       harm_severity,
       pipeline_section,
+      root_cause_stage,
       correction_text,
       reference_standard_value,
       suspicious_agreement,
@@ -306,6 +323,7 @@ export default async function handler(req, res) {
     error_taxonomy:          g.error_taxonomy,
     harm_severity:           g.harm_severity,
     pipeline_section:        g.pipeline_section,
+    root_cause_stage:        g.root_cause_stage,
     correction_text:         g.correction_text,
     reference_standard_value: g.reference_standard_value,
     suspicious_agreement:    g.suspicious_agreement,
@@ -344,6 +362,9 @@ export default async function handler(req, res) {
   // 10. Pipeline section breakdown
   const pipeline_breakdown = computePipelineBreakdown(flatGrades, fieldSummaries);
 
+  // 10b. Root cause stage breakdown (optional field — only counts graded rows with a value)
+  const root_cause_breakdown = computeRootCauseBreakdown(flatGrades);
+
   // 11. Evaluative field agreement (secondary analysis)
   const evaluative_agreement = computeEvaluativeAgreement(flatGrades);
 
@@ -372,6 +393,7 @@ export default async function handler(req, res) {
     version_breakdown,
     taxonomy_breakdown,
     pipeline_breakdown,
+    root_cause_breakdown,
     evaluative_agreement,
     prompt_queue,
   });
