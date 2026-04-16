@@ -30,8 +30,11 @@
     .sev-btn.inactive { background: #1e293b; color: #475569; border-color: #334155; }
 
     /* field card */
-    .field-card { border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; }
-    .field-card.saved-flash { border-color: #16a34a; transition: border-color 0.5s; }
+    .field-card { border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; border-left-width: 3px; }
+    .field-card.saved-flash     { border-color: #16a34a; transition: border-color 0.3s; }
+    .field-card.card-incomplete { border-left-color: #d97706; }
+    .field-card.card-needs-detail { border-left-color: #dc2626; }
+    .field-card.card-complete   { border-left-color: #16a34a; }
 
     /* extracted value display */
     .extracted-val { background: #0f172a; border: 1px solid #334155; border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8125rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-word; max-height: 12rem; overflow-y: auto; }
@@ -154,6 +157,13 @@
       <div class="right-panel" id="right-panel">
         <div id="fields-loading" class="text-center py-12 text-slate-500 text-sm">Loading fields…</div>
         <div id="gate-section"  class="hidden mb-5"></div>
+        <!-- Incomplete fields banner — shown when any card is not fully graded -->
+        <div id="incomplete-banner" class="hidden mb-4 rounded border border-amber-700/50 bg-amber-950/30 p-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-amber-400 text-xs font-semibold">⚠ <span id="incomplete-count"></span> fields incomplete — click to jump</span>
+          </div>
+          <div id="incomplete-list" class="flex flex-wrap gap-1.5"></div>
+        </div>
         <div id="field-cards"   class="hidden space-y-4"></div>
       </div>
     </div>
@@ -441,6 +451,9 @@
 
   // ── Show paper list ───────────────────────────────────────────────────────
   function showList() {
+    const cards = document.querySelectorAll('[id^="card-"]');
+    const incompleteCount = Array.from(cards).filter(c => !isFieldComplete(c.id.replace('card-', ''))).length;
+    if (incompleteCount > 0 && !confirm(`${incompleteCount} field${incompleteCount > 1 ? 's' : ''} still incomplete. Leave anyway?`)) return;
     currentView  = 'list';
     currentOutput = null;
     currentPaper  = null;
@@ -778,7 +791,10 @@
 
       // Attach event listeners
       attachFieldListeners(field.id, existing, suspFlag);
+      updateCardState(field.id);
     });
+
+    updateIncompleteBanner();
   }
 
   function buildFieldCardHTML(field, formattedValue, existing, suspFlag) {
@@ -880,14 +896,14 @@
         <div class="grid grid-cols-2 gap-3 mb-3">
           <div>
             <div class="text-xs text-slate-500 mb-1">Error taxonomy</div>
-            <select id="tax-${field.id}" onchange="scheduleSave('${field.id}')">
+            <select id="tax-${field.id}" onchange="onTaxChange('${field.id}')">
               <option value="">— select —</option>
               ${taxOptions}
             </select>
           </div>
           <div>
             <div class="text-xs text-slate-500 mb-1">Pipeline section</div>
-            <select id="ps-${field.id}" onchange="scheduleSave('${field.id}')">
+            <select id="ps-${field.id}" onchange="onPsChange('${field.id}')">
               <option value="">— select —</option>
               ${psOptions}
             </select>
@@ -966,6 +982,8 @@
     }
 
     updateProgressBar();
+    updateCardState(fieldId);
+    updateIncompleteBanner();
     scheduleSave(fieldId);
   }
 
@@ -979,6 +997,68 @@
       btn.classList.add(bval === val ? `active-${bval}` : 'inactive');
     });
 
+    updateCardState(fieldId);
+    updateIncompleteBanner();
+    scheduleSave(fieldId);
+  }
+
+  // ── Field completion state ────────────────────────────────────────────────
+  function isFieldComplete(fieldId) {
+    const g = grades[fieldId];
+    if (!g?.match_status) return false;
+    if (g.match_status === 'exact_match') return true;
+    return !!(g.harm_severity && g.error_taxonomy && g.pipeline_section);
+  }
+
+  function updateCardState(fieldId) {
+    const card = document.getElementById(`card-${fieldId}`);
+    if (!card) return;
+    card.classList.remove('card-complete', 'card-incomplete', 'card-needs-detail');
+    const g = grades[fieldId];
+    if (!g?.match_status) {
+      card.classList.add('card-incomplete');
+    } else if (isFieldComplete(fieldId)) {
+      card.classList.add('card-complete');
+    } else {
+      card.classList.add('card-needs-detail');
+    }
+  }
+
+  function updateIncompleteBanner() {
+    const cards      = document.querySelectorAll('[id^="card-"]');
+    const incomplete = Array.from(cards).filter(c => !isFieldComplete(c.id.replace('card-', '')));
+    const banner     = document.getElementById('incomplete-banner');
+    const countEl    = document.getElementById('incomplete-count');
+    const listEl     = document.getElementById('incomplete-list');
+    if (!banner) return;
+    if (incomplete.length === 0) { banner.classList.add('hidden'); return; }
+    banner.classList.remove('hidden');
+    countEl.textContent = incomplete.length;
+    listEl.innerHTML = incomplete.map(card => {
+      const fieldId = card.id.replace('card-', '');
+      const field   = GRADE_FIELDS.find(f => f.id === fieldId);
+      const g       = grades[fieldId];
+      const cls     = !g?.match_status
+        ? 'bg-amber-900/60 text-amber-300 border-amber-700'
+        : 'bg-red-900/60 text-red-300 border-red-700';
+      return `<button onclick="document.getElementById('card-${fieldId}')?.scrollIntoView({behavior:'smooth',block:'center'})"
+        class="text-xs px-2 py-0.5 rounded border ${cls} hover:opacity-80">${escHtml(field?.label || fieldId)}</button>`;
+    }).join('');
+  }
+
+  function onTaxChange(fieldId) {
+    if (!grades[fieldId]) grades[fieldId] = {};
+    grades[fieldId].error_taxonomy = document.getElementById(`tax-${fieldId}`)?.value || null;
+    updateCardState(fieldId);
+    updateIncompleteBanner();
+    scheduleSave(fieldId);
+  }
+
+  function onPsChange(fieldId) {
+    if (!grades[fieldId]) grades[fieldId] = {};
+    grades[fieldId].pipeline_section = document.getElementById(`ps-${fieldId}`)?.value || null;
+    updateCardState(fieldId);
+    updateIncompleteBanner();
     scheduleSave(fieldId);
   }
 
@@ -1049,6 +1129,8 @@
         card.classList.add('saved-flash');
         setTimeout(() => card.classList.remove('saved-flash'), 600);
       }
+      updateCardState(fieldId);
+      updateIncompleteBanner();
     } catch (err) {
       console.error('[pilot] Save failed:', err.message);
       if (saveBtn) saveBtn.textContent = 'Save failed — retry';
