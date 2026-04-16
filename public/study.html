@@ -42,18 +42,22 @@
   <main class="max-w-6xl mx-auto px-6 py-8">
 
     <!-- Stats bar -->
-    <div id="stats-bar" class="grid grid-cols-4 gap-4 mb-8">
+    <div id="stats-bar" class="grid grid-cols-5 gap-4 mb-8">
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-total" class="text-2xl font-bold text-white">—</div>
         <div class="text-xs text-slate-400 mt-1">Papers registered</div>
       </div>
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-v3-done" class="text-2xl font-bold text-green-400">—</div>
-        <div class="text-xs text-slate-400 mt-1">V3 analyses complete</div>
+        <div class="text-xs text-slate-400 mt-1">V3 complete</div>
       </div>
       <div class="bg-slate-800 rounded-lg p-4 text-center">
-        <div id="stat-v3-pending" class="text-2xl font-bold text-amber-400">—</div>
-        <div class="text-xs text-slate-400 mt-1">V3 pending</div>
+        <div id="stat-v1-done" class="text-2xl font-bold text-purple-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">V1 complete</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-both-done" class="text-2xl font-bold text-blue-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">Ready to compare</div>
       </div>
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-source-types" class="text-sm font-medium text-slate-300">—</div>
@@ -163,6 +167,7 @@
             <th class="px-4 py-2 text-left">Specialty</th>
             <th class="px-4 py-2 text-left">PMID</th>
             <th class="px-4 py-2 text-center">V3</th>
+            <th class="px-4 py-2 text-center">V1</th>
             <th class="px-4 py-2 text-center">Source</th>
             <th class="px-4 py-2 text-right">Actions</th>
           </tr>
@@ -267,7 +272,8 @@
   function updateStats(papers) {
     const total    = papers.length;
     const v3Done   = papers.filter(p => p.v3_output).length;
-    const v3Pend   = total - v3Done;
+    const v1Done   = papers.filter(p => p.v1_output).length;
+    const bothDone = papers.filter(p => p.v3_output && p.v1_output).length;
     const srcTypes = papers
       .filter(p => p.v3_output?.source_type)
       .map(p => p.v3_output.source_type)
@@ -276,9 +282,10 @@
       .map(([k, v]) => `${v}× ${k.replace('full-text-', '').replace('abstract-only', 'abstract')}`)
       .join(', ') || '—';
 
-    document.getElementById('stat-total').textContent    = total;
-    document.getElementById('stat-v3-done').textContent  = v3Done;
-    document.getElementById('stat-v3-pending').textContent = v3Pend;
+    document.getElementById('stat-total').textContent        = total;
+    document.getElementById('stat-v3-done').textContent      = v3Done;
+    document.getElementById('stat-v1-done').textContent      = v1Done;
+    document.getElementById('stat-both-done').textContent    = bothDone;
     document.getElementById('stat-source-types').textContent = srcStr;
   }
 
@@ -302,6 +309,10 @@
       ? `<span class="badge-done px-2 py-0.5 rounded text-xs font-medium">Done</span>`
       : `<span class="badge-pending px-2 py-0.5 rounded text-xs font-medium">—</span>`;
 
+    const v1Badge = p.v1_output
+      ? `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#3b1d6e;color:#c4b5fd">Done</span>`
+      : `<span class="badge-pending px-2 py-0.5 rounded text-xs font-medium">—</span>`;
+
     const srcBadge = p.v3_output?.source_type
       ? `<span class="text-xs text-slate-400">${p.v3_output.source_type.replace('full-text-', '').replace('abstract-only', 'abstract')}</span>`
       : `<span class="text-xs text-slate-600">—</span>`;
@@ -314,20 +325,34 @@
       ? `<span class="badge-pilot px-1.5 py-0.5 rounded text-xs ml-1">pilot</span>`
       : '';
 
-    const runBtn = p.v3_output
-      ? `<button onclick="runV3('${p.id}', true)" class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700">Re-run</button>`
+    const runV3Btn = p.v3_output
+      ? `<button onclick="runV3('${p.id}', true)" class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700">Re-V3</button>`
       : `<button onclick="runV3('${p.id}', false)" class="text-xs bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded font-medium">Run V3</button>`;
 
-    const viewBtn = p.v3_output
-      ? `<button onclick="viewOutput('${p.id}')" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded hover:bg-slate-700">View</button>`
+    const runV1Btn = p.v1_output
+      ? `<button onclick="runV1('${p.id}', true)" class="text-xs text-slate-400 hover:text-purple-400 px-2 py-1 rounded hover:bg-slate-700">Re-V1</button>`
+      : `<button onclick="runV1('${p.id}', false)" class="text-xs px-3 py-1 rounded font-medium" style="background:#4c1d95;color:#e9d5ff">Run V1</button>`;
+
+    const viewV3Btn = p.v3_output
+      ? `<button onclick="viewOutput('${p.id}','v3')" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded hover:bg-slate-700">V3</button>`
       : '';
 
-    // Hidden file input + PDF button — always visible so you can override with a PDF at any time
-    const pdfBtn = `
-      <input type="file" id="pdf-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}')">
-      <button onclick="document.getElementById('pdf-${p.id}').click()"
+    const viewV1Btn = p.v1_output
+      ? `<button onclick="viewOutput('${p.id}','v1')" class="text-xs px-2 py-1 rounded hover:bg-slate-700" style="color:#c4b5fd">V1</button>`
+      : '';
+
+    // Hidden file inputs — v3 and v1 PDF buttons
+    const pdfV3Btn = `
+      <input type="file" id="pdf-v3-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v3')">
+      <button onclick="document.getElementById('pdf-v3-${p.id}').click()"
         class="text-xs text-slate-400 hover:text-green-400 px-2 py-1 rounded hover:bg-slate-700"
-        title="Upload PDF to run analysis">PDF</button>`;
+        title="Upload PDF for V3">V3-PDF</button>`;
+
+    const pdfV1Btn = `
+      <input type="file" id="pdf-v1-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v1')">
+      <button onclick="document.getElementById('pdf-v1-${p.id}').click()"
+        class="text-xs text-slate-400 hover:text-purple-400 px-2 py-1 rounded hover:bg-slate-700"
+        title="Upload PDF for V1">V1-PDF</button>`;
 
     return `
       <td class="px-4 py-3">
@@ -340,12 +365,13 @@
         <button onclick="editPmid('${p.id}', '${p.pmid || ''}')" class="ml-1 text-slate-600 hover:text-slate-400 text-xs">✎</button>
       </td>
       <td class="px-4 py-3 text-center" id="v3-cell-${p.id}">${v3Badge}</td>
+      <td class="px-4 py-3 text-center" id="v1-cell-${p.id}">${v1Badge}</td>
       <td class="px-4 py-3 text-center">${srcBadge}</td>
       <td class="px-4 py-3 text-right">
-        <div class="flex items-center justify-end gap-1">
-          ${viewBtn}
-          ${pdfBtn}
-          ${runBtn}
+        <div class="flex items-center justify-end gap-1 flex-wrap">
+          ${viewV3Btn}${viewV1Btn}
+          ${pdfV3Btn}${pdfV1Btn}
+          ${runV3Btn}${runV1Btn}
           <button onclick="deletePaper('${p.id}', '${p.title.replace(/'/g, "\\'")}')"
             class="text-xs text-slate-600 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-700 ml-1" title="Delete paper">✕</button>
         </div>
@@ -353,31 +379,31 @@
     `;
   }
 
-  // ── Run V3 from PDF ───────────────────────────────────────────────────────
-  async function runFromPdf(paperId) {
-    const input = document.getElementById(`pdf-${paperId}`);
+  // ── Run from PDF (v1 or v3) ───────────────────────────────────────────────
+  async function runFromPdf(paperId, version = 'v3') {
+    const input = document.getElementById(`pdf-${version}-${paperId}`);
     const file  = input?.files?.[0];
     if (!file) return;
 
-    // Confirm overwrite if output already exists
-    const paper = papersCache.find(p => p.id === paperId);
-    if (paper?.v3_output) {
-      if (!confirm(`"${paper.title}" already has a V3 analysis.\n\nOverwrite with this PDF?`)) {
+    const paper     = papersCache.find(p => p.id === paperId);
+    const hasOutput = version === 'v1' ? paper?.v1_output : paper?.v3_output;
+    if (hasOutput) {
+      if (!confirm(`"${paper.title}" already has a ${version.toUpperCase()} analysis.\n\nOverwrite with this PDF?`)) {
         input.value = '';
         return;
       }
     }
 
-    const cell = document.getElementById(`v3-cell-${paperId}`);
+    const spinnerColour = version === 'v1' ? 'text-purple-400' : 'text-green-400';
+    const cell = document.getElementById(`${version}-cell-${paperId}`);
     const row  = document.getElementById(`row-${paperId}`);
-    cell.innerHTML = `<svg class="spinner w-4 h-4 text-green-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+    cell.innerHTML = `<svg class="spinner w-4 h-4 ${spinnerColour} mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
     row.querySelectorAll('button').forEach(b => b.disabled = true);
 
     try {
-      // Read file as base64
       const base64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload  = () => resolve(reader.result.split(',')[1]); // strip data:...;base64,
+        reader.onload  = () => resolve(reader.result.split(',')[1]);
         reader.onerror = () => reject(new Error('Failed to read file'));
         reader.readAsDataURL(file);
       });
@@ -385,7 +411,7 @@
       const r   = await fetch(`${API}/study?resource=run`, {
         method:  'POST',
         headers: authHeaders(),
-        body:    JSON.stringify({ paper_id: paperId, version: 'v3', force: true, pdf_base64: base64 }),
+        body:    JSON.stringify({ paper_id: paperId, version, force: true, pdf_base64: base64 }),
       });
       const data = await r.json();
 
@@ -441,26 +467,57 @@
     }
   }
 
+  // ── Run V1 ────────────────────────────────────────────────────────────────
+  async function runV1(paperId, force) {
+    const cell = document.getElementById(`v1-cell-${paperId}`);
+    const row  = document.getElementById(`row-${paperId}`);
+    cell.innerHTML = `<svg class="spinner w-4 h-4 text-purple-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+    row.querySelectorAll('button').forEach(b => b.disabled = true);
+    try {
+      const r   = await fetch(`${API}/study?resource=run`, {
+        method:  'POST',
+        headers: authHeaders(),
+        body:    JSON.stringify({ paper_id: paperId, version: 'v1', force }),
+      });
+      const data = await r.json();
+      if (r.status === 409) {
+        cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#3b1d6e;color:#c4b5fd">Done</span>`;
+      } else if (!r.ok) {
+        cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium" title="${data.error || 'error'}">Error</span>`;
+        alert('V1 run failed: ' + (data.error || data.message || r.statusText));
+      } else {
+        cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#3b1d6e;color:#c4b5fd">Done</span>`;
+        await loadPapers();
+      }
+    } catch (err) {
+      cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium">Error</span>`;
+      alert('Network error: ' + err.message);
+    } finally {
+      row.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+  }
+
   // ── View output ───────────────────────────────────────────────────────────
   let _currentOutputJson = null;
 
-  async function viewOutput(paperId) {
-    const paper = papersCache.find(p => p.id === paperId);
-    if (!paper?.v3_output) return;
+  async function viewOutput(paperId, version = 'v3') {
+    const paper  = papersCache.find(p => p.id === paperId);
+    const output = version === 'v1' ? paper?.v1_output : paper?.v3_output;
+    if (!output) return;
 
-    // Show modal immediately with loading state
-    document.getElementById('modal-title').textContent = paper.title;
+    const vLabel = version.toUpperCase();
+    document.getElementById('modal-title').textContent = `[${vLabel}] ${paper.title}`;
     document.getElementById('modal-meta').textContent  =
-      `${paper.authors || ''} · ${paper.journal || ''} ${paper.year ? '(' + paper.year + ')' : ''} · Source: ${paper.v3_output.source_type || '—'}`;
+      `${paper.authors || ''} · ${paper.journal || ''} ${paper.year ? '(' + paper.year + ')' : ''} · Source: ${output.source_type || '—'}`;
     document.getElementById('modal-body').innerHTML =
-      `<div class="flex items-center gap-3 text-slate-400 text-sm"><svg class="spinner w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Loading output…</div>`;
+      `<div class="flex items-center gap-3 text-slate-400 text-sm"><svg class="spinner w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>Loading ${vLabel} output…</div>`;
     document.getElementById('modal-dl-btn').classList.add('hidden');
     document.getElementById('modal-print-btn').classList.add('hidden');
     _currentOutputJson = null;
     document.getElementById('output-modal').classList.remove('hidden');
 
     try {
-      const r    = await fetch(`${API}/study?resource=output&id=${paper.v3_output.id}`, { headers: authHeaders() });
+      const r    = await fetch(`${API}/study?resource=output&id=${output.id}`, { headers: authHeaders() });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       _currentOutputJson = data.output.output_json;

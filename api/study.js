@@ -11,7 +11,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import pdfParse         from 'pdf-parse/lib/pdf-parse.js';
-import { runPipeline, buildSourceContext } from '../lib/pipeline.js';
+import { runPipeline, buildSourceContext }   from '../lib/pipeline.js';
+import { runPipelineV1 }                      from '../lib/pipeline-v1.js';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '8mb' } }  // required for PDF uploads via study-run
@@ -239,10 +240,13 @@ async function handleRun(req, res) {
       doi:        source.doi     || null,
       authors:    source.authors || paper?.authors || null,
     };
-    pipelineResult = await runPipeline(
-      buildSourceContext(source.text, sourceMeta),
-      sourceMeta
-    );
+    const ctx = buildSourceContext(source.text, sourceMeta);
+    if (version === 'v1') {
+      console.log('[study-run] Routing to V1 single-node pipeline');
+      pipelineResult = await runPipelineV1(ctx, sourceMeta);
+    } else {
+      pipelineResult = await runPipeline(ctx, sourceMeta);
+    }
   } catch (err) {
     console.error(`[study-run] Pipeline error:`, err.message);
     if ((err.message || '').startsWith('GEMINI_UNAVAILABLE')) {
