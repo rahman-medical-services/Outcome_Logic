@@ -239,6 +239,32 @@ Run DEDICATE through V3 and compare to V1. Check:
 4. Primary outcome: correct NI framing, no inversion
 5. Page count should be ~3-4 pages (vs V1's 5 pages with 13 subgroups)
 
+### Decision framework — does V3 justify the architecture?
+
+**Adversarial review completed Session 10.** Key findings:
+
+**V3 failures on DEDICATE are prompt engineering failures, not architectural.** The adjudicator worked correctly — it confirmed what both extractors agreed on. Both extractors were wrong because `_EXTRACTOR_SHARED_SECTIONS` is weaker than V1. Fixable.
+
+**V3 adds genuine value on specific paper types only:**
+- Papers with adjusted/unadjusted estimates in different locations (e.g. FREEDOM — multiple framings, competing table values). V1 picks one; V3 surfaces both and ranks.
+- Source conflict detection — V3 can detect when Extractor A and B cite different locations for the same value. V1 cannot self-detect this.
+- Subgroup completeness cross-check. Two independent extractors are harder to fool than one.
+- On clean, unambiguous papers: V3 adds latency without adding accuracy. V1 is sufficient.
+
+**The commercial moat is the validation data, not the architecture.** "Dual extractor plus adjudicator" can be replicated in a week. A published, pre-registered, blinded accuracy benchmark with 7-class error taxonomy, two-rater kappa ≥0.6, and 25+ trials cannot. The grading infrastructure (pilot.html, study.html, schema, protocol) is the defensible asset.
+
+**Stopping condition for V3:** After the rebuild, run Phase 1. If V3 shows less than ~5 percentage points improvement over V1 on primary endpoint accuracy — with no meaningful advantage on ambiguous paper types — ship V1 as production pipeline and publish with V1 vs V3 as the comparison arms. Do not iterate V3 indefinitely without a clear signal.
+
+**Fast resolution path (do this before running all 10 Phase 1 papers):**
+Run these three papers first, chosen for maximum discriminating power:
+1. **FREEDOM (PMID 23121323)** — CABG vs PCI, multiple endpoint framings, competing table values. This is where V3 should demonstrate its candidate-ranking advantage over V1.
+2. **ISCHEMIA (PMID 32227755)** — complex NI-adjacent design, multiple subgroup interactions. Stress-tests the two areas where V3 failed on DEDICATE.
+3. **PARTNER 3 (PMID 30883058)** — clean primary endpoint, single table. V3 should match V1 here after rebuild. If V3 fails on this, the rebuild has not worked.
+
+Grade all three in pilot.html. If V3 clearly outperforms V1 on FREEDOM and matches on PARTNER 3, proceed. If results are ambiguous, run the full ten.
+
+**New structural risk identified:** The `candidate_values` free-text block produced by gpt-4o-mini may use inconsistent formatting, causing the adjudicator to miss candidates during parsing. Consider switching both extractors to JSON response mode (`responseMimeType: application/json`) for structural reliability. Gemini flash-lite supports this. GPT-4o-mini supports `response_format: { type: "json_object" }`. Not urgent but track for Phase 1 if candidate ranking failures appear.
+
 ---
 
 ## Priority Order — Next Session
