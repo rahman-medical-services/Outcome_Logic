@@ -3,10 +3,13 @@
 -- Run once in Supabase SQL editor (Dashboard → SQL Editor)
 --
 -- Phase structure:
---   Phase 0  — PI-only. Identify systematic errors in V2. Informs V1 prompt design.
---   Phase 1  — Pilot. V1 vs V2 head-to-head. Powers sample size for Phase 2.
---   Phase 2  — Main study. V1 vs V2. Prompts frozen from Phase 1.
---   Phase 3  — Clinical utility. Different rubric. Landmark papers only.
+--   Phase 0  — PI-only feasibility. 10 surgical/orthopaedic papers, V3 only.
+--              Goal: identify systematic errors before scaling. COMPLETE.
+--   Phase 1  — Signal pilot. 10 cardiac surgery papers, V1 vs V3 head-to-head.
+--              Goal: estimate effect size delta to power Phase 2 sample size.
+--   Phase 2  — Powered validation. N determined from Phase 1. V1 vs V3 (+/- generic arm).
+--              Multi-rater, publication-grade. Prompts frozen from Phase 1.
+--   Phase 3  — Clinical utility assessment. Different rubric. See FEATURES.md.
 --
 -- All study tables are admin-only (service role key bypasses RLS).
 -- ============================================================
@@ -291,5 +294,97 @@ INSERT INTO study_papers (pmid, title, trial_name, authors, journal, year, domai
    'SPORT (stenosis)',
    'Weinstein JN, Tosteson TD, Lurie JD et al.',
    'Spine', '2010', 'Orthopaedics', 'Spine', 'RCT', 0, TRUE)
+
+ON CONFLICT (pmid) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- Phase 1 Pilot Papers (10)
+-- Cardiac surgery / cardiothoracic RCTs.
+-- Selected to stress: co-primary endpoints (C3), NI designs (C5),
+-- abstract vs full-text discordance (ISCHEMIA), complex subgroups,
+-- and post-training-cutoff generalisability (DEDICATE).
+-- PMIDs verified via PubMed E-utilities API (April 2026).
+-- ─────────────────────────────────────────────────────────────
+INSERT INTO study_papers (pmid, title, trial_name, authors, journal, year, domain, specialty, study_design, phase, is_pilot) VALUES
+
+  -- 1. SYNTAX — PCI vs CABG, MACCE composite, SYNTAX score subgroups
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/19228612
+  ('19228612',
+   'Percutaneous coronary intervention versus coronary-artery bypass grafting for severe coronary artery disease',
+   'SYNTAX',
+   'Serruys PW, Morice MC, Kappetein AP et al.',
+   'New England Journal of Medicine', '2009', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 2. CREST — carotid stenting vs endarterectomy, co-primary composite + components
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/20505173
+  ('20505173',
+   'Stenting versus endarterectomy for treatment of carotid-artery stenosis',
+   'CREST',
+   'Brott TG, Hobson RW, Howard G et al.',
+   'New England Journal of Medicine', '2010', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 3. PARTNER 1 — TAVR vs surgical AVR in high-risk patients
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/21639811
+  ('21639811',
+   'Transcatheter versus surgical aortic-valve replacement in high-risk patients',
+   'PARTNER 1',
+   'Smith CR, Leon MB, Mack MJ et al.',
+   'New England Journal of Medicine', '2011', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 4. FREEDOM — PCI vs CABG in diabetes, composite primary, rich subgroups
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/23121323
+  ('23121323',
+   'Strategies for multivessel revascularization in patients with diabetes',
+   'FREEDOM',
+   'Farkouh ME, Domanski M, Sleeper LA et al.',
+   'New England Journal of Medicine', '2012', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 5. CORONARY — off-pump vs on-pump CABG, NI design (Lamy et al)
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/22449296
+  ('22449296',
+   'Off-pump or on-pump coronary-artery bypass grafting at 30 days',
+   'CORONARY',
+   'Lamy A, Devereaux PJ, Prabhakaran D et al.',
+   'New England Journal of Medicine', '2012', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 6. PARTNER 2 — TAVR intermediate risk, explicit NI design (Leon et al)
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/27040324
+  ('27040324',
+   'Transcatheter or Surgical Aortic-Valve Replacement in Intermediate-Risk Patients',
+   'PARTNER 2',
+   'Leon MB, Smith CR, Mack MJ et al.',
+   'New England Journal of Medicine', '2016', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 7. ART — bilateral vs single internal mammary artery grafts at 10 years (Taggart et al)
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/30699314
+  ('30699314',
+   'Bilateral versus Single Internal-Thoracic-Artery Grafts at 10 Years',
+   'ART',
+   'Taggart DP, Benedetto U, Gerry S et al.',
+   'New England Journal of Medicine', '2019', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 8. PARTNER 3 — TAVR low risk, NI design (Mack et al)
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/30883058
+  ('30883058',
+   'Transcatheter Aortic-Valve Replacement with a Balloon-Expandable Valve in Low-Risk Patients',
+   'PARTNER 3',
+   'Mack MJ, Leon MB, Thourani VH et al.',
+   'New England Journal of Medicine', '2019', 'Surgery', 'Vascular', 'RCT', 1, TRUE),
+
+  -- 9. ISCHEMIA — invasive vs conservative for stable CAD; known abstract vs full-text discordance
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/32227755
+  ('32227755',
+   'Initial Invasive or Conservative Strategy for Stable Coronary Disease',
+   'ISCHEMIA',
+   'Maron DJ, Hochman JS, Reynolds HR et al.',
+   'New England Journal of Medicine', '2020', 'Medicine', 'Cardiology', 'RCT', 1, TRUE),
+
+  -- 10. DEDICATE — TAVR vs SAVR low surgical risk; post-training-cutoff (2024)
+  -- Verified: https://pubmed.ncbi.nlm.nih.gov/38588025
+  ('38588025',
+   'Transcatheter or Surgical Treatment of Aortic-Valve Stenosis',
+   'DEDICATE',
+   'Overtchouk P, Modine T, Woitek F et al.',
+   'New England Journal of Medicine', '2024', 'Surgery', 'Vascular', 'RCT', 1, TRUE)
 
 ON CONFLICT (pmid) DO NOTHING;
