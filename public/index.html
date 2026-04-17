@@ -21,9 +21,12 @@
       /* === HIDE EVERYTHING EXCEPT REPORT === */
       body * { visibility: hidden; }
       #reportContainer, #reportContainer * { visibility: visible; }
-      
+
       /* Report container */
       #reportContainer {
+        display: block !important;  /* override .hidden (display:none) */
+        position: absolute;
+        top: 0; left: 0;
         width: 100%;
         background: white !important;
         box-shadow: none !important;
