@@ -962,20 +962,35 @@ function populateDashboard(data) {
   chart2Section.classList.add('hidden');
 
   function renderEndpoint(ep, canvasId, canvasWrapperId, forestWrapperId, effectRowId) {
-    const isForest = ep.effect_measure === 'HR' || ep.value_type === 'time_to_event';
-    if (isForest) {
+    const hasArmData = ep.arms?.some(a => a.data_points?.some(dp => dp.y != null && dp.y !== 0));
+    const hasEffect  = ep.point_estimate != null && ep.ci_lower != null && ep.ci_upper != null;
+    const isRatioMeasure = ['HR','OR','RR','RRR'].includes(ep.effect_measure);
+
+    if (hasArmData) {
+      // Bar chart (per-arm event rates) as primary view
+      const chart = renderChart(canvasId, ep);
+      if (chart) {
+        if (canvasId === 'endpointChart') currentChart = chart; else currentChart2 = chart;
+        // Also show forest plot below when a ratio measure exists — both views together
+        if (hasEffect && isRatioMeasure) {
+          document.getElementById(forestWrapperId)?.classList.remove('hidden');
+          renderForestPlot(forestWrapperId, ep);
+        } else {
+          renderEffectAnnotation(effectRowId, ep);
+        }
+        return true;
+      }
+    }
+
+    // No arm data — fall back to forest plot if effect data available
+    if (hasEffect) {
       document.getElementById(canvasWrapperId)?.classList.add('hidden');
       document.getElementById(forestWrapperId)?.classList.remove('hidden');
       renderForestPlot(forestWrapperId, ep);
       renderEffectAnnotation(effectRowId, ep);
       return true;
     }
-    const chart = renderChart(canvasId, ep);
-    if (chart) {
-      if (canvasId === 'endpointChart') currentChart = chart; else currentChart2 = chart;
-      renderEffectAnnotation(effectRowId, ep);
-      return true;
-    }
+
     return false;
   }
 
