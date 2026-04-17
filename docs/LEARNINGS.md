@@ -241,7 +241,54 @@ Format: what was tried → what happened → what the correct approach is → da
 **Fix:** `api/analyze.js` is set to `maxDuration: 120` in `vercel.json`. Hobby plan hard max is 60s — this requires Pro plan. Confirmed Pro plan in use.
 **Date:** 2026-04-15
 
-### Subgroup interaction p-value meaning is counterintuitive and must be explained explicitly
+---
+
+## Session 10 (2026-04-17) — Phase 1 Paper Running Findings
+
+### V3 extractor prompts are systematically inferior to V1 — root cause identified
+**Tried:** Assuming V3's multi-node adjudicated pipeline would outperform V1's single-pass extraction.
+**What happened (DEDICATE Phase 1 run):**
+- V3 AE table: 13 entries including AF (12.4%/30.8%), LBBB (23%/17.5%), stroke (2.9%/4.7%), pacemaker (11.8%/6.7%) — all trial endpoints, not complications.
+- V3 subgroups: zero (despite 13 pre-specified subgroups in the paper). V1: all 13 correctly extracted.
+- V3 chart: blank page (no bar chart, no forest plot). V1: bar chart (TAVI 5.4% vs SAVR 10%) + forest plot.
+- V3 primary outcome NI framing: "95% CI did not exclude this margin (CI upper bound 0.79)" — factually inverted. V1: correct.
+**Root cause:** `_EXTRACTOR_SHARED_SECTIONS` was written independently of V1 and has weaker, more hedged language, no explicit AE endpoint-exclusion rule, vague chart instructions (y=0 placeholder), and conditional subgroup language where V1 uses imperatives.
+**Key insight:** The adjudicator can only compile what the extractors surface. AE misclassification and subgroup omissions were generated at the extractor level. Adjudicator-only fixes are insufficient — the rules must be at the extractor level.
+**Fix:** Full rebuild of `_EXTRACTOR_SHARED_SECTIONS` on V1 foundations planned — see HANDOVER.md Session 11 priority. V3 architecture (dual extractors + adjudicator) remains correct; the extractor prompt body is what needs to be V1-quality.
+**Date:** 2026-04-17
+
+### Adjudicator-only rules cannot fix extractor-level correlated errors
+**Tried:** Adding AE classification rule and subgroup completeness instruction to adjudicator only.
+**What happened:** Both fixes had no effect on V3 output because both Extractor A and Extractor B were generating the same error (endpoints in AE table, zero subgroups). The adjudicator receives two reports that both contain the error, treats them as agreement, and produces the error in output. This is the "suspicious agreement" failure mode — both models agree on the wrong thing.
+**Correct model:** Rules that prevent correlated extraction errors must live in `_EXTRACTOR_SHARED_SECTIONS` (both extractors) not in the adjudicator. The adjudicator handles discrepancies between extractors; it cannot fix errors they both share.
+**Date:** 2026-04-17
+
+### NI margin CI interpretation can be inverted by LLMs — explicit direction rule required
+**Tried:** Adjudicator prompt saying "state whether the 95% CI excludes the NI margin".
+**What happened (DEDICATE):** Adjudicator output stated "95% CI did not exclude this margin (CI upper bound 0.79)" when the NI margin was 1.14. CI upper 0.79 < NI margin 1.14 means the CI DOES exclude the margin — NI is demonstrated. The adjudicator inverted the logic.
+**Root cause:** "Excludes" is ambiguous. The LLM may interpret "CI excludes the margin" as "the CI does not contain the margin value within its range" or the opposite.
+**Fix:** Explicit directional rule: "CI upper bound < NI margin → CI excludes margin → NI demonstrated. CI upper bound > NI margin → CI includes margin → NI not demonstrated." Added to both adjudicator and extractor shared sections.
+**Date:** 2026-04-17
+
+### V3 chart blank because adjudicator was not told what y-values represent
+**Tried:** Expecting adjudicator to populate `arms[].data_points[].y` with per-arm event rates.
+**What happened:** The adjudicator schema showed `"y": 0` as a placeholder. No instruction on what y should be. The adjudicator left y=0, producing blank charts. V1 works because the V1 prompt explicitly states "y values are percentages as raw numbers (74 means 74%, not 0.74)."
+**Fix:** Adjudicator schema comment updated: "y = per-arm OBSERVED EVENT RATE as raw percentage (5.4 for 5.4%, NOT 0.054). Use arm_a_value for intervention arm, arm_b_value for control arm. Must be populated — null or 0 produces blank chart."
+**Rule:** Any schema field with a numeric placeholder must include an explicit instruction on what the number represents and where it comes from. Placeholders alone are not sufficient.
+**Date:** 2026-04-17
+
+### Too many null-interaction subgroups degrades output quality
+**Tried:** Extracting ALL pre-specified subgroups regardless of interaction significance (V1 approach).
+**What happened (DEDICATE V1):** 13 pre-specified subgroups all with "Interaction null" — 3 pages of subgroup cards, all showing HR ~0.5 across every category. Clinically uninformative and visually overwhelming.
+**Fix (Option C):** Tiered extraction rule:
+- Significant/borderline (p < 0.10): extract ALL pre-specified subgroups
+- Null (p ≥ 0.10): extract maximum 4, clinical priority order: (1) Age, (2) Sex, (3) Disease severity measure, (4) Key domain comorbidity
+- Post-hoc: only if p < 0.05
+- Hard cap: 8 subgroups total
+**To implement:** In `_EXTRACTOR_SHARED_SECTIONS` rebuild (Session 11).
+**Date:** 2026-04-17
+
+### Subgroup interactions p-value meaning is counterintuitive and must be explained explicitly
 **What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
 **Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.
 **Date:** 2026-04-15

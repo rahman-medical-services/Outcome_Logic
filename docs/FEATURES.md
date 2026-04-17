@@ -131,8 +131,18 @@ These must be complete before any Phase 0 paper runs.
 
 ## Phase 1 — Scale and Publication
 
-### ✅ `lib/pipeline-v1.js` — single-node V1 baseline **[Completed Session 9, 2026-04-16]**
-**Status:** Complete. Single Gemini flash-lite call, `thinkingBudget:512`, identical output schema to V3. `callGemini` deliberately duplicated (not imported) to isolate V1 from V3 prompt changes during Phase 1. `postProcess()` shared via export from pipeline.js. Integrated into `api/study.js` (`version:'v1'` routing). study.html V1 column complete (Run V1, Re-V1, V1-PDF buttons, purple badge, [V1] modal prefix).
+### ✅ `lib/pipeline-v1.js` — single-node V1 baseline **[Completed Session 9–10]**
+**Status:** Complete and hardened. Single Gemini flash-lite call, `thinkingBudget:512`, identical output schema to V3. `callGemini` deliberately duplicated (not imported) to isolate V1 from V3 prompt changes during Phase 1. `postProcess()` shared via export from pipeline.js. Integrated into `api/study.js` (`version:'v1'` routing). study.html V1 column complete. Session 10: self-check removed, uncertainty flags removed — V1 is now a clean single-pass baseline with no internal adjudication.
+
+### ✅ Phase 1 papers seeded in schema **[Completed Session 10, 2026-04-17]**
+**Status:** Complete. 10 cardiac surgery papers inserted into `supabase/schema-study.sql` (phase=1). PMIDs verified against live PubMed: SYNTAX (19228612), CREST (20505173), PARTNER 1 (21639811), FREEDOM (23121323), CORONARY (22449296), PARTNER 2 (27040324), ART (30699314), PARTNER 3 (30883058), ISCHEMIA (32227755), DEDICATE (38588025). Domain chosen: cardiac surgery (general surgery reserved for Phase 2 commercial product).
+
+### 🔧 `_EXTRACTOR_SHARED_SECTIONS` rebuild on V1 foundations **[Session 11 — TOP PRIORITY]**
+**Status:** Planned, not yet implemented. Full implementation plan in HANDOVER.md.
+**Why:** Phase 1 DEDICATE run revealed V3 extractor prompts systematically inferior to V1. V3 produces endpoint-contaminated AE tables, zero subgroups, blank charts, inverted NI framing. Root cause: `_EXTRACTOR_SHARED_SECTIONS` written independently of V1, weaker language, missing explicit rules.
+**What changes:** `_EXTRACTOR_SHARED_SECTIONS` in `lib/pipeline.js` rewritten using V1's sections 1–9 as skeleton. V3-specific additions (source citations, candidate_values, survival section, subgroup detail) grafted in. AE endpoint-exclusion rule. Subgroup Option C limit. Chart explicit arm-to-y-value mapping. See HANDOVER.md for section-by-section spec.
+**What stays the same:** `EXTRACTOR_PROMPT_A` prefix, `EXTRACTOR_PROMPT_B` prefix, `ADJUDICATOR_PROMPT_BASE`, all API/call mechanics.
+**Verification:** After implementation, run DEDICATE through V3. Pass criteria: (1) AE table has ~5 true complications only, (2) subgroups show 4 (age, sex, STS-PROM, renal function) from null-interaction set, (3) chart renders bar+forest, (4) NI framing correct, (5) page count ~3–4.
 
 ### ⬜ `api/analyze-v1.js` — V1 public endpoint
 **Status:** Not started. Not needed for Phase 0 or Phase 1 study runs (those go via api/study.js). Build only if V1 needs separate rate-limited public access.
