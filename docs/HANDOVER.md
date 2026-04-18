@@ -253,15 +253,20 @@ Run DEDICATE through V3 and compare to V1. Check:
 
 **The commercial moat is the validation data, not the architecture.** "Dual extractor plus adjudicator" can be replicated in a week. A published, pre-registered, blinded accuracy benchmark with 7-class error taxonomy, two-rater kappa ≥0.6, and 25+ trials cannot. The grading infrastructure (pilot.html, study.html, schema, protocol) is the defensible asset.
 
-**Stopping condition for V3:** After the rebuild, run Phase 1. If V3 shows less than ~5 percentage points improvement over V1 on primary endpoint accuracy — with no meaningful advantage on ambiguous paper types — ship V1 as production pipeline and publish with V1 vs V3 as the comparison arms. Do not iterate V3 indefinitely without a clear signal.
+**Two-phase test — NI before superiority:**
 
-**Fast resolution path (do this before running all 10 Phase 1 papers):**
-Run these three papers first, chosen for maximum discriminating power:
-1. **FREEDOM (PMID 23121323)** — CABG vs PCI, multiple endpoint framings, competing table values. This is where V3 should demonstrate its candidate-ranking advantage over V1.
-2. **ISCHEMIA (PMID 32227755)** — complex NI-adjacent design, multiple subgroup interactions. Stress-tests the two areas where V3 failed on DEDICATE.
-3. **PARTNER 3 (PMID 30883058)** — clean primary endpoint, single table. V3 should match V1 here after rebuild. If V3 fails on this, the rebuild has not worked.
+**Phase 1A — Non-inferiority (immediate priority after rebuild):**
+Before asking whether V3 is better than V1, first confirm it is not worse. Run DEDICATE through the rebuilt V3 and check the 5-point checklist above. If V3 matches V1 on a paper where V1's output is known to be correct, the rebuild has worked and V3 is non-inferior. This is the gate that must pass before any superiority testing.
 
-Grade all three in pilot.html. If V3 clearly outperforms V1 on FREEDOM and matches on PARTNER 3, proceed. If results are ambiguous, run the full ten.
+**Phase 1B — Superiority (reserved — do not start until Phase 1A passes):**
+Once non-inferiority is confirmed, run three papers chosen specifically for discriminating power between V3 and V1:
+1. **FREEDOM (PMID 23121323)** — CABG vs PCI, multiple endpoint framings, competing table values. Where V3's candidate-ranking should outperform V1.
+2. **ISCHEMIA (PMID 32227755)** — complex subgroups, multiple interaction p-values. Stress-tests subgroup completeness and source conflict detection.
+3. **PARTNER 3 (PMID 30883058)** — clean primary endpoint. V3 should match V1 here. If it doesn't, the rebuild is still broken.
+
+Grade all three in pilot.html. If V3 outperforms V1 on FREEDOM and matches on PARTNER 3, the architecture demonstrates its value. If not, ship V1 as production pipeline.
+
+**Stopping condition for V3:** If Phase 1A fails (V3 still worse than V1 after rebuild), root cause before iterating further. If Phase 1B fails (V3 matches but does not exceed V1 even on hard papers), ship V1 as production and publish V1 vs V3 as the comparison arms. Do not iterate indefinitely without a defined signal.
 
 **New structural risk identified:** The `candidate_values` free-text block produced by gpt-4o-mini may use inconsistent formatting, causing the adjudicator to miss candidates during parsing. Consider switching both extractors to JSON response mode (`responseMimeType: application/json`) for structural reliability. Gemini flash-lite supports this. GPT-4o-mini supports `response_format: { type: "json_object" }`. Not urgent but track for Phase 1 if candidate ranking failures appear.
 
