@@ -115,7 +115,7 @@
       <div class="flex items-center gap-4">
         <div class="flex-1">
           <p class="text-sm text-slate-300 font-medium mb-1">Batch upload PDFs</p>
-          <p class="text-xs text-slate-500">Select all 10 PDFs at once — each will be auto-matched to a pilot paper record by filename. Confirm or change the match before running.</p>
+          <p class="text-xs text-slate-500">Select all PDFs at once — each will be auto-matched to a pilot paper record by filename. Choose which pipeline versions to run, then confirm assignments.</p>
         </div>
         <input id="batch-file-input" type="file" accept="application/pdf" multiple
                class="text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-700 file:text-white hover:file:bg-blue-600 file:cursor-pointer cursor-pointer">
@@ -127,7 +127,15 @@
     <div id="batch-panel" class="hidden mb-6 bg-slate-800 rounded-lg overflow-hidden">
       <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
         <span class="font-medium text-white text-sm">Batch Run — Confirm Paper Assignments</span>
-        <button onclick="clearBatch()" class="text-xs text-slate-400 hover:text-white">✕ Clear</button>
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-slate-400">Run:</label>
+          <select id="batch-version-select" class="bg-slate-700 text-xs text-slate-300 rounded px-2 py-1 border border-slate-600 focus:border-blue-500 outline-none">
+            <option value="both">V3 + V1 (both)</option>
+            <option value="v3">V3 only</option>
+            <option value="v1">V1 only</option>
+          </select>
+          <button onclick="clearBatch()" class="text-xs text-slate-400 hover:text-white">✕ Clear</button>
+        </div>
       </div>
 
       <table class="w-full text-sm">
@@ -915,11 +923,14 @@
     try {
       if (!fileList?.length) return;
       window.batchFiles = Array.from(fileList).map(f => ({
-        file:        f,
-        status:      'pending',
-        message:     '',
-        title:       '',
-        matchedId:   matchFileToPaper(f.name)?.id || '',
+        file:            f,
+        status:          'pending',
+        statusV3:        'pending',
+        statusV1:        'pending',
+        message:         '',
+        title:           '',
+        matchedId:       matchFileToPaper(f.name)?.id || '',
+        resolvedPaperId: null,
       }));
       renderBatchPanel();
       document.getElementById('batch-panel').classList.remove('hidden');
@@ -962,94 +973,128 @@
     }).join('');
   }
 
-  const BATCH_RETRY_WAIT_MS = 30_000;  // wait 30s before retrying a 503
+  const BATCH_RETRY_WAIT_MS = 30_000;
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  function singleStatusBadge(status, label, message) {
+    const l = label ? `<span class="font-semibold">${label}</span> ` : '';
+    const spinner = `<svg class="spinner w-3 h-3 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+    return ({
+      pending:  `<span class="badge-pending px-1.5 py-0.5 rounded text-xs">${l}Queued</span>`,
+      running:  `<span class="text-xs text-blue-400 flex items-center gap-1">${l}${spinner}</span>`,
+      retrying: `<span class="text-xs text-amber-400 animate-pulse">${l}Retry…</span>`,
+      done:     `<span class="badge-done px-1.5 py-0.5 rounded text-xs">${l}Done</span>`,
+      error:    `<span class="badge-error px-1.5 py-0.5 rounded text-xs" title="${message || 'error'}">${l}Error</span>`,
+    })[status] || '';
+  }
+
   function batchStatusHtml(item) {
-    return {
-      pending:  `<span class="badge-pending px-2 py-0.5 rounded text-xs">Queued</span>`,
-      running:  `<svg class="spinner w-4 h-4 text-blue-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
-      retrying: `<span class="text-xs text-amber-400 animate-pulse">Retrying…</span>`,
-      done:     `<span class="badge-done px-2 py-0.5 rounded text-xs">Done</span>`,
-      error:    `<span class="badge-error px-2 py-0.5 rounded text-xs" title="${item.message}">Error</span>`,
-    }[item.status] || '';
+    const versionMode = document.getElementById('batch-version-select')?.value || 'v3';
+    if (versionMode === 'both') {
+      return `<div class="flex flex-col gap-0.5 items-center">
+        ${singleStatusBadge(item.statusV3 || 'pending', 'V3', item.message)}
+        ${singleStatusBadge(item.statusV1 || 'pending', 'V1', item.message)}
+      </div>`;
+    }
+    const key = versionMode === 'v1' ? 'statusV1' : 'statusV3';
+    return singleStatusBadge(item[key] || item.status || 'pending', '', item.message);
+  }
+
+  // Run a single (file, version) pair with one retry on 503.
+  // Updates item.statusV3 / item.statusV1 and calls updateBatchRowStatus.
+  async function runOneVersion(idx, version) {
+    const item      = window.batchFiles[idx];
+    const statusKey = version === 'v3' ? 'statusV3' : 'statusV1';
+    const total     = window.batchFiles.length;
+
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      if (attempt === 1) {
+        item[statusKey] = 'retrying';
+        updateBatchRowStatus(idx, item);
+        document.getElementById('batch-progress-text').textContent =
+          `Gemini busy — waiting 30s then retrying ${idx + 1}/${total} (${version.toUpperCase()})…`;
+        await sleep(BATCH_RETRY_WAIT_MS);
+      }
+
+      item[statusKey] = 'running';
+      updateBatchRowStatus(idx, item);
+      document.getElementById('batch-progress-text').textContent =
+        `${attempt === 0 ? 'Running' : 'Retrying'} ${idx + 1}/${total} — ${version.toUpperCase()} — ${item.file.name}`;
+
+      try {
+        const base64  = await readFileAsBase64(item.file);
+        // Use paper_id resolved from a previous version run (auto-create case),
+        // or from the dropdown selection.
+        const paperId = item.resolvedPaperId || document.getElementById(`batch-match-${idx}`)?.value || null;
+        const body    = paperId
+          ? { paper_id: paperId, version, force: true, pdf_base64: base64 }
+          : { version, pdf_base64: base64 };
+
+        const r    = await fetch(`${API}/study?resource=run`, {
+          method:  'POST',
+          headers: authHeaders(),
+          body:    JSON.stringify(body),
+        });
+        const data = await r.json();
+
+        if (r.status === 503 && attempt === 0) continue; // retry after delay
+        if (!r.ok) throw new Error(data.error || data.message || r.statusText);
+
+        item[statusKey] = 'done';
+        if (!item.title && data.display_title) item.title = data.display_title;
+
+        // If auto-created a new paper record, store the paper_id so the other
+        // version run uses the same record rather than creating a duplicate.
+        if (!item.resolvedPaperId && data.paper_id) {
+          item.resolvedPaperId = data.paper_id;
+          const sel = document.getElementById(`batch-match-${idx}`);
+          if (sel) {
+            if (!sel.querySelector(`option[value="${data.paper_id}"]`)) {
+              const opt = document.createElement('option');
+              opt.value = data.paper_id;
+              opt.textContent = item.title || data.paper_id;
+              sel.appendChild(opt);
+            }
+            sel.value = data.paper_id;
+          }
+        }
+
+        updateBatchRowStatus(idx, item);
+        return 'done';
+      } catch (err) {
+        item[statusKey] = 'error';
+        item.message    = err.message;
+        updateBatchRowStatus(idx, item);
+        return 'error';
+      }
+    }
+
+    // Exhausted retries
+    item[statusKey] = 'error';
+    item.message    = 'Gemini still overloaded after retry — try again later';
+    updateBatchRowStatus(idx, item);
+    return 'error';
   }
 
   async function runBatch() {
-    const btn = document.getElementById('batch-run-btn');
-    btn.disabled = true;
+    const btn         = document.getElementById('batch-run-btn');
+    const versionMode = document.getElementById('batch-version-select')?.value || 'v3';
+    btn.disabled    = true;
     btn.textContent = 'Running…';
 
-    let done = 0, errors = 0;
+    const versions = versionMode === 'both' ? ['v3', 'v1'] : [versionMode];
+    let succeeded = 0, failed = 0;
 
     for (let idx = 0; idx < window.batchFiles.length; idx++) {
-      const item  = window.batchFiles[idx];
-      const total = window.batchFiles.length;
-
-      for (let attempt = 0; attempt <= 1; attempt++) {
-        if (attempt === 1) {
-          // Gemini was overloaded on first attempt — wait then retry
-          item.status = 'retrying';
-          updateBatchRowStatus(idx, item);
-          document.getElementById('batch-progress-text').textContent =
-            `Gemini busy — waiting 30s then retrying ${idx + 1} of ${total}…`;
-          await sleep(BATCH_RETRY_WAIT_MS);
-        }
-
-        item.status = 'running';
-        updateBatchRowStatus(idx, item);
-        document.getElementById('batch-progress-text').textContent =
-          attempt === 0 ? `Running ${idx + 1} of ${total}…`
-                        : `Retrying ${idx + 1} of ${total}…`;
-
-        try {
-          const base64    = await readFileAsBase64(item.file);
-          const matchEl   = document.getElementById(`batch-match-${idx}`);
-          const paperId   = matchEl?.value || null;
-          const body      = paperId
-            ? { paper_id: paperId, version: 'v3', force: true, pdf_base64: base64 }
-            : { version: 'v3', pdf_base64: base64 };
-          const r      = await fetch(`${API}/study?resource=run`, {
-            method:  'POST',
-            headers: authHeaders(),
-            body:    JSON.stringify(body),
-          });
-          const data = await r.json();
-
-          if (r.status === 503 && attempt === 0) {
-            // Gemini overloaded — loop will retry after delay
-            continue;
-          }
-
-          if (!r.ok) throw new Error(data.error || data.message || r.statusText);
-
-          item.status = 'done';
-          item.title  = data.display_title || '';
-          done++;
-          break;
-        } catch (err) {
-          item.status  = 'error';
-          item.message = err.message;
-          errors++;
-          break;
-        }
+      for (const version of versions) {
+        const result = await runOneVersion(idx, version);
+        if (result === 'done') succeeded++; else failed++;
       }
-
-      // If we exhausted retries while still in 503 state
-      if (item.status === 'running' || item.status === 'retrying') {
-        item.status  = 'error';
-        item.message = 'Gemini still overloaded after retry — try again later';
-        errors++;
-      }
-
-      updateBatchRowStatus(idx, item);
     }
 
     document.getElementById('batch-progress-text').textContent =
-      `Complete — ${done} succeeded${errors ? ', ' + errors + ' failed' : ''}.`;
+      `Complete — ${succeeded} run(s) succeeded${failed ? ', ' + failed + ' failed' : ''}.`;
     btn.textContent = 'Done';
-
-    // Refresh table to show newly created papers
     await loadPapers();
   }
 
