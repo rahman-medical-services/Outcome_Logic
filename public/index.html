@@ -1226,9 +1226,10 @@ function renderSubgroups(subgroups) {
         ? `<span class="text-slate-400 text-xs ml-1">(CI crosses 1)</span>` : '';
       const absEvents = arm.absolute_events
         ? `<span class="text-slate-400 ml-2">${arm.absolute_events}</span>` : '';
+      const estimate = (arm.hr && arm.hr !== 'null') ? `${arm.hr} ` : '';
       return `<div class="text-xs text-slate-600 py-1 border-b border-slate-100 last:border-0">
         <span class="font-medium text-slate-700">${arm.subgroup_name}:</span>
-        HR ${arm.hr} (95% CI ${arm.ci_95})${crossesOne}${absEvents}
+        ${estimate}(95% CI ${arm.ci_95})${crossesOne}${absEvents}
       </div>`;
     }).join('');
 
