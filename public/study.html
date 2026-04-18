@@ -186,6 +186,12 @@
         </thead>
         <tbody id="papers-tbody"></tbody>
       </table>
+      <div id="papers-export-footer" class="hidden px-4 py-3 border-t border-slate-700 flex items-center justify-end">
+        <button id="papers-export-btn" onclick="exportAllJson()"
+          class="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded font-medium">
+          ↓ Export all JSON (V1 + V3)
+        </button>
+      </div>
     </div>
 
   </main>
@@ -272,6 +278,9 @@
       papersCache = data.papers || [];
       renderTable(papersCache);
       updateStats(papersCache);
+      // Show export footer if any paper has at least one output
+      const hasAny = papersCache.some(p => p.v3_output || p.v1_output);
+      document.getElementById('papers-export-footer').classList.toggle('hidden', !hasAny);
     } catch (err) {
       document.getElementById('table-loading').classList.add('hidden');
       const el = document.getElementById('table-error');
@@ -1148,6 +1157,47 @@
 
     btn.disabled = false;
     btn.textContent = '↓ Export JSON';
+  }
+
+  async function exportAllJson() {
+    const btn = document.getElementById('papers-export-btn');
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+
+    const results = [];
+    for (const p of papersCache) {
+      if (!p.v3_output && !p.v1_output) continue;
+      const entry = {
+        paper_id:   p.id,
+        trial_name: p.trial_name || null,
+        title:      p.title      || null,
+        pmid:       p.pmid       || null,
+        v3: null,
+        v1: null,
+      };
+      for (const [vKey, outputMeta] of [['v3', p.v3_output], ['v1', p.v1_output]]) {
+        if (!outputMeta?.id) continue;
+        try {
+          const r    = await fetch(`${API}/study?resource=output&id=${outputMeta.id}`, { headers: authHeaders() });
+          const data = await r.json();
+          if (r.ok && data.output?.output_json) {
+            entry[vKey] = { _version: vKey, _paper_id: p.id, _title: p.trial_name || p.title, ...data.output.output_json };
+          }
+        } catch { /* leave null */ }
+      }
+      results.push(entry);
+    }
+
+    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `outcomelogic_all_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    btn.disabled = false;
+    btn.textContent = '↓ Export all JSON (V1 + V3)';
   }
 
   function updateBatchRowStatus(idx, item) {
