@@ -1421,6 +1421,21 @@ function renderForestPlot(containerId, ep) {
 }
 
 function exportReport() {
+  // Force #reportContainer visible before print renders.
+  // beforeprint fires after @media print CSS is applied but before the
+  // print dialog/renderer receives the layout — guarantees display:block
+  // regardless of Tailwind utility class specificity battles.
+  const el = document.getElementById('reportContainer');
+  function onBefore() {
+    el.style.setProperty('display', 'block', 'important');
+    el.style.setProperty('visibility', 'visible', 'important');
+  }
+  function onAfter() {
+    el.style.removeProperty('display');
+    el.style.removeProperty('visibility');
+  }
+  window.addEventListener('beforeprint', onBefore, { once: true });
+  window.addEventListener('afterprint',  onAfter,  { once: true });
   window.print();
 }
   </script>
