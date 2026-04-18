@@ -151,6 +151,10 @@
 
       <div class="px-4 py-3 border-t border-slate-700 flex items-center gap-3">
         <div id="batch-progress-text" class="text-xs text-slate-400 flex-1"></div>
+        <button id="batch-export-btn" onclick="exportBatchJson()" disabled
+          class="hidden px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+          ↓ Export JSON
+        </button>
         <button id="batch-run-btn" onclick="runBatch()"
           class="px-5 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded font-medium">
           Run all
@@ -931,6 +935,8 @@
         title:           '',
         matchedId:       matchFileToPaper(f.name)?.id || '',
         resolvedPaperId: null,
+        outputIdV3:      null,
+        outputIdV1:      null,
       }));
       renderBatchPanel();
       document.getElementById('batch-panel').classList.remove('hidden');
@@ -1042,6 +1048,7 @@
 
         item[statusKey] = 'done';
         if (!item.title && data.display_title) item.title = data.display_title;
+        if (data.output_id) item[version === 'v3' ? 'outputIdV3' : 'outputIdV1'] = data.output_id;
 
         // If auto-created a new paper record, store the paper_id so the other
         // version run uses the same record rather than creating a duplicate.
@@ -1096,6 +1103,51 @@
       `Complete — ${succeeded} run(s) succeeded${failed ? ', ' + failed + ' failed' : ''}.`;
     btn.textContent = 'Done';
     await loadPapers();
+
+    // Show export button if anything completed
+    const hasOutputs = window.batchFiles.some(f => f.outputIdV3 || f.outputIdV1);
+    if (hasOutputs) {
+      const expBtn = document.getElementById('batch-export-btn');
+      expBtn.classList.remove('hidden');
+      expBtn.disabled = false;
+    }
+  }
+
+  async function exportBatchJson() {
+    const btn = document.getElementById('batch-export-btn');
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+
+    const results = [];
+    for (const item of window.batchFiles) {
+      const entry = {
+        filename:  item.file.name,
+        title:     item.title   || null,
+        paper_id:  item.resolvedPaperId || null,
+        v3:        null,
+        v1:        null,
+      };
+      for (const [vKey, idKey] of [['v3', 'outputIdV3'], ['v1', 'outputIdV1']]) {
+        if (!item[idKey]) continue;
+        try {
+          const r    = await fetch(`${API}/study?resource=output&id=${item[idKey]}`, { headers: authHeaders() });
+          const data = await r.json();
+          if (r.ok) entry[vKey] = data.output?.output_json ?? null;
+        } catch { /* leave null */ }
+      }
+      results.push(entry);
+    }
+
+    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `outcomelogic_batch_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    btn.disabled = false;
+    btn.textContent = '↓ Export JSON';
   }
 
   function updateBatchRowStatus(idx, item) {
@@ -1123,6 +1175,10 @@
     document.getElementById('batch-run-btn').disabled = false;
     document.getElementById('batch-run-btn').textContent = 'Run all';
     document.getElementById('batch-progress-text').textContent = '';
+    const expBtn = document.getElementById('batch-export-btn');
+    expBtn.classList.add('hidden');
+    expBtn.disabled = true;
+    expBtn.textContent = '↓ Export JSON';
   }
 
   function readFileAsBase64(file) {
