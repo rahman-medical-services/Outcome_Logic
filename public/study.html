@@ -42,7 +42,7 @@
   <main class="max-w-6xl mx-auto px-6 py-8">
 
     <!-- Stats bar -->
-    <div id="stats-bar" class="grid grid-cols-5 gap-4 mb-8">
+    <div id="stats-bar" class="grid grid-cols-6 gap-4 mb-8">
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-total" class="text-2xl font-bold text-white">—</div>
         <div class="text-xs text-slate-400 mt-1">Papers registered</div>
@@ -54,6 +54,10 @@
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-v1-done" class="text-2xl font-bold text-purple-400">—</div>
         <div class="text-xs text-slate-400 mt-1">V1 complete</div>
+      </div>
+      <div class="bg-slate-800 rounded-lg p-4 text-center">
+        <div id="stat-v4-done" class="text-2xl font-bold text-amber-400">—</div>
+        <div class="text-xs text-slate-400 mt-1">V4 complete</div>
       </div>
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-both-done" class="text-2xl font-bold text-blue-400">—</div>
@@ -133,6 +137,8 @@
             <option value="both">V3 + V1 (both)</option>
             <option value="v3">V3 only</option>
             <option value="v1">V1 only</option>
+            <option value="v4">V4 only</option>
+            <option value="all">V1 + V3 + V4 (all)</option>
           </select>
           <button onclick="clearBatch()" class="text-xs text-slate-400 hover:text-white">✕ Clear</button>
         </div>
@@ -180,6 +186,7 @@
             <th class="px-4 py-2 text-left">PMID</th>
             <th class="px-4 py-2 text-center">V3</th>
             <th class="px-4 py-2 text-center">V1</th>
+            <th class="px-4 py-2 text-center">V4</th>
             <th class="px-4 py-2 text-center">Source</th>
             <th class="px-4 py-2 text-right">Actions</th>
           </tr>
@@ -189,7 +196,7 @@
       <div id="papers-export-footer" class="hidden px-4 py-3 border-t border-slate-700 flex items-center justify-end">
         <button id="papers-export-btn" onclick="exportAllJson()"
           class="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded font-medium">
-          ↓ Export all JSON (V1 + V3)
+          ↓ Export all JSON
         </button>
       </div>
     </div>
@@ -279,7 +286,7 @@
       renderTable(papersCache);
       updateStats(papersCache);
       // Show export footer if any paper has at least one output
-      const hasAny = papersCache.some(p => p.v3_output || p.v1_output);
+      const hasAny = papersCache.some(p => p.v3_output || p.v1_output || p.v4_output);
       document.getElementById('papers-export-footer').classList.toggle('hidden', !hasAny);
     } catch (err) {
       document.getElementById('table-loading').classList.add('hidden');
@@ -294,6 +301,7 @@
     const total    = papers.length;
     const v3Done   = papers.filter(p => p.v3_output).length;
     const v1Done   = papers.filter(p => p.v1_output).length;
+    const v4Done   = papers.filter(p => p.v4_output).length;
     const bothDone = papers.filter(p => p.v3_output && p.v1_output).length;
     const srcTypes = papers
       .filter(p => p.v3_output?.source_type)
@@ -306,6 +314,7 @@
     document.getElementById('stat-total').textContent        = total;
     document.getElementById('stat-v3-done').textContent      = v3Done;
     document.getElementById('stat-v1-done').textContent      = v1Done;
+    document.getElementById('stat-v4-done').textContent      = v4Done;
     document.getElementById('stat-both-done').textContent    = bothDone;
     document.getElementById('stat-source-types').textContent = srcStr;
   }
@@ -334,6 +343,10 @@
       ? `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#3b1d6e;color:#c4b5fd">Done</span>`
       : `<span class="badge-pending px-2 py-0.5 rounded text-xs font-medium">—</span>`;
 
+    const v4Badge = p.v4_output
+      ? `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#78350f;color:#fcd34d">Done</span>`
+      : `<span class="badge-pending px-2 py-0.5 rounded text-xs font-medium">—</span>`;
+
     const srcBadge = p.v3_output?.source_type
       ? `<span class="text-xs text-slate-400">${p.v3_output.source_type.replace('full-text-', '').replace('abstract-only', 'abstract')}</span>`
       : `<span class="text-xs text-slate-600">—</span>`;
@@ -354,6 +367,10 @@
       ? `<button onclick="runV1('${p.id}', true)" class="text-xs text-slate-400 hover:text-purple-400 px-2 py-1 rounded hover:bg-slate-700">Re-V1</button>`
       : `<button onclick="runV1('${p.id}', false)" class="text-xs px-3 py-1 rounded font-medium" style="background:#4c1d95;color:#e9d5ff">Run V1</button>`;
 
+    const runV4Btn = p.v4_output
+      ? `<button onclick="runV4('${p.id}', true)" class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700">Re-V4</button>`
+      : `<button onclick="runV4('${p.id}', false)" class="text-xs px-3 py-1 rounded font-medium" style="background:#78350f;color:#fcd34d">Run V4</button>`;
+
     const viewV3Btn = p.v3_output
       ? `<button onclick="viewOutput('${p.id}','v3')" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded hover:bg-slate-700">V3</button>`
       : '';
@@ -362,7 +379,11 @@
       ? `<button onclick="viewOutput('${p.id}','v1')" class="text-xs px-2 py-1 rounded hover:bg-slate-700" style="color:#c4b5fd">V1</button>`
       : '';
 
-    // Hidden file inputs — v3 and v1 PDF buttons
+    const viewV4Btn = p.v4_output
+      ? `<button onclick="viewOutput('${p.id}','v4')" class="text-xs px-2 py-1 rounded hover:bg-slate-700" style="color:#fcd34d">V4</button>`
+      : '';
+
+    // Hidden file inputs — v3, v1, v4 PDF buttons
     const pdfV3Btn = `
       <input type="file" id="pdf-v3-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v3')">
       <button onclick="document.getElementById('pdf-v3-${p.id}').click()"
@@ -374,6 +395,12 @@
       <button onclick="document.getElementById('pdf-v1-${p.id}').click()"
         class="text-xs text-slate-400 hover:text-purple-400 px-2 py-1 rounded hover:bg-slate-700"
         title="Upload PDF for V1">V1-PDF</button>`;
+
+    const pdfV4Btn = `
+      <input type="file" id="pdf-v4-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v4')">
+      <button onclick="document.getElementById('pdf-v4-${p.id}').click()"
+        class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700"
+        title="Upload PDF for V4">V4-PDF</button>`;
 
     return `
       <td class="px-4 py-3">
@@ -387,12 +414,13 @@
       </td>
       <td class="px-4 py-3 text-center" id="v3-cell-${p.id}">${v3Badge}</td>
       <td class="px-4 py-3 text-center" id="v1-cell-${p.id}">${v1Badge}</td>
+      <td class="px-4 py-3 text-center" id="v4-cell-${p.id}">${v4Badge}</td>
       <td class="px-4 py-3 text-center">${srcBadge}</td>
       <td class="px-4 py-3 text-right">
         <div class="flex items-center justify-end gap-1 flex-wrap">
-          ${viewV3Btn}${viewV1Btn}
-          ${pdfV3Btn}${pdfV1Btn}
-          ${runV3Btn}${runV1Btn}
+          ${viewV3Btn}${viewV1Btn}${viewV4Btn}
+          ${pdfV3Btn}${pdfV1Btn}${pdfV4Btn}
+          ${runV3Btn}${runV1Btn}${runV4Btn}
           <button onclick="deletePaper('${p.id}', '${p.title.replace(/'/g, "\\'")}')"
             class="text-xs text-slate-600 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-700 ml-1" title="Delete paper">✕</button>
         </div>
@@ -407,7 +435,7 @@
     if (!file) return;
 
     const paper     = papersCache.find(p => p.id === paperId);
-    const hasOutput = version === 'v1' ? paper?.v1_output : paper?.v3_output;
+    const hasOutput = version === 'v1' ? paper?.v1_output : version === 'v4' ? paper?.v4_output : paper?.v3_output;
     if (hasOutput) {
       if (!confirm(`"${paper.title}" already has a ${version.toUpperCase()} analysis.\n\nOverwrite with this PDF?`)) {
         input.value = '';
@@ -415,7 +443,7 @@
       }
     }
 
-    const spinnerColour = version === 'v1' ? 'text-purple-400' : 'text-green-400';
+    const spinnerColour = version === 'v1' ? 'text-purple-400' : version === 'v4' ? 'text-amber-400' : 'text-green-400';
     const cell = document.getElementById(`${version}-cell-${paperId}`);
     const row  = document.getElementById(`row-${paperId}`);
     cell.innerHTML = `<svg class="spinner w-4 h-4 ${spinnerColour} mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
@@ -518,12 +546,42 @@
     }
   }
 
+  // ── Run V4 ────────────────────────────────────────────────────────────────
+  async function runV4(paperId, force) {
+    const cell = document.getElementById(`v4-cell-${paperId}`);
+    const row  = document.getElementById(`row-${paperId}`);
+    cell.innerHTML = `<svg class="spinner w-4 h-4 text-amber-400 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+    row.querySelectorAll('button').forEach(b => b.disabled = true);
+    try {
+      const r   = await fetch(`${API}/study?resource=run`, {
+        method:  'POST',
+        headers: authHeaders(),
+        body:    JSON.stringify({ paper_id: paperId, version: 'v4', force }),
+      });
+      const data = await r.json();
+      if (r.status === 409) {
+        cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#78350f;color:#fcd34d">Done</span>`;
+      } else if (!r.ok) {
+        cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium" title="${data.error || 'error'}">Error</span>`;
+        alert('V4 run failed: ' + (data.error || data.message || r.statusText));
+      } else {
+        cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#78350f;color:#fcd34d">Done</span>`;
+        await loadPapers();
+      }
+    } catch (err) {
+      cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium">Error</span>`;
+      alert('Network error: ' + err.message);
+    } finally {
+      row.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+  }
+
   // ── View output ───────────────────────────────────────────────────────────
   let _currentOutputJson = null;
 
   async function viewOutput(paperId, version = 'v3') {
     const paper  = papersCache.find(p => p.id === paperId);
-    const output = version === 'v1' ? paper?.v1_output : paper?.v3_output;
+    const output = version === 'v1' ? paper?.v1_output : version === 'v4' ? paper?.v4_output : paper?.v3_output;
     if (!output) return;
 
     const vLabel = version.toUpperCase();
@@ -678,6 +736,59 @@
         ? `<div class="bg-slate-800 rounded p-3 text-sm text-slate-400 italic">${pv.shared_decision_making_takeaway}</div>`
         : ''}`;
 
+    // ── V4 Critic audit panel (only present on V4 outputs) ───────────────────
+    let criticHtml = '';
+    if (j._critic) {
+      const c = j._critic;
+      const patchRows = (c.patches || []).map(p => `
+        <tr class="border-b border-slate-800 text-xs">
+          <td class="py-1.5 pr-3 text-amber-400 font-mono">${p.path}</td>
+          <td class="py-1.5 px-2 text-red-400">${JSON.stringify(p.before)}</td>
+          <td class="py-1.5 px-2 text-green-400">${JSON.stringify(p.after)}</td>
+          <td class="py-1.5 px-2 text-slate-500">${p.rule || ''}</td>
+          <td class="py-1.5 pl-2 text-slate-400">${p.reason || ''}</td>
+        </tr>`).join('');
+
+      const noteItems = (c.quality_notes || []).map(n =>
+        `<li class="text-xs text-slate-300 pl-3 border-l-2 border-amber-700 py-0.5">${n}</li>`
+      ).join('');
+
+      const skippedRows = (c.skipped_patches || []).map(s =>
+        `<li class="text-xs text-slate-500 font-mono">${s.path} — ${s.reason}</li>`
+      ).join('');
+
+      criticHtml = `
+        <div class="mb-2 flex items-center gap-3">
+          <span class="text-xs px-2 py-0.5 rounded font-medium" style="background:#78350f;color:#fcd34d">
+            V4 Critic — ${c.patches_applied} patch${c.patches_applied !== 1 ? 'es' : ''} applied
+          </span>
+          <span class="text-xs text-slate-500">model: ${c.model || 'gpt-4o-mini'}</span>
+        </div>
+        ${patchRows ? `
+          <div class="overflow-x-auto mb-3">
+            <table class="w-full text-xs">
+              <thead><tr class="text-slate-500 border-b border-slate-700">
+                <th class="text-left pb-1 pr-3">Field</th>
+                <th class="text-left pb-1 px-2">Before</th>
+                <th class="text-left pb-1 px-2">After</th>
+                <th class="text-left pb-1 px-2">Rule</th>
+                <th class="text-left pb-1 pl-2">Reason</th>
+              </tr></thead>
+              <tbody>${patchRows}</tbody>
+            </table>
+          </div>` : '<p class="text-xs text-slate-500 italic mb-3">No rule violations found.</p>'}
+        ${noteItems ? `
+          <div class="mb-2">
+            <div class="text-xs text-slate-500 mb-1">Quality notes (plausibility check)</div>
+            <ul class="space-y-1">${noteItems}</ul>
+          </div>` : ''}
+        ${skippedRows ? `
+          <details class="mt-1">
+            <summary class="text-xs text-slate-600 cursor-pointer">Skipped patches (${c.patches_skipped})</summary>
+            <ul class="mt-1 space-y-0.5">${skippedRows}</ul>
+          </details>` : ''}`;
+    }
+
     // ── Raw JSON toggle ────────────────────────────────────────────────────
     const jsonHtml = `<details class="mt-2">
       <summary class="cursor-pointer text-xs text-slate-500 hover:text-slate-300 select-none">Show raw JSON</summary>
@@ -692,6 +803,7 @@
       section('Adverse Events (Grade ≥3)', aeHtml) +
       section('Subgroup Interactions',     sgHtml) +
       section('Patient View',              patientHtml) +
+      (criticHtml ? section('V4 Critic Audit', criticHtml) : '') +
       jsonHtml;
 
     // Destroy any previous charts then render new ones
@@ -940,12 +1052,14 @@
         status:          'pending',
         statusV3:        'pending',
         statusV1:        'pending',
+        statusV4:        'pending',
         message:         '',
         title:           '',
         matchedId:       matchFileToPaper(f.name)?.id || '',
         resolvedPaperId: null,
         outputIdV3:      null,
         outputIdV1:      null,
+        outputIdV4:      null,
       }));
       renderBatchPanel();
       document.getElementById('batch-panel').classList.remove('hidden');
@@ -1011,7 +1125,14 @@
         ${singleStatusBadge(item.statusV1 || 'pending', 'V1', item.message)}
       </div>`;
     }
-    const key = versionMode === 'v1' ? 'statusV1' : 'statusV3';
+    if (versionMode === 'all') {
+      return `<div class="flex flex-col gap-0.5 items-center">
+        ${singleStatusBadge(item.statusV3 || 'pending', 'V3', item.message)}
+        ${singleStatusBadge(item.statusV1 || 'pending', 'V1', item.message)}
+        ${singleStatusBadge(item.statusV4 || 'pending', 'V4', item.message)}
+      </div>`;
+    }
+    const key = versionMode === 'v1' ? 'statusV1' : versionMode === 'v4' ? 'statusV4' : 'statusV3';
     return singleStatusBadge(item[key] || item.status || 'pending', '', item.message);
   }
 
@@ -1019,7 +1140,7 @@
   // Updates item.statusV3 / item.statusV1 and calls updateBatchRowStatus.
   async function runOneVersion(idx, version) {
     const item      = window.batchFiles[idx];
-    const statusKey = version === 'v3' ? 'statusV3' : 'statusV1';
+    const statusKey = version === 'v3' ? 'statusV3' : version === 'v4' ? 'statusV4' : 'statusV1';
     const total     = window.batchFiles.length;
 
     for (let attempt = 0; attempt <= 1; attempt++) {
@@ -1057,7 +1178,7 @@
 
         item[statusKey] = 'done';
         if (!item.title && data.display_title) item.title = data.display_title;
-        if (data.output_id) item[version === 'v3' ? 'outputIdV3' : 'outputIdV1'] = data.output_id;
+        if (data.output_id) item[version === 'v3' ? 'outputIdV3' : version === 'v4' ? 'outputIdV4' : 'outputIdV1'] = data.output_id;
 
         // If auto-created a new paper record, store the paper_id so the other
         // version run uses the same record rather than creating a duplicate.
@@ -1098,7 +1219,7 @@
     btn.disabled    = true;
     btn.textContent = 'Running…';
 
-    const versions = versionMode === 'both' ? ['v3', 'v1'] : [versionMode];
+    const versions = versionMode === 'both' ? ['v3', 'v1'] : versionMode === 'all' ? ['v3', 'v1', 'v4'] : [versionMode];
     let succeeded = 0, failed = 0;
 
     for (let idx = 0; idx < window.batchFiles.length; idx++) {
@@ -1114,7 +1235,7 @@
     await loadPapers();
 
     // Show export button if anything completed
-    const hasOutputs = window.batchFiles.some(f => f.outputIdV3 || f.outputIdV1);
+    const hasOutputs = window.batchFiles.some(f => f.outputIdV3 || f.outputIdV1 || f.outputIdV4);
     if (hasOutputs) {
       const expBtn = document.getElementById('batch-export-btn');
       expBtn.classList.remove('hidden');
@@ -1135,8 +1256,9 @@
         paper_id:  item.resolvedPaperId || null,
         v3:        null,
         v1:        null,
+        v4:        null,
       };
-      for (const [vKey, idKey] of [['v3', 'outputIdV3'], ['v1', 'outputIdV1']]) {
+      for (const [vKey, idKey] of [['v3', 'outputIdV3'], ['v1', 'outputIdV1'], ['v4', 'outputIdV4']]) {
         if (!item[idKey]) continue;
         try {
           const r    = await fetch(`${API}/study?resource=output&id=${item[idKey]}`, { headers: authHeaders() });
@@ -1166,7 +1288,7 @@
 
     const results = [];
     for (const p of papersCache) {
-      if (!p.v3_output && !p.v1_output) continue;
+      if (!p.v3_output && !p.v1_output && !p.v4_output) continue;
       const entry = {
         paper_id:   p.id,
         trial_name: p.trial_name || null,
@@ -1174,8 +1296,9 @@
         pmid:       p.pmid       || null,
         v3: null,
         v1: null,
+        v4: null,
       };
-      for (const [vKey, outputMeta] of [['v3', p.v3_output], ['v1', p.v1_output]]) {
+      for (const [vKey, outputMeta] of [['v3', p.v3_output], ['v1', p.v1_output], ['v4', p.v4_output]]) {
         if (!outputMeta?.id) continue;
         try {
           const r    = await fetch(`${API}/study?resource=output&id=${outputMeta.id}`, { headers: authHeaders() });
@@ -1197,7 +1320,7 @@
     URL.revokeObjectURL(url);
 
     btn.disabled = false;
-    btn.textContent = '↓ Export all JSON (V1 + V3)';
+    btn.textContent = '↓ Export all JSON';
   }
 
   function updateBatchRowStatus(idx, item) {

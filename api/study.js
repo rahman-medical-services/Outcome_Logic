@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 import pdfParse         from 'pdf-parse/lib/pdf-parse.js';
 import { runPipeline, buildSourceContext }   from '../lib/pipeline.js';
 import { runPipelineV1 }                      from '../lib/pipeline-v1.js';
+import { runPipelineV4 }                      from '../lib/pipeline-v4.js';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '8mb' } }  // required for PDF uploads via study-run
@@ -85,6 +86,7 @@ async function handlePapers(req, res) {
         study_extractions: undefined,
         v3_output: extractions.find(o => o.version === 'v3') || extractions.find(o => o.version === 'v2') || null,
         v1_output: extractions.find(o => o.version === 'v1') || null,
+        v4_output: extractions.find(o => o.version === 'v4') || null,
       };
     });
 
@@ -244,6 +246,9 @@ async function handleRun(req, res) {
     if (version === 'v1') {
       console.log('[study-run] Routing to V1 single-node pipeline');
       pipelineResult = await runPipelineV1(ctx, sourceMeta);
+    } else if (version === 'v4') {
+      console.log('[study-run] Routing to V4 pipeline (V1 extractor + gpt-4o-mini critic)');
+      pipelineResult = await runPipelineV4(ctx, sourceMeta);
     } else {
       pipelineResult = await runPipeline(ctx, sourceMeta);
     }
