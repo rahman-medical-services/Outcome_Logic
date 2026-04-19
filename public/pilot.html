@@ -17,7 +17,8 @@
     .ms-btn.active-exact        { background: #166534; color: #86efac; border-color: #16a34a; }
     .ms-btn.active-partial      { background: #713f12; color: #fde68a; border-color: #d97706; }
     .ms-btn.active-fail         { background: #7f1d1d; color: #fca5a5; border-color: #dc2626; }
-    .ms-btn.active-hallucinated { background: #4a1d96; color: #ddd6fe; border-color: #7c3aed; }
+    .ms-btn.active-hallucinated   { background: #4a1d96; color: #ddd6fe; border-color: #7c3aed; }
+    .ms-btn.active-cannot_determine { background: #134e4a; color: #5eead4; border-color: #0d9488; }
     .ms-btn.inactive { background: #1e293b; color: #64748b; border-color: #334155; }
 
     /* severity buttons */
@@ -815,10 +816,11 @@
     const showExtra = ms && ms !== 'exact_match';
 
     const msBtns = [
-      { val: 'exact_match',  label: 'Exact Match ✓',   cls: 'active-exact' },
-      { val: 'partial_match', label: 'Partial Match ~', cls: 'active-partial' },
-      { val: 'fail',          label: 'Fail ✗',          cls: 'active-fail' },
-      { val: 'hallucinated',  label: 'Hallucinated !',  cls: 'active-hallucinated' },
+      { val: 'exact_match',       label: 'Exact Match ✓',      cls: 'active-exact' },
+      { val: 'partial_match',     label: 'Partial Match ~',     cls: 'active-partial' },
+      { val: 'fail',              label: 'Fail ✗',              cls: 'active-fail' },
+      { val: 'hallucinated',      label: 'Hallucinated !',      cls: 'active-hallucinated' },
+      { val: 'cannot_determine',  label: 'Cannot Determine ?',  cls: 'active-cannot_determine' },
     ].map(b => `
       <button data-ms="${b.val}"
         onclick="setMatchStatus('${field.id}','${b.val}')"
@@ -946,6 +948,7 @@
         <div class="mb-2">
           <div class="text-xs text-slate-500 mb-1">Correction notes</div>
           <textarea id="corr-${field.id}" rows="2" placeholder="What is the correct value? Add context."
+            oninput="scheduleSave('${field.id}'); updateCardState('${field.id}'); updateIncompleteBanner()"
             >${escHtml(existing?.correction_text || '')}</textarea>
         </div>
       </div>
@@ -991,7 +994,7 @@
     grades[fieldId].match_status = val;
 
     // Update button styles
-    const btnClasses = { exact_match: 'active-exact', partial_match: 'active-partial', fail: 'active-fail', hallucinated: 'active-hallucinated' };
+    const btnClasses = { exact_match: 'active-exact', partial_match: 'active-partial', fail: 'active-fail', hallucinated: 'active-hallucinated', cannot_determine: 'active-cannot_determine' };
     document.querySelectorAll(`#card-${fieldId} [data-ms]`).forEach(btn => {
       const bval = btn.dataset.ms;
       btn.className = btn.className.replace(/active-\w+|inactive/g, '').trim();
@@ -1030,7 +1033,14 @@
     const g = grades[fieldId];
     if (!g?.match_status) return false;
     if (g.match_status === 'exact_match') return true;
-    return !!(g.harm_severity && g.error_taxonomy && g.pipeline_section);
+    if (g.match_status === 'cannot_determine') return true;
+    const hasCore = !!(g.harm_severity && g.error_taxonomy && g.pipeline_section);
+    if (!hasCore) return false;
+    if (['fail', 'hallucinated'].includes(g.match_status)) {
+      const corr = document.getElementById(`corr-${fieldId}`)?.value?.trim();
+      return !!(corr);
+    }
+    return true;
   }
 
   function updateCardState(fieldId) {

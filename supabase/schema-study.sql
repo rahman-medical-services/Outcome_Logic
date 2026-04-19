@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS study_grades (
                             )),
   match_status              TEXT
                             CHECK (match_status IN (
-                              'exact_match', 'partial_match', 'fail', 'hallucinated'
+                              'exact_match', 'partial_match', 'fail', 'hallucinated',
+                              'cannot_determine'
                             )),
   error_taxonomy            TEXT
                             CHECK (error_taxonomy IN (
