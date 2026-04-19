@@ -1313,6 +1313,9 @@ function renderChart(canvasId, endpointData) {
     }
 
     // ── Simple bar: one bar per arm ──
+    const yLabel = endpointData.axes?.y_label || 'Percentage (%)';
+    const isPctOutcome = /percent|%|rate|proportion|event/i.test(yLabel);
+    const yUnit = isPctOutcome ? '%' : '';
     return new Chart(ctx, {
       type: 'bar',
       data: {
@@ -1329,13 +1332,13 @@ function renderChart(canvasId, endpointData) {
         responsive: true, maintainAspectRatio: false, animation: false, devicePixelRatio: 4,
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1) + '%' } },
+          tooltip: { callbacks: { label: c => c.parsed.y.toFixed(1) + yUnit } },
         },
         scales: {
           y: {
             beginAtZero: true,
-            title: { display: true, text: endpointData.axes?.y_label || 'Percentage (%)' },
-            ticks: { callback: v => v + '%' },
+            title: { display: true, text: yLabel },
+            ticks: { callback: v => v + yUnit },
           },
           x: { title: { display: true, text: endpointData.axes?.x_label || 'Treatment' }, grid: { display: false } },
         },
