@@ -137,11 +137,11 @@ These must be complete before any Phase 0 paper runs.
 ### ✅ Phase 1 papers seeded in schema **[Completed Session 10, 2026-04-17]**
 **Status:** Complete. 10 cardiac surgery papers inserted into `supabase/schema-study.sql` (phase=1). PMIDs verified against live PubMed: SYNTAX (19228612), CREST (20505173), PARTNER 1 (21639811), FREEDOM (23121323), CORONARY (22449296), PARTNER 2 (27040324), ART (30699314), PARTNER 3 (30883058), ISCHEMIA (32227755), DEDICATE (38588025). Domain chosen: cardiac surgery (general surgery reserved for Phase 2 commercial product).
 
-### 🔧 `_EXTRACTOR_SHARED_SECTIONS` rebuild on V1 foundations **[Session 11 — TOP PRIORITY]**
+### 🔧 `_EXTRACTOR_SHARED_SECTIONS` rebuild on V1 foundations **[Session 12 — pending re-run analysis]**
 **Status:** Planned, not yet implemented. Full implementation plan in HANDOVER.md.
-**Why:** Phase 1 DEDICATE run revealed V3 extractor prompts systematically inferior to V1. V3 produces endpoint-contaminated AE tables, zero subgroups, blank charts, inverted NI framing. Root cause: `_EXTRACTOR_SHARED_SECTIONS` written independently of V1, weaker language, missing explicit rules.
-**What changes:** `_EXTRACTOR_SHARED_SECTIONS` in `lib/pipeline.js` rewritten using V1's sections 1–9 as skeleton. V3-specific additions (source citations, candidate_values, survival section, subgroup detail) grafted in. AE endpoint-exclusion rule. Subgroup Option C limit. Chart explicit arm-to-y-value mapping. See HANDOVER.md for section-by-section spec.
-**What stays the same:** `EXTRACTOR_PROMPT_A` prefix, `EXTRACTOR_PROMPT_B` prefix, `ADJUDICATOR_PROMPT_BASE`, all API/call mechanics.
+**Gate:** First run updated V1 on all 20 papers and analyse the re-run JSON. If upgraded V1 still outperforms current V3 on the 5-point checklist (DEDICATE AE, subgroups, chart, NI framing, page count), proceed with rebuild. If V1 upgraded matches V3 on those points, the gap is closed and V3 rebuild becomes lower priority.
+**Why:** V1 and V3 scored essentially identically on 20-paper review (23.4 vs 23.2/25). Residual V3 failures (AE contamination, subgroup grouping, blank charts) are prompt engineering failures, not architectural. V1 prompt is now at V3 quality — if re-run confirms this, V3 rebuild may become optional.
+**What changes if still needed:** `_EXTRACTOR_SHARED_SECTIONS` in `lib/pipeline.js` rewritten using V1's upgraded sections. V3-specific additions (source citations, candidate_values, survival section, subgroup detail) grafted in. See HANDOVER.md for section-by-section spec.
 **Verification:** After implementation, run DEDICATE through V3. Pass criteria: (1) AE table has ~5 true complications only, (2) subgroups show 4 (age, sex, STS-PROM, renal function) from null-interaction set, (3) chart renders bar+forest, (4) NI framing correct, (5) page count ~3–4.
 
 ### ⬜ `api/analyze-v1.js` — V1 public endpoint
@@ -329,7 +329,7 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 
 ## Notes
 
-- **Priority for next session:** Run `supabase/schema-study.sql` in Supabase dashboard → batch-upload all 10 pilot PDFs via study.html → run Phase 0 papers (V3) → grade in pilot.html → review heatmap
+- **Priority for next session (Session 12):** Run updated V1 on all 20 Phase 0/1 papers → export JSON → analyse re-run vs prior V1 and V3 on rubric. Key questions: did AE contamination resolve? did subgroup grouping improve? did patient_view populate? Then decide on _EXTRACTOR_SHARED_SECTIONS rebuild vs ship V1 as production pipeline.
 - **Do not begin Phase 2 meta-analysis until Phase 0 go/no-go** (≥85% exact match on primary numeric fields)
 - **The Phase 0/Phase 1 validation paper is the commercial moat** — it is not optional quality assurance
 - Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated
@@ -340,3 +340,4 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 - Session 6 (2026-04-15): gpt-4o-mini Extractor B (cross-model diversity), parallel A+B extractors (different providers), Vercel maxDuration 60→120s, ChatGPT critique F1 (candidate completeness check), F3 (adjudicator ranking tiebreaker), F5 (synthetic citations logged), F6 (truncation notice for incomplete candidate list), subgroup clarity (pre/post-hoc badges, CI-crosses-one per arm, cis_all_cross_one flag, direction_vs_hypothesis, interaction_note), subgroup UI update. First HIP ATTACK Phase 0 run confirmed at ~47s.
 - Session 7 (2026-04-15): Adjudicator anti-bias rule, Phase 0 V3-only clarification, ERROR_TAXONOMY.md (7-class), pilot.html consistency gate (blocking, dynamic), taxonomy dropdowns updated to 7-class.
 - Session 8 (2026-04-15): All 10 pilot PMIDs verified against live PubMed (was: AI-generated and wrong). Schema/API alignment: study_outputs→study_extractions, output_id→extraction_id, 7-class taxonomy CHECK, reference_standard_value column, UNIQUE constraint fixed. Batch PDF upload with pilot-paper matching in study.html. Endpoint bugs fixed in pilot.html. study.js v2 fallback for v3_output. DESIGN_DECISIONS.md created. Meta-analysis data gaps identified and added to Phase 2 backlog.
+- Session 11 (2026-04-19): 20-paper V1 vs V3 review — primary outcomes 20/20 clean, V1/V3 essentially tied (23.4 vs 23.2/25). V1 prompt upgraded to match V3 quality (12 full sections). SEARCH SCOPE mandatory added to both pipelines. Adjudicator: suspicious_agreement + single-source → selection_uncertain. AE rule strengthened for single-event primaries. Subgroup GROUPING RULE. patient_view postProcess fallback. cannot_determine match_status added to pilot.html + schema. isFieldComplete() corrected for fail/hallucinated correction enforcement.

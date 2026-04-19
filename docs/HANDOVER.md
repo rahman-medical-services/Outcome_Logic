@@ -1,8 +1,8 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 6
-session: "Session 10 — 2026-04-17"
+version: 7
+session: "Session 11 — 2026-04-19"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -19,7 +19,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ---
 
-## Current State (as of 17 April 2026 — v4.8.0)
+## Current State (as of 19 April 2026 — v4.9.0)
 
 **Branch:** All work committed directly to `main`. No active feature branches. See CLAUDE.md git workflow.
 
@@ -40,6 +40,26 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 **⚠️ SCHEMA NOT YET DEPLOYED — must run `supabase/schema-study.sql` before grading any paper**
 The schema was rewritten in Session 8 to fix critical bugs. The Supabase instance still has the old broken schema. Run via Dashboard → SQL Editor before touching pilot.html.
+
+**Completed in Session 11 (2026-04-19):**
+- ✅ **Systematic 20-paper V1 vs V3 review** — All 20 Phase 0/1 papers reviewed from exported JSON. Primary outcome quality: **20/20 clean in both V1 and V3** — zero critical failures. V1 and V3 essentially tied on the 25-point rubric (23.4 vs 23.2). Key finding: tight JSON schema (`responseMimeType: 'application/json'`) is the dominant anti-hallucination mechanism, not the 3-node architecture. Residual errors: AE contamination in CREST (both versions), patient_view missing in PARTNER 3 / DEDICATE V3.
+- ✅ **V1 prompt upgraded to V3 quality** (`lib/pipeline-v1.js`): V1_PROMPT_PREFIX expanded from 10 to 12 full sections matching V3. Added: source citation requirement (SRC markers), candidate_values completeness check, NI CI direction rules, Section 6 survival/TTE, Section 7 subgroup Option C with GROUPING RULE and hr annotation, Section 8 AE cross-reference rule, Section 11 patient_view REQUIRED, Section 12 library classification. Subgroup hr annotation: "ALWAYS populate with whatever numeric effect measure is reported — never null for non-ratio outcomes."
+- ✅ **SEARCH SCOPE — MANDATORY** added to both `lib/pipeline.js` (`_EXTRACTOR_SHARED_SECTIONS`) and `lib/pipeline-v1.js` (`V1_PROMPT_PREFIX`): "scan ALL of: Abstract, Methods, Results text, ALL Tables, ALL Figure captions/legends, and Supplementary material references. Do not stop at the abstract."
+- ✅ **Adjudicator suspicious_agreement → selection_uncertain link** (`lib/pipeline.js`): if `suspicious_agreement: true` AND only one extractor cited a source → also set `selection_uncertain: true`. Single-source agreement is unreliable.
+- ✅ **AE cross-reference rule strengthened** in adjudicator: explicitly covers single-event primaries ("if the primary is a SINGLE event, that single event is also excluded") and all composite components. Targets CREST-type failures where primary is a single named endpoint.
+- ✅ **Subgroup GROUPING RULE** added to `_EXTRACTOR_SHARED_SECTIONS` and adjudicator: all strata of the same variable MUST be grouped under ONE item with ≥2 arms. An item with only one arm is invalid.
+- ✅ **patient_view postProcess fallback** + adjudicator "REQUIRED FIELDS" instruction — missing `lay_summary` or `shared_decision_making_takeaway` now get fallback strings instead of null.
+- ✅ **`cannot_determine` match_status** added across pilot.html and schema:
+  - CSS: `.ms-btn.active-cannot_determine { background: #134e4a; color: #5eead4; border-color: #0d9488; }`
+  - 5th button in `buildFieldCardHTML` msBtns array
+  - `setMatchStatus()` btnClasses updated
+  - `isFieldComplete()`: cannot_determine counts as complete with status alone; fail/hallucinated now require non-empty correction_text
+  - Correction textarea: `oninput` triggers `updateCardState` + `updateIncompleteBanner`
+  - `supabase/schema-study.sql`: `cannot_determine` added to match_status CHECK constraint
+- ✅ **Commits:** `83e153a` (V1 prompt upgrade + pipeline fixes), `0cdbc1a` (cannot_determine + recall + adjudicator flags)
+
+**⚠️ IMPORTANT — Schema migration required:**
+The `cannot_determine` addition to `match_status` CHECK constraint in `schema-study.sql` must be applied to the live Supabase instance before grading any paper with this status. Run via Dashboard → SQL Editor. The DROP TABLE statements will clear existing data — acceptable if no grading has yet been done.
 
 **Completed in Session 10 (2026-04-17):**
 - ✅ **V1 pipeline hardened for Phase 1 isolation** — removed self-check / internal adjudication block and removed all uncertainty flag population (selection_uncertain, ambiguous_source, ni_trial, zero_event_arm, multi_arm_trial) from `pipeline-v1.js`. These flags remain in the output schema (always false/null) so the schema is identical to V3 for grading purposes. Header comment updated to document what V1 lacks vs V3.
@@ -274,18 +294,19 @@ Grade all three in pilot.html. If V3 outperforms V1 on FREEDOM and matches on PA
 
 ## Priority Order — Next Session
 
-### Immediate — Session 11 first task
-1. **Implement `_EXTRACTOR_SHARED_SECTIONS` rebuild** — full plan above. Edit `lib/pipeline.js` only. Do not touch `EXTRACTOR_PROMPT_A`, `EXTRACTOR_PROMPT_B`, or `ADJUDICATOR_PROMPT_BASE`. After implementing, run DEDICATE through V3 and compare to V1 output using the 5-point checklist above.
-2. **Fix PDF export** — export button produces blank PDF. All Phase 1 PDFs this session were via browser File → Print, not the export button. Root cause is `#reportContainer` having `display:none` via `.hidden` class at print time; the `display:block !important` CSS fix attempted in Session 10 did not fully resolve it. Investigate the export button's JS code path — it likely triggers `window.print()` before the report is made visible, or the `.hidden` removal is not completing before print fires.
+### Immediate — Session 12 first task
+1. **Analyse re-run JSON of V1 with upgraded prompt** — run all 20 Phase 0/1 papers through updated `pipeline-v1.js` (upgraded prompt) and export JSON. Compare to prior V1 JSON (baseline) and V3. Key questions: (a) Did subgroup grouping improve? (b) Did AE contamination in CREST resolve? (c) Did patient_view populate? (d) Has overall rubric score improved? Use `study.html` to run and `Export all JSON` button to export.
+2. **Implement `_EXTRACTOR_SHARED_SECTIONS` rebuild** — if V1 re-run analysis shows V1 upgraded prompt still outperforms current V3 on the 5-point checklist (DEDICATE AE, subgroups, chart, NI framing, page count), proceed with full rebuild. Full plan in HANDOVER.md above. After implementing, run DEDICATE through V3 and compare.
+3. **Fix PDF export** — export button produces blank PDF. All Phase 1 PDFs were via browser File → Print. Root cause: `#reportContainer` has `.hidden` class at print time. JS code path likely triggers `window.print()` before `.hidden` removal completes.
 
 ### Phase 0 (unblocking — still pending from earlier sessions)
-2. **Deploy `supabase/schema-study.sql`** — Dashboard → SQL Editor → paste file → Run. DROP TABLE statements at top clear existing data (acceptable).
-3. **Batch-upload 10 pilot PDFs via study.html** — auto-matching links to correct pilot records.
-4. **Fill `docs/PROTOCOL.md` anchor vignettes** — Saqib's clinical judgement needed before first paper is graded.
-5. **Run Phase 0** — 10 papers through V3, grade 26 fields each in pilot.html.
+4. **Deploy `supabase/schema-study.sql`** — Dashboard → SQL Editor → paste file → Run. Note: `cannot_determine` now in CHECK constraint — must use this version. DROP TABLE statements clear existing data (acceptable).
+5. **Batch-upload 10 pilot PDFs via study.html** — auto-matching links to correct pilot records.
+6. **Fill `docs/PROTOCOL.md` anchor vignettes** — Saqib's clinical judgement needed before first paper is graded.
+7. **Run Phase 0** — 10 papers through V3, grade 26 fields each in pilot.html.
 
 ### Required before Phase 1 clinical deployment
-6. **NI structured output fields** — `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label`. PROFHER is NI design — paper 8 of Phase 0 will expose this.
+8. **NI structured output fields** — `ni_margin`, `ni_margin_excluded_by_ci`, `ni_result_label`. PROFHER is NI design — paper 8 of Phase 0 will expose this.
 
 ### Phase 1 (after Phase 0 findings)
 - **`lib/pipeline-v1.js`** — ✅ built. Integrated into `api/study.js` for study runs. `api/analyze-v1.js` (public endpoint) not yet needed — build for Phase 1 if separate rate-limiting required.
@@ -314,3 +335,4 @@ Both extractors now use different model families (Gemini + OpenAI). Correlated e
 - Session 8 (2026-04-15): All 10 pilot PMIDs verified (was AI-generated/wrong). Schema/API alignment (study_outputs→extractions, output_id→extraction_id, 7-class taxonomy CHECK, reference_standard_value, UNIQUE fix). Batch PDF upload with fuzzy pilot-paper matching (study.html). pilot.html endpoint bugs fixed. study.js v2 fallback for v3_output. DESIGN_DECISIONS.md. Meta-analysis gap analysis → 6 items added to Phase 2 backlog.
 - Session 9 (2026-04-16): C3 taxonomy split (ranking_hierarchy / ranking_ambiguity) + BLOCKER fix in study-summary.js. root_cause_stage field across schema/API/grading UI/summary. zero_event_arm + multi_arm_trial flags. postProcess() exported; ARM VALUE RULE warning. Utility layer added to Phase 2 backlog. V1 single-node pipeline (lib/pipeline-v1.js) — callGemini duplicated for Phase 1 isolation. study.html V1 column complete. api/study.js routes version:v1.
 - Session 10 (2026-04-17): Phase 1 design confirmed (10 cardiac papers, V1 vs V3 head-to-head). V1 hardened (self-check removed, uncertainty flags removed). 10 Phase 1 papers added to schema (PMIDs verified). 9 prompt fixes across adjudicator and extractor: NI framing, NI CI direction, AE endpoint exclusion, subgroup completeness + forest plot scan, chart arm data, language constraints. Chart rendering fixed (bar+forest both shown for HR). Key finding: V3 extractor prompts systematically inferior to V1. Full rebuild of _EXTRACTOR_SHARED_SECTIONS planned (Session 11 top priority — not yet implemented). PDF export still broken — all Phase 1 PDFs were via File → Print, not export button.
+- Session 11 (2026-04-19): Systematic review of all 20 Phase 0/1 papers V1 vs V3 (JSON export). Primary outcomes 20/20 clean in both — no critical failures. V1 and V3 essentially tied (23.4 vs 23.2/25). Key insight: tight JSON schema is the dominant anti-hallucination mechanism, not the 3-node architecture. V1 prompt upgraded to V3 quality (12 sections, SRC markers, candidate_values, NI CI rules, survival section, subgroup Option C + GROUPING RULE, AE cross-reference, patient_view REQUIRED). SEARCH SCOPE — MANDATORY added to both pipelines. Adjudicator: suspicious_agreement + single-source → also selection_uncertain. AE cross-reference strengthened for single-event primaries. Subgroup GROUPING RULE added. patient_view postProcess fallback. cannot_determine match_status added to pilot.html, schema, isFieldComplete(), correction textarea oninput. Priority next session: analyse re-run JSON of V1 with upgraded prompt.

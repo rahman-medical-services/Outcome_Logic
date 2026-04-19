@@ -288,6 +288,32 @@ Format: what was tried → what happened → what the correct approach is → da
 **To implement:** In `_EXTRACTOR_SHARED_SECTIONS` rebuild (Session 11).
 **Date:** 2026-04-17
 
+---
+
+## Session 11 (2026-04-19) — 20-Paper V1 vs V3 Review
+
+### Tight JSON schema is the primary anti-hallucination mechanism, not the 3-node architecture
+**Finding:** After reviewing all 20 Phase 0/1 papers in both versions: V1 and V3 score essentially identically on the 25-point rubric (23.4 vs 23.2 average). Primary outcomes are 20/20 clean in both. Residual errors (AE contamination, subgroup grouping) appear in both.
+**Implication:** The dominant anti-hallucination mechanism is `responseMimeType: 'application/json'` (forcing structured output), not the dual-extractor + adjudicator architecture. The architecture adds value on specific paper types (competing table values, subgroup completeness cross-check) but does not produce a general accuracy advantage over a well-prompted single-pass extraction.
+**Decision framework:** Run upgraded V1 on same papers. If V1 upgraded matches V3, ship V1 as production — lower cost, lower latency, simpler architecture. The comparison study remains publishable either way.
+**Date:** 2026-04-19
+
+### Subgroup GROUPING RULE: each variable must produce one item with ≥2 arms, never one item per stratum
+**What happened:** V1 (prior to upgrade) and V3 both produced subgroup outputs where age <75 and age ≥75 were two separate items, each with one arm. This is structurally invalid — a subgroup analysis compares strata within a variable and must be grouped as arms of a single item.
+**Fix:** Explicit GROUPING RULE added to `_EXTRACTOR_SHARED_SECTIONS`, adjudicator subgroup instructions, and `V1_PROMPT_PREFIX` (V1 upgrade): "All arms belonging to the same variable MUST be grouped under ONE item. An item with only one arm is invalid."
+**Date:** 2026-04-19
+
+### AE cross-reference rule must explicitly cover single-event primaries, not just composites
+**What happened:** CREST's primary outcome is a single named event. The AE cross-reference rule said "exclude composite components" — which the model interpreted as only applying to composite primaries. It then included the single primary event in the AE table.
+**Fix:** Rule rewritten to explicitly state: "if the primary is a SINGLE event (e.g. 'death from any cause'), that single event is also excluded. IMPORTANT: if the primary outcome is a COMPOSITE, ALL individual components are also excluded."
+**Date:** 2026-04-19
+
+### isFieldComplete() must enforce correction_text for fail/hallucinated, not just taxonomy+severity
+**Tried:** `isFieldComplete` returned true once harm_severity, error_taxonomy, and pipeline_section were set.
+**What happened:** A grader could mark a field as `fail`, complete the dropdowns, and navigate away — but leave the correction text blank. This silently dropped the "what is the correct value?" data from the grade record.
+**Fix:** For `fail` and `hallucinated` status: `isFieldComplete()` now also checks that `corr-{fieldId}` textarea is non-empty. `oninput` added to textarea so card state and incomplete banner update as the grader types.
+**Date:** 2026-04-19
+
 ### Subgroup interactions p-value meaning is counterintuitive and must be explained explicitly
 **What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
 **Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.
