@@ -186,7 +186,7 @@ async function sourceFromPdf(pdf_base64, paper) {
 async function handleRun(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  const { paper_id, version = 'v3', force = false, pdf_base64 } = req.body;
+  const { paper_id, version = 'v3', force = false, pdf_base64, dry_run = false } = req.body;
 
   // PDF is mandatory — no PMID/DOI fallback for study runs
   if (!pdf_base64) {
@@ -248,6 +248,7 @@ async function handleRun(req, res) {
       pipelineResult = await runPipelineV1(ctx, sourceMeta);
     } else if (version === 'v4') {
       console.log('[study-run] Routing to V4 pipeline (V1 extractor + gpt-4o-mini critic)');
+      // V4 returns { v4, v1 } — both are saved in a single request
       pipelineResult = await runPipelineV4(ctx, sourceMeta);
     } else {
       pipelineResult = await runPipeline(ctx, sourceMeta);
@@ -260,10 +261,31 @@ async function handleRun(req, res) {
     return res.status(500).json({ error: `Pipeline failed: ${err.message}` });
   }
 
+  // V4 returns { v4, v1 }; other versions return the result directly.
+  const isV4 = version === 'v4';
+
+  // dry_run: return pipeline output without persisting to DB.
+  // Used by stability testing — results are kept in-browser only.
+  if (dry_run) {
+    const dryV4 = isV4 ? pipelineResult.v4 : null;
+    const dryV1 = isV4 ? pipelineResult.v1 : pipelineResult;
+    return res.status(200).json({
+      ok:          true,
+      dry_run:     true,
+      source_type: source.sourceType,
+      v4:          dryV4,
+      v1:          dryV1,
+    });
+  }
+
+  const v4Output = isV4 ? pipelineResult.v4 : null;
+  const v1Output = isV4 ? pipelineResult.v1 : null;
+  const mainOutput = isV4 ? v4Output : pipelineResult;
+
   // Mode B: auto-create study_papers row from pipeline output (PDF upload without paper_id)
   if (!paper_id) {
-    const rm = pipelineResult.reportMeta   || {};
-    const lm = pipelineResult.library_meta || {};
+    const rm = mainOutput.reportMeta   || {};
+    const lm = mainOutput.library_meta || {};
     const { data: newPaper, error: createErr } = await supabase
       .from('study_papers')
       .insert({
@@ -286,15 +308,18 @@ async function handleRun(req, res) {
     console.log(`[study-run] Auto-created paper ${paper.id}: ${paper.title}`);
   }
 
+  const now = new Date().toISOString();
+
+  // Save main version (v1, v3, or v4)
   const { data: output, error: saveErr } = await supabase
     .from('study_extractions')
     .upsert(
       {
         paper_id:     paper.id,
         version,
-        output_json:  pipelineResult,
+        output_json:  mainOutput,
         source_type:  source.sourceType,
-        generated_at: new Date().toISOString(),
+        generated_at: now,
       },
       { onConflict: 'paper_id,version' }
     )
@@ -306,14 +331,41 @@ async function handleRun(req, res) {
     return res.status(500).json({ error: `Failed to save output: ${saveErr.message}` });
   }
 
-  console.log(`[study-run] Saved extraction ${output.id} for paper ${paper.id}`);
+  console.log(`[study-run] Saved ${version} extraction ${output.id} for paper ${paper.id}`);
+
+  // V4: also save the V1 byproduct (pre-critic snapshot) in the same request
+  let v1OutputId = null;
+  if (isV4 && v1Output) {
+    const { data: v1Saved, error: v1SaveErr } = await supabase
+      .from('study_extractions')
+      .upsert(
+        {
+          paper_id:     paper.id,
+          version:      'v1',
+          output_json:  v1Output,
+          source_type:  source.sourceType,
+          generated_at: now,
+        },
+        { onConflict: 'paper_id,version' }
+      )
+      .select('id')
+      .single();
+    if (v1SaveErr) {
+      // Non-fatal: V4 saved successfully, V1 byproduct save failed
+      console.error(`[study-run] V1 byproduct save error:`, v1SaveErr.message);
+    } else {
+      v1OutputId = v1Saved.id;
+      console.log(`[study-run] Saved v1 byproduct ${v1OutputId} for paper ${paper.id}`);
+    }
+  }
 
   return res.status(200).json({
     ok:            true,
     paper_id:      paper.id,
     output_id:     output.id,
+    v1_output_id:  v1OutputId,
     source_type:   source.sourceType,
-    display_title: pipelineResult?.library_meta?.display_title || paper.title,
+    display_title: mainOutput?.library_meta?.display_title || paper.title,
     generated_at:  output.generated_at,
   });
 }
