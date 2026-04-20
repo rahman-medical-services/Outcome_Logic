@@ -49,7 +49,7 @@
       </div>
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-v3-done" class="text-2xl font-bold text-green-400">—</div>
-        <div class="text-xs text-slate-400 mt-1">V3 complete</div>
+        <div class="text-xs text-slate-400 mt-1">V3 (legacy)</div>
       </div>
       <div class="bg-slate-800 rounded-lg p-4 text-center">
         <div id="stat-v1-done" class="text-2xl font-bold text-purple-400">—</div>
@@ -134,11 +134,9 @@
         <div class="flex items-center gap-3">
           <label class="text-xs text-slate-400">Run:</label>
           <select id="batch-version-select" class="bg-slate-700 text-xs text-slate-300 rounded px-2 py-1 border border-slate-600 focus:border-blue-500 outline-none">
-            <option value="both">V3 + V1 (both)</option>
-            <option value="v3">V3 only</option>
+            <option value="v4" selected>V4 (saves V1 automatically)</option>
             <option value="v1">V1 only</option>
-            <option value="v4">V4 only</option>
-            <option value="all">V1 + V3 + V4 (all)</option>
+            <option value="v3">V3 (legacy)</option>
           </select>
           <button onclick="clearBatch()" class="text-xs text-slate-400 hover:text-white">✕ Clear</button>
         </div>
@@ -200,6 +198,39 @@
         </button>
       </div>
     </div>
+
+    <!-- Stability testing -->
+    <details id="stability-section" class="mt-6 bg-slate-800 rounded-lg">
+      <summary class="px-4 py-3 cursor-pointer text-sm font-medium text-slate-300 hover:text-white select-none"
+               onclick="renderStabilityPapers()">
+        ⟳ Stability Testing — Repeat Runs
+      </summary>
+      <div class="px-4 pb-4 pt-2">
+        <p class="text-xs text-slate-500 mb-4">Upload PDFs and run V4 N times to assess output stability. Results are kept in memory only — not saved to the study database.</p>
+
+        <div id="stability-papers-list" class="space-y-2 mb-4 text-xs text-slate-500 italic">
+          Open to load paper list…
+        </div>
+
+        <div class="flex items-center gap-4 border-t border-slate-700 pt-3">
+          <label class="text-xs text-slate-400">Runs per paper:</label>
+          <select id="stability-n-runs" class="bg-slate-700 text-xs text-slate-300 rounded px-2 py-1 border border-slate-600 focus:border-blue-500 outline-none">
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="5">5</option>
+          </select>
+          <button onclick="runStabilityTest()" id="stability-run-btn"
+            class="px-4 py-2 bg-amber-700 hover:bg-amber-600 text-white text-sm rounded font-medium">
+            Run stability test
+          </button>
+          <button onclick="exportStabilityJson()" id="stability-export-btn" disabled
+            class="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+            ↓ Export JSON
+          </button>
+        </div>
+        <div id="stability-progress" class="mt-2 text-xs text-slate-400"></div>
+      </div>
+    </details>
 
   </main>
 
@@ -359,10 +390,7 @@
       ? `<span class="badge-pilot px-1.5 py-0.5 rounded text-xs ml-1">pilot</span>`
       : '';
 
-    const runV3Btn = p.v3_output
-      ? `<button onclick="runV3('${p.id}', true)" class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700">Re-V3</button>`
-      : `<button onclick="runV3('${p.id}', false)" class="text-xs bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded font-medium">Run V3</button>`;
-
+    // V3 deprecated — view only (no run button)
     const runV1Btn = p.v1_output
       ? `<button onclick="runV1('${p.id}', true)" class="text-xs text-slate-400 hover:text-purple-400 px-2 py-1 rounded hover:bg-slate-700">Re-V1</button>`
       : `<button onclick="runV1('${p.id}', false)" class="text-xs px-3 py-1 rounded font-medium" style="background:#4c1d95;color:#e9d5ff">Run V1</button>`;
@@ -383,13 +411,7 @@
       ? `<button onclick="viewOutput('${p.id}','v4')" class="text-xs px-2 py-1 rounded hover:bg-slate-700" style="color:#fcd34d">V4</button>`
       : '';
 
-    // Hidden file inputs — v3, v1, v4 PDF buttons
-    const pdfV3Btn = `
-      <input type="file" id="pdf-v3-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v3')">
-      <button onclick="document.getElementById('pdf-v3-${p.id}').click()"
-        class="text-xs text-slate-400 hover:text-green-400 px-2 py-1 rounded hover:bg-slate-700"
-        title="Upload PDF for V3">V3-PDF</button>`;
-
+    // Hidden file inputs — v1 and v4 PDF buttons (V3 deprecated)
     const pdfV1Btn = `
       <input type="file" id="pdf-v1-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v1')">
       <button onclick="document.getElementById('pdf-v1-${p.id}').click()"
@@ -400,7 +422,7 @@
       <input type="file" id="pdf-v4-${p.id}" accept="application/pdf" class="hidden" onchange="runFromPdf('${p.id}','v4')">
       <button onclick="document.getElementById('pdf-v4-${p.id}').click()"
         class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700"
-        title="Upload PDF for V4">V4-PDF</button>`;
+        title="Upload PDF for V4 (also saves V1)">V4-PDF</button>`;
 
     return `
       <td class="px-4 py-3">
@@ -419,8 +441,8 @@
       <td class="px-4 py-3 text-right">
         <div class="flex items-center justify-end gap-1 flex-wrap">
           ${viewV3Btn}${viewV1Btn}${viewV4Btn}
-          ${pdfV3Btn}${pdfV1Btn}${pdfV4Btn}
-          ${runV3Btn}${runV1Btn}${runV4Btn}
+          ${pdfV1Btn}${pdfV4Btn}
+          ${runV1Btn}${runV4Btn}
           <button onclick="deletePaper('${p.id}', '${p.title.replace(/'/g, "\\'")}')"
             class="text-xs text-slate-600 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-700 ml-1" title="Delete paper">✕</button>
         </div>
@@ -468,7 +490,15 @@
         cell.innerHTML = `<span class="badge-error px-2 py-0.5 rounded text-xs font-medium" title="${data.error || 'error'}">Error</span>`;
         alert('PDF run failed: ' + (data.error || data.message || r.statusText));
       } else {
-        cell.innerHTML = `<span class="badge-done px-2 py-0.5 rounded text-xs font-medium">Done</span>`;
+        const doneStyle = version === 'v4'
+          ? `style="background:#78350f;color:#fcd34d"`
+          : version === 'v1' ? `style="background:#3b1d6e;color:#c4b5fd"` : '';
+        cell.innerHTML = `<span class="${version === 'v4' || version === 'v1' ? '' : 'badge-done'} px-2 py-0.5 rounded text-xs font-medium" ${doneStyle}>Done</span>`;
+        // V4 PDF run also saves V1 byproduct
+        if (version === 'v4' && data.v1_output_id) {
+          const v1Cell = document.getElementById(`v1-cell-${paperId}`);
+          if (v1Cell) v1Cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#3b1d6e;color:#c4b5fd">Done</span>`;
+        }
         await loadPapers();
       }
     } catch (err) {
@@ -566,6 +596,11 @@
         alert('V4 run failed: ' + (data.error || data.message || r.statusText));
       } else {
         cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#78350f;color:#fcd34d">Done</span>`;
+        // V4 also saves V1 byproduct — update V1 cell immediately
+        if (data.v1_output_id) {
+          const v1Cell = document.getElementById(`v1-cell-${paperId}`);
+          if (v1Cell) v1Cell.innerHTML = `<span class="px-2 py-0.5 rounded text-xs font-medium" style="background:#3b1d6e;color:#c4b5fd">Done</span>`;
+        }
         await loadPapers();
       }
     } catch (err) {
@@ -1118,21 +1153,15 @@
   }
 
   function batchStatusHtml(item) {
-    const versionMode = document.getElementById('batch-version-select')?.value || 'v3';
-    if (versionMode === 'both') {
-      return `<div class="flex flex-col gap-0.5 items-center">
-        ${singleStatusBadge(item.statusV3 || 'pending', 'V3', item.message)}
-        ${singleStatusBadge(item.statusV1 || 'pending', 'V1', item.message)}
-      </div>`;
-    }
-    if (versionMode === 'all') {
-      return `<div class="flex flex-col gap-0.5 items-center">
-        ${singleStatusBadge(item.statusV3 || 'pending', 'V3', item.message)}
-        ${singleStatusBadge(item.statusV1 || 'pending', 'V1', item.message)}
-        ${singleStatusBadge(item.statusV4 || 'pending', 'V4', item.message)}
-      </div>`;
-    }
+    const versionMode = document.getElementById('batch-version-select')?.value || 'v4';
     const key = versionMode === 'v1' ? 'statusV1' : versionMode === 'v4' ? 'statusV4' : 'statusV3';
+    // V4 also saves V1 — show both status badges
+    if (versionMode === 'v4') {
+      return `<div class="flex flex-col gap-0.5 items-center">
+        ${singleStatusBadge(item.statusV4 || 'pending', 'V4', item.message)}
+        ${singleStatusBadge(item.statusV1 || 'pending', 'V1', item.message)}
+      </div>`;
+    }
     return singleStatusBadge(item[key] || item.status || 'pending', '', item.message);
   }
 
@@ -1179,6 +1208,11 @@
         item[statusKey] = 'done';
         if (!item.title && data.display_title) item.title = data.display_title;
         if (data.output_id) item[version === 'v3' ? 'outputIdV3' : version === 'v4' ? 'outputIdV4' : 'outputIdV1'] = data.output_id;
+        // V4 saves V1 byproduct — capture ID and mark V1 done
+        if (version === 'v4' && data.v1_output_id) {
+          item.outputIdV1  = data.v1_output_id;
+          item.statusV1    = 'done';
+        }
 
         // If auto-created a new paper record, store the paper_id so the other
         // version run uses the same record rather than creating a duplicate.
@@ -1219,7 +1253,7 @@
     btn.disabled    = true;
     btn.textContent = 'Running…';
 
-    const versions = versionMode === 'both' ? ['v3', 'v1'] : versionMode === 'all' ? ['v3', 'v1', 'v4'] : [versionMode];
+    const versions = [versionMode];  // v4, v1, or v3 (V4 saves V1 automatically)
     let succeeded = 0, failed = 0;
 
     for (let idx = 0; idx < window.batchFiles.length; idx++) {
@@ -1361,6 +1395,118 @@
       reader.onerror= () => reject(new Error('Failed to read ' + file.name));
       reader.readAsDataURL(file);
     });
+  }
+
+  // ── Stability testing ─────────────────────────────────────────────────────
+  // Results stored in memory only — never persisted to DB.
+  // Format: [{ paper_id, title, runs: [{ run: 1, v4: {}, v1: {} }, …] }]
+  let stabilityResults = [];
+
+  function renderStabilityPapers() {
+    const container = document.getElementById('stability-papers-list');
+    if (!container) return;
+    const pilots = papersCache.filter(p => p.is_pilot);
+    if (!pilots.length) {
+      container.innerHTML = '<p class="text-xs text-slate-500 italic">No pilot papers loaded.</p>';
+      return;
+    }
+    container.innerHTML = pilots.map(p => `
+      <div class="flex items-center gap-3 py-1.5 border-b border-slate-700 last:border-0">
+        <input type="checkbox" id="stab-chk-${p.id}" class="accent-amber-500" checked>
+        <label for="stab-chk-${p.id}" class="text-xs text-slate-300 flex-1 cursor-pointer">${p.title}</label>
+        <input type="file" id="stab-pdf-${p.id}" accept="application/pdf" class="hidden">
+        <button onclick="document.getElementById('stab-pdf-${p.id}').click()"
+          class="text-xs text-slate-400 hover:text-amber-400 px-2 py-1 rounded hover:bg-slate-700 whitespace-nowrap"
+          id="stab-pdf-btn-${p.id}">Upload PDF</button>
+        <span id="stab-pdf-name-${p.id}" class="text-xs text-slate-600 truncate max-w-32"></span>
+      </div>`).join('');
+
+    // Show filename when a PDF is selected
+    pilots.forEach(p => {
+      const input = document.getElementById(`stab-pdf-${p.id}`);
+      if (input) input.addEventListener('change', () => {
+        const nameEl = document.getElementById(`stab-pdf-name-${p.id}`);
+        const btnEl  = document.getElementById(`stab-pdf-btn-${p.id}`);
+        if (nameEl) nameEl.textContent = input.files?.[0]?.name || '';
+        if (btnEl && input.files?.[0]) btnEl.classList.replace('text-slate-400', 'text-amber-400');
+      });
+    });
+  }
+
+  async function runStabilityTest() {
+    const btn      = document.getElementById('stability-run-btn');
+    const progress = document.getElementById('stability-progress');
+    const nRuns    = parseInt(document.getElementById('stability-n-runs').value, 10) || 3;
+    const pilots   = papersCache.filter(p => p.is_pilot);
+
+    // Collect selected papers that have a PDF attached
+    const selected = pilots.filter(p => {
+      const chk   = document.getElementById(`stab-chk-${p.id}`);
+      const input = document.getElementById(`stab-pdf-${p.id}`);
+      return chk?.checked && input?.files?.[0];
+    });
+
+    if (!selected.length) {
+      progress.textContent = 'Select at least one paper and upload its PDF.';
+      return;
+    }
+
+    btn.disabled    = true;
+    btn.textContent = 'Running…';
+    stabilityResults = [];
+    document.getElementById('stability-export-btn').disabled = true;
+
+    const total = selected.length * nRuns;
+    let done = 0;
+
+    for (const paper of selected) {
+      const input  = document.getElementById(`stab-pdf-${paper.id}`);
+      const file   = input.files[0];
+      const entry  = { paper_id: paper.id, title: paper.title, runs: [] };
+
+      for (let run = 1; run <= nRuns; run++) {
+        progress.textContent = `Running ${paper.title.substring(0, 40)}… run ${run}/${nRuns} (${done + 1}/${total} total)`;
+        try {
+          const base64 = await readFileAsBase64(file);
+          const r = await fetch(`${API}/study?resource=run`, {
+            method:  'POST',
+            headers: authHeaders(),
+            body:    JSON.stringify({
+              paper_id:  paper.id,
+              version:   'v4',
+              force:     true,
+              dry_run:   true,
+              pdf_base64: base64,
+            }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || r.statusText);
+          entry.runs.push({ run, v4: data.v4 || null, v1: data.v1 || null });
+        } catch (err) {
+          entry.runs.push({ run, error: err.message });
+        }
+        done++;
+      }
+      stabilityResults.push(entry);
+    }
+
+    const succeeded = stabilityResults.reduce((s, e) => s + e.runs.filter(r => !r.error).length, 0);
+    const failed    = total - succeeded;
+    progress.textContent = `Complete — ${succeeded}/${total} runs succeeded${failed ? `, ${failed} failed` : ''}.`;
+    btn.disabled    = false;
+    btn.textContent = 'Run stability test';
+    document.getElementById('stability-export-btn').disabled = succeeded === 0;
+  }
+
+  function exportStabilityJson() {
+    if (!stabilityResults.length) return;
+    const blob = new Blob([JSON.stringify(stabilityResults, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `outcomelogic_stability_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   // ── File picker ───────────────────────────────────────────────────────────
