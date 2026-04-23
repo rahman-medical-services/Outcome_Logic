@@ -314,6 +314,42 @@ Format: what was tried → what happened → what the correct approach is → da
 **Fix:** For `fail` and `hallucinated` status: `isFieldComplete()` now also checks that `corr-{fieldId}` textarea is non-empty. `oninput` added to textarea so card state and incomplete banner update as the grader types.
 **Date:** 2026-04-19
 
+---
+
+## Session 13 (2026-04-23) — Critic Regression Patterns
+
+### LLM critics will apply heuristics globally even when scoped to specific conditions
+**Tried:** Added a scale guard to Rule 1 to prevent PARTNER 3's RD CI (-10.8 to -2.5) from being applied to the HR candidate. Guard text said: "HR/OR/RR: CI values MUST be positive numbers close to 1 (typically 0.3–3.0). Negative CI values or values >10 are wrong for this scale."
+**What happened:** ORBITA (effect_measure=MD, ci_lower=-8.9) and PROFHER (effect_measure=MD, ci_lower=-1.33) both had their CI nulled out by the critic. The guard was scoped to HR/OR/RR in the prompt but the "negative = wrong" heuristic leaked across outcome types. The critic generated patches with `corrected_value: null` even though the reason text correctly stated the CI values.
+**Root cause:** LLMs anchor on surface heuristics. "Negative CI values are wrong" was read globally, not scoped to ratio measures.
+**Fix:** Remove all range-based heuristics from Rule 1. Use structural logic only: "match CI to its own candidate row; do not transplant between candidates; if uncertain, do not patch."
+**Secondary fix:** Add explicit null-guard: "Only patch if current value is null." Without this, the critic generates patches on correct values, and applyPatches() applies them, overwriting good data.
+**Date:** 2026-04-23
+
+### `corrected_value: null` patch + applyPatches() = silent data deletion
+**What happened:** When the gpt-4o-mini critic generates a patch with `corrected_value: null`, `applyPatches()` faithfully applies it and sets the field to null. There is no guard in applyPatches() against null writes. This is the mechanism behind regressive patches: critic says the correct value is null (wrong) → patch applied → field cleared.
+**Rule:** Any Rule that says "only patch if null" MUST be stated explicitly in the prompt. applyPatches() does not know whether a patch is regressive — it just applies whatever corrected_value the critic provides. The LLM is the last line of defence.
+**Date:** 2026-04-23
+
+### Rule 12: "arm_a_events is populated → binary" fires after Rule 8 back-calculation
+**Tried:** Rule 12 (outcome type) contained: "binary — effect_measure is OR, RR, or RD; or arm_a_events is populated."
+**What happened:** Rule 8 (meta-analysis completeness) back-calculates and patches arm_a_events for HR candidates (e.g. CORONARY: HR, but arm_a_events=233 derived from arm_n × arm_value). Rule 12 then sees arm_a_events populated and reclassifies the candidate as binary. CORONARY and HIP ATTACK outcome_type changed from time_to_event to binary.
+**Root cause:** The rules are evaluated sequentially in the LLM's one-pass output, but the patches are applied in order. The model may see the arm_a_events patch from Rule 8 in its working context and use it in Rule 12.
+**Fix:** Remove "or arm_a_events is populated" from the binary definition in Rule 12. Outcome type must be determined from effect_measure only. "HR ALWAYS = time-to-event regardless of other fields."
+**Date:** 2026-04-23
+
+### stripForCritic: structured abstract headings can prematurely trigger section stripping
+**Tried:** Used regex `/\n(Discussion|DISCUSSION|Conclusions|CONCLUSIONS|...)\s*\n/` to find the post-Results section boundary for stripping.
+**What happened:** Structured abstracts (JAMA, NEJM style) contain explicit sub-headings like "Conclusions" within the abstract at position ~3000–5000 chars. This matched the regex and stripped everything after the abstract — Methods, Results, and all body text — leaving the critic with 3671 chars of a 56717-char paper (PARTNER 3 confirmed).
+**Fix:** `MIN_DISC_POSITION = 15000` — only treat a heading as a genuine section break if it appears past 15000 chars. Anything before that is inside the abstract preamble. Log "likely structured abstract" if heading found below threshold.
+**Date:** 2026-04-23
+
+### Fixing a prompt rule without re-running all papers risks introducing new regressions
+**Tried:** Implemented 4 fixes (Rule 1 scale guard, Rule 2 primary-only, Rule 6 mandatory, Rule 12) and ran the full 20-paper batch.
+**What happened:** The fixes introduced new regressions (ORBITA/PROFHER CI nulled, CORONARY/HIP ATTACK outcome_type wrong) that made the mean rubric score worse than before the fixes.
+**Rule:** Before committing a batch of prompt changes, mentally trace each change through 2–3 known paper cases (especially papers with confirmed correct V1 values). Ask: "does this rule change fire on a paper that was already correct?"
+**Date:** 2026-04-23
+
 ### Subgroup interactions p-value meaning is counterintuitive and must be explained explicitly
 **What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
 **Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.

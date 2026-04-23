@@ -329,7 +329,7 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 
 ## Notes
 
-- **Priority for next session (Session 12):** Run updated V1 on all 20 Phase 0/1 papers → export JSON → analyse re-run vs prior V1 and V3 on rubric. Key questions: did AE contamination resolve? did subgroup grouping improve? did patient_view populate? Then decide on _EXTRACTOR_SHARED_SECTIONS rebuild vs ship V1 as production pipeline.
+- **Priority for next session (Session 14):** Re-run all 20 papers with V4 (`aa7deee`). Verify: ORBITA/PROFHER CI preserved, CORONARY/HIP ATTACK outcome_type=time_to_event, COI patched not noted, AE secondary endpoints retained, quality_notes errors-only. If clean, move to Phase 0 grading. See HANDOVER.md Priority Order.
 - **Do not begin Phase 2 meta-analysis until Phase 0 go/no-go** (≥85% exact match on primary numeric fields)
 - **The Phase 0/Phase 1 validation paper is the commercial moat** — it is not optional quality assurance
 - Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated

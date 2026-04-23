@@ -58,6 +58,21 @@ He will push back when he disagrees. Engage with it rather than conceding immedi
 
 Context-switching is constant. Help him resume context quickly. HANDOVER.md is the primary tool for this.
 
+## Session Efficiency Priorities
+
+Saqib's priorities for AI-assisted sessions, in order:
+
+1. **Accuracy** — correct output is non-negotiable; a wrong answer implemented confidently is worse than no answer.
+2. **Token efficiency** — sessions frequently run out of context. Optimise for getting the most done before the context window fills. This means:
+   - Do not read files unnecessarily; use targeted reads (offset/limit) over full reads.
+   - Do not re-summarise work already described in HANDOVER.md.
+   - Prefer single targeted edits over reading entire files then rewriting.
+   - When delegating to agents, ask for concise structured output, not narrative prose.
+   - Batch independent work into parallel tool calls rather than sequential.
+3. **Speed (compute time)** — pipeline latency is acceptable; session time is not. Do not wait for confirmation before starting obvious next steps. Do not add unnecessary verification loops.
+
+These priorities apply to how the AI manages its own context, not to pipeline accuracy (which is governed by the rules in HANDOVER.md and LEARNINGS.md).
+
 ## What this file is not
 
 This is not a formatting guide. UK English, concise responses, no unnecessary preamble — these preferences stand but belong in practice, not in this file.
