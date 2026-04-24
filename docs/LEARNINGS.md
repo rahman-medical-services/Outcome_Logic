@@ -350,6 +350,70 @@ Format: what was tried → what happened → what the correct approach is → da
 **Rule:** Before committing a batch of prompt changes, mentally trace each change through 2–3 known paper cases (especially papers with confirmed correct V1 values). Ask: "does this rule change fire on a paper that was already correct?"
 **Date:** 2026-04-23
 
+---
+
+## Session 14/15 (2026-04-24) — Post-Processing and Stability Findings
+
+### backCalculateEvents must NOT overwrite direct extraction — priority order is mandatory
+**Tried:** `backCalculateEvents()` calculated `arm_a_events = round(arm_n × rate / 100)` and wrote it unconditionally.
+**What happened:** BITA had `events_arm_a=140` (correct, directly extracted by V1). Back-calc produced `round(1487 × 9 / 100) = 134`. The function overwrote the correct value with an arithmetic approximation. SYNTAX same: `events_arm_a=205` overwritten with `round(953 × 26.6 / 100) = 253`.
+**Root cause:** V1 uses the legacy field name `events_arm_a`; V4 writes to `arm_a_events`. Both exist in the candidate object. The function back-calculated from `arm_n × arm_value` even when `events_arm_a` already had the answer.
+**Fix:** Priority 1 = copy `events_arm_a` → `arm_a_events` (direct extraction). Priority 2 = back-calc only when both are null. Tag with `_arm_a_events_source: "extracted" | "back-calculated"` for provenance.
+**Rule:** Any arithmetic back-calculation must check for an existing direct extraction first. Back-calc is a fallback, not a default.
+**Date:** 2026-04-24
+
+### SD plausibility threshold must be set below the actual contamination ratio, not above it
+**Tried:** Initial `backCalculateSD()` plausibility guard used a 2.0× ratio threshold to detect contaminated SD values.
+**What happened:** ORBITA had `arm_a_sd=178.7` (baseline exercise time SD, contamination from adjacent table row). Correct value via CI back-calc ≈ 90.2. Ratio = 178.7/90.2 = 1.98. The 2.0 threshold would NOT have triggered — ORBITA would have slipped through.
+**Fix:** Lower threshold to 1.75×. Verified against all clean papers: legitimate ratios stay below 1.75. ORBITA (1.98) correctly fires. Gap between clean papers and contamination is large enough that 1.75 is a safe boundary.
+**Rule:** When setting a plausibility guard threshold, verify it against the actual known-bad cases, not just intuition. A threshold set at 2.0 "feels safe" but misses real contamination at 1.98.
+**Date:** 2026-04-24
+
+### Rule 9 array replacement silently drops fields from the primary candidate
+**Tried:** Rule 9 (secondary endpoint completeness) replaces the entire `primary_endpoint_candidates` array when adding new secondary endpoint entries. The critic reconstructs the primary candidate from scratch.
+**What happened:** SCOT-HEART primary candidate had `value=0.59` (correct, from V1). After Rule 9 fired, `value` was null in V4 output. The critic's reconstructed primary candidate didn't re-extract the `value` field — it only included fields it saw in its own reasoning pass.
+**Root cause:** The critic does not have access to all V1 candidate fields when it reconstructs the array. It only re-populates fields it actively reasons about.
+**Fix 1 (prompt):** Rule 9 explicit CRITICAL instruction: "DO NOT reconstruct or omit existing entries — copy ALL fields from the existing primary candidate exactly as supplied."
+**Fix 2 (JS guard):** `restoreDroppedCandidateFields()` runs immediately after `applyPatches()`. It snapshots V1 before patches and re-merges any non-null V1 fields that are null post-patch. Belt-and-braces.
+**Rule:** Any Rule that replaces an entire array must include an explicit instruction to copy-preserve all existing fields. JS fallback is always needed because LLMs don't reliably copy-preserve.
+**Date:** 2026-04-24
+
+### Outcome type naming inconsistency between V1 and critic — normalise post-patch
+**Tried:** V1 uses `time_to_event` (underscores). Critic patches use `time-to-event` (hyphens). These are treated as different strings in all equality checks and schema validators.
+**What happened:** After critic patches applied `time-to-event`, downstream JS functions (auditMetaAnalysisFields, flagAmbiguousSelection) didn't match the value against their expected `time_to_event` string.
+**Fix:** `normaliseOutcomeTypes()` runs after `applyPatches()` and converts `time-to-event` → `time_to_event`. One canonical form throughout the pipeline.
+**Rule:** Canonical string enum values must be enforced at normalisation time, not relied upon from both prompt and critic to agree.
+**Date:** 2026-04-24
+
+### GRADE guard must block upgrades, not all patches — direction matters
+**Tried:** UK FASHIoN GRADE `certainty` varied across runs (Moderate / Low). The critic's Rule 5 occasionally downgrades Moderate → Low.
+**What happened (without guard):** Run 3 of 5 produced `Low`. This stochasticity means the V4 GRADE field is unreliable — different runs produce different conclusions.
+**Analysis:** The critic can legitimately downgrade if it identifies a methodological concern. It should NOT upgrade (higher certainty is a stronger claim — needs human review). GRADE upgrades require systematic evidence of minimal bias that a prompt-level rule cannot verify.
+**Fix:** `gradeOrder` hierarchy in `applyPatches()`. Block patches where `patchedLevel > currentLevel`. Downgrades still applied. UK FASHIoN stochasticity gone — GRADE now locked to V1 extraction unless downgraded by critic.
+**Rule:** For quality-of-evidence fields (GRADE, RoB), upgrades require human review and must be blocked programmatically. Downgrades are conservative and may be allowed.
+**Date:** 2026-04-24
+
+### coerceNumericFields is required because V1 outputs integers as strings
+**Tried:** Running arithmetic on V1 candidate fields directly (arm_n × rate).
+**What happened:** V1 JSON output contains integers as quoted strings ("602" not 602). `602 * 0.09 = NaN` when the left operand is a string in JS (no, actually `"602" * 0.09 = 54.18` — JS coerces silently in multiplication but `null` comparisons fail). More importantly: `c.arm_a_n == null` is true when `arm_a_n = "602"` if an explicit null-check is used. Type coercion bugs are silent and hard to spot.
+**Fix:** `coerceNumericFields()` runs before all arithmetic. Converts all numeric candidate fields from string to Number if `!isNaN(value)`. Explicit and auditable rather than relying on JS implicit coercion.
+**Rule:** Normalise types at the boundary. Don't assume numeric fields from LLM output are numeric primitives — they may be strings.
+**Date:** 2026-04-24
+
+### External LLM analysis of pipeline JSON output must be verified against primary data
+**Tried:** Reviewing ChatGPT and Gemini analyses of the extraction JSON as a cross-check.
+**What happened:** ChatGPT claimed EXCEL `ci_lower` was patched to 0 by the critic. Verified against actual JSON: `ci_lower=0.79`, correctly extracted, no such patch applied. ChatGPT was wrong — possibly on a stale or fabricated example, or confusing it with another field.
+**Rule:** External LLM analysis of pipeline output is useful for generating hypotheses (many correct observations were made this session). But every claim must be verified against (a) the actual JSON, (b) the source paper if numeric. Act only on verified claims. Do not implement fixes for problems that don't exist.
+**Date:** 2026-04-24
+
+### Critic utility is primarily in quality fields, not coverage fields
+**Finding:** Across the full 20-paper run, the +2pp gain (V1=94% → V4=96%) and the +14pp arm_events and +34pp SD gains come almost entirely from the deterministic JS post-processing layer — `backCalculateEvents()`, `backCalculateSD()`, `coerceNumericFields()`. These would work without a critic at all.
+**Critic's real contribution:** Quality fields — ROB calibration (Rule 4), GRADE calibration (Rule 5), COI/funding extraction (Rule 6), lay summary direction (Rule 11), NI trial framing (Rule 10). These are not measurable by a presence/absence rubric. They require human review against the source paper to assess whether the critic's patch was correct.
+**Implication:** The case for the critic must be made in Phase 0 grading — specifically on those quality fields. Coverage metrics alone do not demonstrate critic value.
+**Date:** 2026-04-24
+
+---
+
 ### Subgroup interactions p-value meaning is counterintuitive and must be explained explicitly
 **What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
 **Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.

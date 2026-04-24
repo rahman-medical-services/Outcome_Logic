@@ -1,8 +1,8 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 9
-session: "Session 13 — 2026-04-23"
+version: 10
+session: "Session 14/15 — 2026-04-24"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -19,7 +19,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ---
 
-## Current State (as of 23 April 2026 — v5.1.0)
+## Current State (as of 24 April 2026 — v5.2.0)
 
 **Branch:** All work committed directly to `main`. No active feature branches.
 
@@ -39,6 +39,62 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 **⚠️ SCHEMA NOT YET DEPLOYED — must run `supabase/schema-study.sql` before grading any paper.**
 The schema was rewritten in Session 8 and updated in Session 11 (`cannot_determine` CHECK constraint). Run via Supabase Dashboard → SQL Editor.
+
+---
+
+## Completed in Session 14/15 (2026-04-24)
+
+Three commits on main: `ca658f7`, `c4c1aee`, `f0180e1`.
+
+### Commit ca658f7 — 7 pipeline fixes (V1 prompt + V4 post-processing)
+
+**lib/pipeline-v1.js:**
+- ✅ **Canonical effect_measure labels**: Only `HR | OR | RR | RD | MD | SMD` accepted. Removed "difference" synonym. Added CANONICAL LABELS section.
+- ✅ **p_value format rule**: Extract inequality strings verbatim ("P<0.05", "P=0.003") — not null. Applies to all p-value fields.
+- ✅ **`primary_result_synthesis`**: New field added to V1 prompt (1–2 sentence plain-English summary with estimate, CI, p-value). 100% coverage in first run.
+
+**lib/pipeline-v4.js:**
+- ✅ **`coerceNumericFields()`**: Converts string integers ("602"→602) on all numeric candidate fields before any arithmetic. Fixes silent NaN from V1 string output.
+- ✅ **`backCalculateEvents()` priority fix**: Priority 1 = copy `events_arm_a` (direct V1 extraction) → `arm_a_events`. Priority 2 = back-calculate from arm_n×rate% **only when Priority 1 yields nothing**. Fixes BITA (140 vs 134) and SYNTAX (205 vs 253) where back-calc was overriding correct direct extraction.
+- ✅ **`backCalculateSD()`**: Cochrane §6.5.2 SE back-calculation (SE=(CI_upper−CI_lower)/(2×1.96), pooled_SD=SE/√(1/nA+1/nB)). Initial threshold 2.0×.
+- ✅ **Provenance tags**: `_arm_a_events_source: "extracted" | "back-calculated"`, `_sd_source`, `_sd_conflict`.
+
+### Commit c4c1aee — SCOT-HEART regression fix
+
+- ✅ **`restoreDroppedCandidateFields()`**: Rule 9 (secondary endpoint completeness) replaces entire `primary_endpoint_candidates` array. When it reconstructs the primary candidate it drops fields like `value` that weren't extracted afresh. This function re-merges the pre-patch snapshot into patched candidates matched by index and label. Fixes SCOT-HEART V4 effect_value null regression (V1=0.59, V4=null after Rule 9).
+- ✅ **Rule 9 prompt guard**: Added CRITICAL instruction: "DO NOT reconstruct or omit existing entries — preserve ALL fields on the primary candidate exactly as supplied."
+- ✅ **Execution order after this fix:**
+  ```
+  applyPatches() → restoreDroppedCandidateFields() → coerceNumericFields()
+  → backCalculateEvents() → backCalculateSD() → normaliseOutcomeTypes()
+  → flagAmbiguousSelection() → auditMetaAnalysisFields()
+  ```
+
+### Commit f0180e1 — Stability fixes + ambiguous selection flag
+
+- ✅ **`normaliseOutcomeTypes()`**: `time-to-event` → `time_to_event` post-patch. Critic uses hyphen; V1 schema uses underscore. This normalisation runs after `applyPatches()`.
+- ✅ **`backCalculateSD()` plausibility threshold lowered to 1.75×**: Initial 2.0 threshold would NOT have caught ORBITA (arm_a_sd=178.7 baseline contamination, ratio=1.98). Verified: 1.75 threshold fires on ORBITA, leaves clean papers untouched.
+- ✅ **GRADE guard in `applyPatches()`**: Grade hierarchy: Very Low=0, Low=1, Moderate=2, High=3. Blocks any critic patch where `patchedLevel > currentLevel` (upgrades blocked). Downgrades still allowed. Fixes UK FASHIoN GRADE stochasticity (Moderate→Low across runs).
+- ✅ **`flagAmbiguousSelection()`**: Post-patch. Detects ≥2 candidates with different `effect_measure` values. Sets `extraction_flags.selection_uncertain=true` + descriptive note listing all candidates. Also surfaced in `_critic.selection_uncertain`. Gives EXCEL and similar papers a visible flag. Does not fire if `selection_uncertain` is already set from V1 or critic.
+- ✅ **`_critic` metadata extended**: `selection_uncertain` + `selection_uncertain_note` added to `_critic` block.
+
+### Session 14/15 run results (outcomelogic_all_2026-04-24-2.json — 20 papers)
+
+| Metric | V1 | V4 | Δ |
+|---|---|---|---|
+| Overall rubric | 94% | 96% | +2pp |
+| arm_a_events | 86% | 100% | +14pp |
+| arm_a_sd | 33% | 67% | +34pp |
+| primary_synthesis | 100% | 100% | 0 |
+| Papers improved by V4 | — | 4/20 | — |
+| Papers regressed | — | 1/20 | SCOT-HEART (fixed in c4c1aee) |
+
+### Stability run (outcomelogic_stability_2026-04-24-2.json — 5 papers × 5 runs)
+
+- V1 modal agreement: 84%, V4 modal agreement: 84% — tied
+- EXCEL genuinely ambiguous on both V1 and V4 (4/5 runs HR, 1/5 run OR — `selection_uncertain` now flags this)
+- ORBITA SD: 1/5 run contamination escape (baseline SD slipped through) — fixed with 1.75× threshold
+- UK FASHIoN GRADE: critic stochasticity (Moderate/Low inconsistency) — fixed with GRADE guard
 
 ---
 
@@ -122,12 +178,19 @@ Node 2: gpt-4o-mini critic (13 rules + plausibility)                   ~12–15s
   Input: stripped paper (Abstract+Methods+Results only) + draft JSON
       │
       ▼
-Node 3: applyPatches() — local JS merge                                  <1s
+Node 3: deterministic post-processing                                     <1s
+  applyPatches()                      — apply critic dot-path patches
+  restoreDroppedCandidateFields()     — re-merge pre-patch snapshot (Rule 9 guard)
+  coerceNumericFields()               — string integers → Number
+  backCalculateEvents()               — Priority 1: copy events_arm_a; Priority 2: back-calc
+  backCalculateSD()                   — Cochrane §6.5.2, 1.75× plausibility guard
+  normaliseOutcomeTypes()             — time-to-event → time_to_event
+  flagAmbiguousSelection()            — ≥2 candidates with different effect_measure
+  auditMetaAnalysisFields()           — meta_analysis_gaps report
       │
-      ├─► auditMetaAnalysisFields() → meta_analysis_gaps
-      │
-      └─► v1Result._critic = { patches_applied, patches, skipped_patches,
-                                quality_notes, violations_found, meta_analysis_gaps, model }
+      └─► v1Result._critic = { patches_applied, patches_skipped, skipped_patches,
+                                quality_notes, violations_found, meta_analysis_gaps,
+                                selection_uncertain, selection_uncertain_note, model }
           [saved as 'v4' version]
 
 Returns: { v4: v1Result, v1: v1Snapshot }
@@ -163,35 +226,39 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 2. **PDF export broken** — export button produces blank PDF. File → Print works. Parked until after study runs.
 3. **V4 Vercel timeout risk**: Node 1 ~17s + Node 2 ~12–15s = ~29–32s total. Well within 60s for study.js.
 4. **`finish_reason: length`** on critic — logged as warning. Increase `max_completion_tokens` only if needed (currently 4000).
-5. **arm_a_n/arm_b_n missing 16/20 papers** — fundamental PDF-to-text limitation. Table 1 layout doesn't survive PDF parsing as clean prose. V1 prompt fix helped only when baseline table rendered as readable text. Not further fixable at prompt level.
+5. **arm_a_n/arm_b_n missing 16/20 papers** — fundamental PDF-to-text limitation. Table 1 doesn't survive PDF parsing as clean prose. Not further fixable at prompt level.
 6. **`expertContext status: error`** = Node 4 timed out (45s). Normal PubMed slowness. Not a bug.
-7. **Correlated table misread residual risk** — V4 critic (OpenAI) reviewing V1 (Gemini) provides cross-model diversity. But if V1 misread is unseen in stripped paper text, critic cannot catch it.
-8. **Rule 2 AE — HIP ATTACK edge case**: "major complications" is a broad composite primary that subsumes most clinical AEs (pneumonia, bleeding, infection). Rule 2 will still clear the AE table for this trial. This is technically correct behaviour but produces an empty AE section. Acceptable — annotate if it appears in Phase 0 grades.
-9. **Session 13 rule changes not yet tested on full 20-paper set** — see Priority Order below.
+7. **Correlated table misread residual risk** — V4 critic (OpenAI) reviewing V1 (Gemini) provides cross-model diversity. If V1 misread is invisible in the stripped paper text, critic cannot catch it.
+8. **Rule 2 AE — HIP ATTACK edge case**: "major complications" composite subsumes most clinical AEs. Rule 2 will clear the AE table. Technically correct but produces empty AE section. Annotate in Phase 0 grades.
+9. **SPORT arm_n — structural gap, not fixable**: SPORT is a dual-cohort design (randomised + observational arm) with high crossover and multiple analysis populations (ITT/as-treated/combined). No single unambiguous arm N exists. `arm_n` and `arm_a_events` correctly null for both SPORT papers. Do not attempt to fix.
+10. **EXCEL ambiguity — flagged, not fixable**: EXCEL genuinely reports HR as primary AND OR in subgroup analysis. `selection_uncertain=true` is now set. Human review required to confirm which analysis is the intended primary. Stability 4/5 HR, 1/5 OR.
+11. **SD back-calc blocked when arm_n missing**: `backCalculateSD()` requires both CI and N. Papers where arm_n is null (e.g. SPORT) will not produce back-calculated SD — this is correct, not a bug.
+12. **External LLM analysis of JSON should be verified against primary data**: ChatGPT claimed EXCEL `ci_lower` was patched to 0. Verified: actual value 0.79, correctly extracted. GPT was wrong. Always verify external LLM claims against the JSON and source paper before acting.
 
 ---
 
 ## Priority Order — Next Session
 
 ### Immediate (first task)
-1. **Re-run all 20 papers through V4** (commit `aa7deee` is live). Export JSON and verify:
-   - ORBITA/PROFHER: ci_lower/ci_upper should now be preserved from V1 (not nulled)
-   - CORONARY/HIP ATTACK: outcome_type should remain time_to_event (not downgraded to binary)
-   - COI/funding: should be patched in all papers where present (not in quality_notes)
-   - AE tables: secondary endpoints should remain; only explicit primary components removed
-   - Quality notes: should now be errors-only, not confirmatory filler
-   - arm_a_n/arm_b_n: check if 4-paper hit rate holds (TKR, CORONARY, DEDICATE, ART) or improves
-   See LEARNINGS.md "Session 13 — Critic Regression Patterns" for what to watch for.
+1. **Re-run all 20 papers through V4** (commit `f0180e1` is live). Export JSON and verify:
+   - SCOT-HEART: effect_value should now be 0.59 (not null) — regression fixed in c4c1aee
+   - ORBITA: arm_a_sd should be ~90 (back-calc from CI), not 178.7 (baseline contamination)
+   - UK FASHIoN: GRADE should be stable across re-runs (guard blocks stochastic upgrade)
+   - EXCEL: `extraction_flags.selection_uncertain=true` and descriptive note present
+   - BITA: arm_a_events=140 (direct extraction, not 134 from back-calc)
+   - SYNTAX: arm_a_events=205 (direct extraction, not 253 from back-calc)
+   - Run stability test (5 papers × 5 runs) — check EXCEL flag, ORBITA SD, UK FASHIoN GRADE
 
 ### Phase 0 (blocking)
 2. **Deploy `supabase/schema-study.sql`** — must do before grading (Dashboard → SQL Editor).
 3. **Fill `docs/PROTOCOL.md` anchor vignettes** — clinical judgement needed before first paper is graded.
 4. **Batch-upload 10 pilot PDFs via study.html** — auto-matching links to correct pilot records.
 5. **Run Phase 0 grading** — 10 papers, 26 fields each in pilot.html. V4 is the primary extraction.
+6. **Prove critic utility in Phase 0**: grade specifically on ROB, GRADE certainty, COI, lay summary direction fields — these are where the critic adds value beyond the JS post-processing layer.
 
 ### Consider
-6. **`_EXTRACTOR_SHARED_SECTIONS` rebuild** — lower priority; V4 supersedes V3 as primary pipeline.
-7. **Fix PDF export** — parked until study runs complete.
+7. **`_EXTRACTOR_SHARED_SECTIONS` rebuild** — lower priority; V4 supersedes V3 as primary pipeline.
+8. **Fix PDF export** — parked until study runs complete.
 
 ### No longer needed
 - ~~Phase 1 V1 vs V3 head-to-head study~~ — V4 audit trail proves architectural superiority directly.
@@ -231,3 +298,4 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 - Session 11 (2026-04-19): 20-paper V1 vs V3 review. V1 prompt upgraded (12 sections). SEARCH SCOPE mandatory. Subgroup GROUPING RULE. cannot_determine status.
 - Session 12 (2026-04-20): V4 pipeline built (V1 extractor + gpt-4o-mini critic, 13 rules, audit trail). V4 dual-save (saves V1 byproduct). V3 deprecated in study.html. Stability testing section (in-memory, dry_run). Study design revised: Phase 1 head-to-head no longer needed. V4 scores 99.7% on rubric. Rules 9–13 added (secondary completeness, NI framing, lay summary direction, outcome_type, SD per arm). Pass B can now emit patches. auditMetaAnalysisFields outcome-type-aware.
 - Session 13 (2026-04-23): Full 20-paper V4 analysis (mean 7.9/10 rubric). stripForCritic bug fixed (MIN_DISC_POSITION guard). Identified and fixed: Rule 1 null-guard + multi-candidate CI guard (ORBITA/PROFHER regression), Rule 2 primary-only AE exclusion + has_data guard (HIP ATTACK), Rule 6 mandatory patch + non-overwrite (COI), Rule 12 HR always time-to-event (CORONARY/HIP ATTACK regression), Pass B confirmatory note suppression, V1 arm_a_n/AE prompt. Rules redesigned after first-pass fixes caused regressions (see LEARNINGS.md).
+- Session 14/15 (2026-04-24): Full 20-paper V4 re-run. Analysed SPORT arm_n (structural gap, correct null). Identified arm_events coverage artefact (V1 uses events_arm_a, V4 uses arm_a_events — both present = 100% coverage). Verified external LLM claims against primary data (ChatGPT EXCEL ci_lower claim wrong). 7 fixes: coerceNumericFields, backCalculateEvents priority (direct > back-calc), backCalculateSD (Cochrane §6.5.2), provenance tags, primary_result_synthesis in V1, canonical effect_measure labels, p_value format. SCOT-HEART regression fixed (restoreDroppedCandidateFields + Rule 9 prompt guard). Stability analysis: 4 fixes (normaliseOutcomeTypes, SD plausibility guard 1.75×, GRADE guard, flagAmbiguousSelection). Final scores V1=94%, V4=96%. Commits: ca658f7, c4c1aee, f0180e1.

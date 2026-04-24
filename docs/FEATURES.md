@@ -204,10 +204,9 @@ These must be complete before any Phase 0 paper runs.
 
 These are data fields not currently extracted that are required for defensible pooling. **Do not add until after Phase 0** — they are low-risk (JSONB storage, no migration needed) but should be assessed against Phase 0 findings first.
 
-#### ⬜ SD per arm for continuous outcomes **[High — Phase 2 blocker]**
-**Status:** Not started.
-**Gap:** DerSimonian-Laird and REML random-effects pooling require mean ± SD per arm for continuous outcomes. Currently only the between-arm effect size (MD, SMD) is extracted. Without SD, continuous outcome pooling is impossible.
-**Fix:** Add `arm_a_mean`, `arm_a_sd`, `arm_b_mean`, `arm_b_sd` to primary outcome schema in `lib/pipeline.js`. Only populated when `effect_measure` is MD or SMD.
+#### 🔧 SD per arm for continuous outcomes **[High — Phase 2 blocker]**
+**Status:** Partial. `arm_a_sd` / `arm_b_sd` back-calculated via Cochrane §6.5.2 in `backCalculateSD()` (Session 14/15). Requires CI + N in candidate. V4 coverage: 67% (up from 33% V1). Full extraction from text still needed for papers where CI back-calc is blocked.
+**Gap remaining:** Direct extraction from text (mean ± SD tables) not yet reliable — depends on table surviving PDF parse. Prompt addition planned.
 **Effort:** Low (prompt addition + schema field). No DB migration needed.
 
 #### ⬜ Structured outcome timepoint **[High — Phase 2 blocker]**
@@ -216,11 +215,9 @@ These are data fields not currently extracted that are required for defensible p
 **Fix:** Add `primary_outcome_timepoint: { value, unit }` to adjudicator output schema. Extractor already surfaces timepoint in narrative — parse it into structured form.
 **Effort:** Low.
 
-#### ⬜ Explicit outcome type flag **[High — Phase 2 blocker]**
-**Status:** Not started.
-**Gap:** No machine-readable flag distinguishing continuous / binary / time-to-event / ordinal. The Python stats microservice needs this to select the correct pooling method and variance formula.
-**Fix:** Add `outcome_type: 'continuous' | 'binary' | 'time-to-event' | 'ordinal'` to adjudicator output schema.
-**Effort:** Trivial (one enum field + prompt instruction).
+#### ✅ Explicit outcome type flag **[High — Phase 2 blocker]**
+**Status:** Complete (Session 12 Rule 12 critic, Session 14/15 normalisation). `outcome_type: time_to_event | binary | continuous | ordinal` extracted by critic Rule 12. `normaliseOutcomeTypes()` enforces canonical underscore form post-patch.
+**Location:** `lib/pipeline-v4.js` — critic Rule 12 + `normaliseOutcomeTypes()`.
 
 #### ⬜ Structured secondary endpoints array **[Medium]**
 **Status:** Not started.
@@ -329,7 +326,8 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 
 ## Notes
 
-- **Priority for next session (Session 14):** Re-run all 20 papers with V4 (`aa7deee`). Verify: ORBITA/PROFHER CI preserved, CORONARY/HIP ATTACK outcome_type=time_to_event, COI patched not noted, AE secondary endpoints retained, quality_notes errors-only. If clean, move to Phase 0 grading. See HANDOVER.md Priority Order.
+- **Priority for next session (Session 16):** Re-run all 20 papers with V4 (`f0180e1`). Verify SCOT-HEART fix, ORBITA SD correction, EXCEL selection_uncertain flag, BITA/SYNTAX events correctness. Then deploy schema and begin Phase 0 grading. See HANDOVER.md Priority Order.
+- **Session 14/15 (2026-04-24):** 3 commits on main. 7 V4 post-processing functions (coerceNumericFields, backCalculateEvents priority, backCalculateSD Cochrane §6.5.2, restoreDroppedCandidateFields, normaliseOutcomeTypes, GRADE guard, flagAmbiguousSelection). V1 prompt: canonical effect_measure labels, p_value verbatim format, primary_result_synthesis field. Full 20-paper run: V1=94%, V4=96%, arm_events 100%, SD 67%. Stability analysis complete. Commits: ca658f7, c4c1aee, f0180e1.
 - **Do not begin Phase 2 meta-analysis until Phase 0 go/no-go** (≥85% exact match on primary numeric fields)
 - **The Phase 0/Phase 1 validation paper is the commercial moat** — it is not optional quality assurance
 - Session 1 (2026-04-12): CLAUDE.md, docs/ directory, adversarial review initiated
