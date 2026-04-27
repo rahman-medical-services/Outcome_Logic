@@ -129,6 +129,67 @@ These must be complete before any Phase 0 paper runs.
 
 ---
 
+## Validation Study — UI (BLOCKING — must precede data collection)
+
+The validation study design is finalised (PROTOCOL.md v2.0). Four UI components are required. The existing `pilot.html` covers Phase 2 style (pipeline output shown to rater) but not Phase 1a (blind manual extraction) or Phase 3 (arbitration). The Supabase schema also needs updating to support multi-rater, timed, multi-phase grading.
+
+### ⬜ Phase 1a UI — Blind manual extraction form
+**Status:** Not started.
+**What it is:** A per-rater, per-paper form for the 19 MA fields (Section 3.1 of PROTOCOL.md). No pipeline output is shown. Rater works from source PDF only.
+**Required features:**
+- Rater login / identity (rater_id passed to DB)
+- Paper list: title, DOI/PMID link, PDF download link
+- Per-field inputs: text, number, or categorical depending on field type
+- Per-paper timer: starts on first field input, records total time to submission
+- Save draft (auto-save per field) + explicit submit when complete
+- Cannot view another rater's submissions for the same paper until both have submitted (blinding)
+- No pipeline output, no V4 JSON, no existing grades visible
+**Effort:** ~3–4 hrs. New page (`public/phase1a.html` or equivalent).
+**Schema change needed:** `study_grades` table needs `rater_id`, `phase` ('1a'/'2a'/'2b'/'3'), `time_seconds` columns. Or new table `study_phase1a_extractions`.
+
+### ⬜ Phase 2a/2b UI — Pipeline output review form (timed)
+**Status:** ~50% — `pilot.html` covers much of this but lacks timing, rater identity, and phase mode.
+**What it is:** Shows V4 pipeline output alongside source paper link. Rater checks each field, marks match_status, adds correction if needed. Timed per paper.
+**Required additions to `pilot.html`:**
+- Rater login / rater_id
+- Phase selector: 2a (MA fields only) vs 2b (all fields)
+- Per-paper timer: visible countdown and total time recorded on submit
+- In Phase 2a mode: show only 19 MA fields, hide all others
+- In Phase 2b mode: show all fields
+- Save per-rater (two separate rater sessions per paper, each stored independently)
+- Cannot view the other rater's grades until both have submitted (blinding within Phase 2)
+**Effort:** ~2 hrs of additions to existing `pilot.html`.
+
+### ⬜ Phase 3 arbitration UI
+**Status:** Not started.
+**What it is:** Shown to the arbitrator after both Phase 2 raters have submitted. For each field, shows: V4 output value, Rater A correction (if any), Rater B correction (if any), whether they agree. Arbitrator makes a final decision where raters disagree.
+**Required features:**
+- Discrepancy highlighting: fields where Rater A ≠ Rater B shown in amber; fields where both corrected the same way shown in green; agreement on exact_match shown greyed
+- Per-field: arbitrator decision (adopt Rater A / adopt Rater B / new value / exact_match confirmed)
+- Overall quality rating (1–5) and usability rating (1–5) per paper
+- Free-text arbitrator notes
+- Submit locks the paper as final validated output
+**Effort:** ~3 hrs. New page (`public/phase3.html`).
+
+### ⬜ Study management dashboard
+**Status:** Not started.
+**What it is:** Overview of all 30 papers across all phases. Which papers are at which stage, rater completion status, discrepancy count per paper, overall progress.
+**Required features:**
+- Paper table: phase 1a (rater A done? rater B done?), phase 2a (rater A done? rater B done?), phase 2b (same), phase 3 (arbitrated?)
+- Click-through to open any paper in the relevant UI for the current phase
+- Export button: downloads arbitrated Phase 3 output as structured JSON (meta-analysis input dataset)
+**Effort:** ~2 hrs. Extension of existing `study.html`.
+
+### ⬜ Supabase schema update for multi-phase, multi-rater study
+**Status:** Not started. Existing schema supports Phase 0 (single-rater grading). Needs extension.
+**Changes required:**
+- `study_grades` → add `rater_id TEXT`, `phase TEXT CHECK IN ('1a','2a','2b','3')`, `time_seconds INTEGER`
+- Or new tables: `phase1a_extractions` (manual extraction records), `phase2_grades` (pipeline correction records with rater_id + phase), `phase3_arbitrations` (final decisions)
+- UNIQUE constraint: `(output_id, field_name, rater_id, phase)` — one grade per rater per field per phase
+**Effort:** ~1 hr (schema design + SQL + Supabase deploy).
+
+---
+
 ## Phase 1 — Scale and Publication
 
 ### ✅ `lib/pipeline-v1.js` — single-node V1 baseline **[Completed Session 9–10]**

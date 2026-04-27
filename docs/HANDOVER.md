@@ -332,19 +332,36 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 
 ## Priority Order — Next Session
 
-### Phase 0 (blocking — all pre-Phase 0 fixes now shipped)
-2. **Deploy `supabase/schema-study.sql`** — must do before grading (Dashboard → SQL Editor).
-3. **Fill `docs/PROTOCOL.md` anchor vignettes** — clinical judgement needed before first paper is graded.
-4. **Batch-upload 10 pilot PDFs via study.html** — auto-matching links to correct pilot records.
-5. **Run Phase 0 grading** — 10 papers, 26 fields each in pilot.html. V4 is the primary extraction.
-6. **Prove critic utility in Phase 0**: grade specifically on ROB, GRADE certainty, COI, lay summary direction fields — these are where the critic adds value beyond the JS post-processing layer.
+### Immediate — Validation study UI (blocking everything else)
 
-### Consider
-7. **`_EXTRACTOR_SHARED_SECTIONS` rebuild** — lower priority; V4 supersedes V3 as primary pipeline.
-8. **Fix PDF export** — parked until study runs complete.
+The validation study design is finalised (PROTOCOL.md v2.0). Before any data collection can begin, four UI components are needed:
 
-### No longer needed
-- ~~Phase 1 V1 vs V3 head-to-head study~~ — V4 audit trail proves architectural superiority directly.
+1. **Phase 1a UI** — manual extraction form for 19 MA fields, per rater, per paper. No pipeline output visible. Built-in timer. Rater login. Existing `pilot.html` is Phase 2 style (pipeline output shown) — Phase 1a is a blank form. See FEATURES.md.
+2. **Phase 2a/2b UI** — pipeline output display with per-field correction interface and timer. `pilot.html` is close to this but needs timing, rater identity, and Phase 2a/2b mode switch.
+3. **Phase 3 arbitration UI** — side-by-side rater pair comparison, discrepancy highlighting, arbitrator decision fields, overall quality/usability rating.
+4. **Study management view** — which papers are at which phase, rater completion status, export.
+
+### Then — Preliminary test run (5 beta-blocker papers)
+
+Once UI is built, run the full workflow on the 5 HFrEF beta-blocker papers (Section 0 of PROTOCOL.md):
+- CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST
+- PI does Phase 1a extraction on these papers (before running them through V4)
+- Run through V4
+- Phase 2a/2b check (PI or colleague)
+- Run pilot meta-analysis against Cochrane benchmark (Shibata et al.)
+- Calibrate timing estimates and match_status edge cases
+
+### Then — Paper curation for formal study
+
+- Curate 25 diverse general surgery RCTs for the 30-paper formal set
+- Select focused 5-paper gen surg question with Cochrane review for the formal meta-analysis subset
+- Lock PROTOCOL.md Section 11 checklist, OSF pre-registration
+- Recruit Phase 1a and Phase 2a/2b raters
+
+### Parked
+- **`_EXTRACTOR_SHARED_SECTIONS` rebuild** — V4 supersedes V3; V3 is legacy.
+- **Fix PDF export** — parked until study complete.
+- **Deploy `supabase/schema-study.sql`** — schema will need updating before validation study; old Phase 0 schema (10 pilot papers, pilot.html workflow) is superseded by the new 3-phase design.
 
 ---
 
@@ -382,5 +399,6 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 - Session 12 (2026-04-20): V4 pipeline built (V1 extractor + gpt-4o-mini critic, 13 rules, audit trail). V4 dual-save (saves V1 byproduct). V3 deprecated in study.html. Stability testing section (in-memory, dry_run). Study design revised: Phase 1 head-to-head no longer needed. V4 scores 99.7% on rubric. Rules 9–13 added (secondary completeness, NI framing, lay summary direction, outcome_type, SD per arm). Pass B can now emit patches. auditMetaAnalysisFields outcome-type-aware.
 - Session 13 (2026-04-23): Full 20-paper V4 analysis (mean 7.9/10 rubric). stripForCritic bug fixed (MIN_DISC_POSITION guard). Identified and fixed: Rule 1 null-guard + multi-candidate CI guard (ORBITA/PROFHER regression), Rule 2 primary-only AE exclusion + has_data guard (HIP ATTACK), Rule 6 mandatory patch + non-overwrite (COI), Rule 12 HR always time-to-event (CORONARY/HIP ATTACK regression), Pass B confirmatory note suppression, V1 arm_a_n/AE prompt. Rules redesigned after first-pass fixes caused regressions (see LEARNINGS.md).
 - Session 16 (2026-04-27): Meta-analysis hardening. External Opus critique verified against primary data. 5 fixes shipped: canonicaliseLegacyKeys (resolves the false "arm_a_n PDF-limitation" diagnosis — 40 candidates were stranded in legacy keys), coerceNumericFields scope extended (kills type oscillation across runs), guardMDFabrication + Rule 7 prompt update (blocks fabricated MD/SMD per-arm values from between-arm difference), applyPatches now distinguishes substantive vs verification (no-op) patches, critic-patched candidate fields tagged with `_<field>_source = critic_patched:<rule>`. Silent run failures (~20%) deferred — Vercel timeout, not resolvable on current plan.
+- Session 18 (2026-04-27): Protocol rewrite (PROTOCOL.md v2.0) — new 3-phase validation design (Phase 1a pre-pipeline MA extraction, Phase 2a/2b pipeline verification, Phase 3 arbitration → validated library). N=30 general surgery RCTs, pilot meta-analysis on 5-paper gen surg focused subset vs Cochrane. Preliminary test run specified: 5 HFrEF beta-blocker trials (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST) vs Shibata Cochrane review. Reporting framework: no single framework adopted — STARD-informed with TRIPOD-AI/DECIDE-AI guidance cited. Ablation study eliminated. Class 8 (Critic Regression) added to error taxonomy. FEATURES.md updated with 4 new validation study UI components.
 - Session 17 (2026-04-27): Pre-Phase 0 fixes. 3 deterministic fixes + uncertain_fields feature: (1) CI null-guard in applyPatches() — blocks critic overwriting non-null ci_lower/ci_upper (fixes SYNTAX ci_upper regression); (2) enforceOutcomeTypeForRatioMeasures() — HR always time_to_event post-patch, no LLM override (fixes ISCHEMIA critic regression); (3) uncertain_fields three-state signal — null=not reported, null+uncertain_fields=irresolvable conflict, value=confident. Critic now emits uncertain_candidate_fields; V1 prompt includes UNCERTAINTY RULE. (4) % strip in canonicaliseLegacyKeys for arm value/SD fields. Verified against 20-paper export: CI guard correct, HR enforcement correct, 0 false-positive uncertain_fields. EXCEL RD CI scale instability remains at V1 level — Phase 0 grading annotation. Meta-analysis completeness: effect_measure/value/outcome_type 100%; CI ~90%; arm N ~85%; SD ~65% (largest gap). Pipeline ready for Phase 0.
 - Session 14/15 (2026-04-24): Full 20-paper V4 re-run. Analysed SPORT arm_n (structural gap, correct null). Identified arm_events coverage artefact (V1 uses events_arm_a, V4 uses arm_a_events — both present = 100% coverage). Verified external LLM claims against primary data (ChatGPT EXCEL ci_lower claim wrong). 7 fixes: coerceNumericFields, backCalculateEvents priority (direct > back-calc), backCalculateSD (Cochrane §6.5.2), provenance tags, primary_result_synthesis in V1, canonical effect_measure labels, p_value format. SCOT-HEART regression fixed (restoreDroppedCandidateFields + Rule 9 prompt guard). Stability analysis: 4 fixes (normaliseOutcomeTypes, SD plausibility guard 1.75×, GRADE guard, flagAmbiguousSelection). Final scores V1=94%, V4=96%. Commits: ca658f7, c4c1aee, f0180e1.

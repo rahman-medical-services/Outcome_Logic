@@ -63,15 +63,17 @@ Any node        Hallucination
 
 ---
 
-### Class 2 — Correlated Recall Failure (Both Extractors)
+### Class 2 — Correlated Recall Failure (V3 pipeline only)
 
-**Definition:** Neither Extractor A nor B surfaced the correct value. Both produced candidates, but the correct value was absent from all of them. The adjudicator confirmed a wrong candidate.
+**⚠️ V4 note:** Class 2 is not applicable in the V4 pipeline. V4 uses a single extractor (V1) — there is no second extractor to be correlated with. A V1 recall failure is Class 1. A critic-introduced error is Class 8 (see below). Class 2 is preserved for historical reference and for any future use of the V3 pipeline.
 
-**This is the highest-severity class.** It is structurally undetectable from the pipeline output alone — the extraction looks clean, the adjudication looks clean, the candidates look plausible. Requires PI review against source document.
+**Definition (V3):** Neither Extractor A nor B surfaced the correct value. Both produced candidates, but the correct value was absent from all of them. The adjudicator confirmed a wrong candidate.
+
+**This was the highest-severity class in V3.** Structurally undetectable from pipeline output alone — the extraction looks clean, the adjudication looks clean, the candidates look plausible. Requires PI review against source document.
 
 **Detectable by:** PI comparing pipeline output to source document. `suspicious_agreement: true` is a hint but does not guarantee detection.
 
-**Pipeline origin:** Both extractors (correlated).
+**Pipeline origin:** Both extractors (correlated) — V3 only.
 
 **Mechanism subtypes:**
 
@@ -81,9 +83,9 @@ Any node        Hallucination
 | 2b — Abstract anchoring | Both default to abstract value; neither looks up full-text table | Both report unadjusted HR from abstract; adjusted HR from Results not surfaced |
 | 2c — Model convergence | Both models make same inference from ambiguous text | Ambiguous "treatment effect" phrasing interpreted identically by Gemini and GPT-4o-mini |
 
-**Fix target:** Extractor prompt diversity (make A and B search different source locations explicitly) or paper-level escalation to a stronger model.
+**Fix target (V3):** Extractor prompt diversity; paper-level escalation to a stronger model.
 
-**Phase 0 flag:** `suspicious_agreement: true` in `extraction_flags`. Should be manually verified for every paper flagged.
+**V4 equivalent risk:** A single-extractor recall failure (Class 1) combined with a critic that fails to catch it (because the missed value is not visible in the stripped paper text). This is less dangerous than V3 Class 2 because the critic receives a different model's perspective and different section stripping; but it remains a residual failure mode.
 
 ---
 
@@ -212,6 +214,33 @@ Any node        Hallucination
 
 ---
 
+### Class 8 — Critic Regression (V4 critic — new in PROTOCOL.md v2.0)
+
+**Definition:** The V1 extraction was correct. The gpt-4o-mini critic generated a patch that changed a correct value to an incorrect one. The error originates in the critic pass, not the V1 extractor.
+
+**Why this is a separate class:** Classes 1–7 capture errors that originated in the extractor or adjudicator. In V4, a new failure mode exists: the critic can introduce errors into correct extractions. This is distinct from the critic failing to fix an existing V1 error (which would still be classified by the type of V1 error). Class 8 is specifically the case where V4 output is worse than V1 output on a field.
+
+**Detectable by:** Cross-referencing Phase 1a ground truth with `_critic.patches`. If a field appears in `_critic.patches` (was patched by the critic) and the patched V4 value does not match ground truth, but the V1 snapshot value does match ground truth — Class 8.
+
+**Pipeline origin:** gpt-4o-mini critic (Node 2) in V4.
+
+**Mechanism subtypes:**
+
+| Subtype | Description | Example |
+|---|---|---|
+| 8a — Null overwrite | Critic patches correct non-null value to null or wrong value | SYNTAX: `ci_upper=1.81` overwritten with RD CI value. Fixed by JS CI null-guard. |
+| 8b — Type reclassification | Critic changes correct `outcome_type` based on faulty reasoning | ISCHEMIA: correct `time_to_event` changed to `binary` ("composite is binary"). Fixed by `enforceOutcomeTypeForRatioMeasures()`. |
+| 8c — Scale error | Critic patches using values from a different measurement scale | SYNTAX: CI in percentage points patched onto an HR candidate. |
+| 8d — Prompt override | LLM reasoning overrides an explicit categorical rule in the critic prompt | Rule 12 prompt said "HR always = time_to_event" — critic applied class reasoning anyway. |
+
+**Fix target:** For each Class 8 subtype, the fix is one of: (a) add a JS-level null-guard or enforcement function in `applyPatches()` or post-processing, or (b) revise the critic rule to prevent the failure. JS guards are preferred because they cannot be overridden by LLM reasoning.
+
+**Priority signal:** Class 8 errors are the most actionable for further V4 iteration. High Class 8 frequency on a specific field → review that critic rule and add a deterministic enforcement.
+
+**Date added:** 2026-04-27 (PROTOCOL.md v2.0).
+
+---
+
 ---
 
 ## Root Cause Stage
@@ -224,8 +253,9 @@ Any node        Hallucination
 
 | Stage | Definition | Fix |
 |---|---|---|
-| `extractor` | Root cause is in Extractor A or B — candidate recall or labelling | Extractor prompt |
-| `adjudicator` | Root cause is in adjudicator ranking or synthesis logic | Adjudicator prompt |
+| `extractor` | Root cause is in Extractor (V1 in V4, or A/B in V3) — candidate recall or labelling | Extractor prompt |
+| `critic` | Root cause is in the V4 critic — a patch introduced or worsened an error | Critic rule revision or JS guard |
+| `adjudicator` | Root cause is in adjudicator ranking or synthesis logic (V3 only) | Adjudicator prompt |
 | `schema_design` | The output schema has no field or type for the correct value | Schema change |
 | `prompt_guidance` | A prompt rule is absent, ambiguous, or contradictory | Prompt revision |
 | `document_structure` | The source document structure caused the failure regardless of prompt | No pipeline fix; document-level annotation needed |

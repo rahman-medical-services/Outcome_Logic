@@ -1,19 +1,68 @@
 ---
 id: "pipeline-spec"
 type: "technical-specification"
-version: 3
+version: 4
 created: 2026-04-12
-updated: 2026-04-15
+updated: 2026-04-27
 owner: "saqib"
 ---
 
 # Pipeline Specification — OutcomeLogic
 
-This file is the technical reference for the extraction pipeline, Phase 0 validation study design, and future pipeline extensions. Read on demand (not at session start).
+This file is the technical reference for the extraction pipeline. Read on demand (not at session start). For current architecture decisions and rationale, see `docs/DESIGN_DECISIONS.md`. For validation study design, see `docs/PROTOCOL.md`.
 
 ---
 
-## Current 3-Node Pipeline (V2)
+## Current Production Pipeline: V4
+
+**Architecture:** V1 single extractor (Gemini flash-lite) → gpt-4o-mini critic (13 rules) → deterministic JS post-processing. Total: ~27–35s.
+
+**V3 is deprecated** as the production pipeline (Sessions 12+). V3 (dual extractor + adjudicator) data is viewable in study.html but no new V3 runs are performed.
+
+### Execution order (post-Session 17, current canonical)
+
+```
+runPipelineV1()
+  → canonicaliseLegacyKeys()             n_arm_a→arm_a_n, 'null'→null, "159/891"→{events,N}, strip '%'
+  → runCritic()                          gpt-4o-mini, 13 rules + Pass B, emits uncertain_candidate_fields
+  → applyPatches()                       {applied, verifications, skipped}; CI null-guard; GRADE guard;
+                                          provenance tags _<field>_source
+  → mergeUncertainFields()               copies uncertain_candidate_fields onto candidate.uncertain_fields
+  → restoreDroppedCandidateFields()      re-merges V1 snapshot after Rule 9 array replacement
+  → coerceNumericFields()                string→Number on all numeric candidate fields
+  → guardMDFabrication()                 MD/SMD: reset arm values when one≈0 and other≈|diff|
+  → backCalculateEvents()                Priority 1: direct extraction; Priority 2: arm_n × rate%
+  → backCalculateSD()                    Cochrane §6.5.2; 1.75× plausibility guard
+  → normaliseOutcomeTypes()              time-to-event → time_to_event
+  → enforceOutcomeTypeForRatioMeasures() HR always → time_to_event, unconditional
+  → flagAmbiguousSelection()             ≥2 candidates with different effect_measure → selection_uncertain
+  → auditMetaAnalysisFields()            missing split into uncertain vs absent
+```
+
+### Critic rules (Node 2 — gpt-4o-mini)
+
+| Rule | What it checks / fixes |
+|---|---|
+| 1 | CI completeness — null-guard: only completes missing CI, never overwrites. JS CI null-guard is the enforcement layer. |
+| 2 | AE table contamination — removes primary endpoint components from adverse events |
+| 3 | Subgroup variable grouping — each variable = one item with ≥2 arms |
+| 4 | RoB calibration |
+| 5 | GRADE certainty calibration — JS GRADE guard blocks upgrades, allows downgrades only |
+| 6 | COI/funding extraction — mandatory patch, non-overwrite |
+| 7 | Per-arm values completeness — MD/SMD GUARD: cannot derive arm from between-arm difference |
+| 8 | Meta-analysis field completeness (with back-calculation hint) |
+| 9 | Secondary endpoint completeness — adds missing secondaries to candidates |
+| 10 | NI trial framing — CI-excludes-margin direction check |
+| 11 | Lay summary direction — checks against significance |
+| 12 | Outcome type classification — note: `enforceOutcomeTypeForRatioMeasures()` is the enforcement; Rule 12 is a hint |
+| 13 | SD per arm for continuous outcomes |
+
+Pass B: holistic plausibility review — can emit patches for fixable errors.
+Uncertainty tracking: emits `uncertain_candidate_fields` for irresolvable conflicting values.
+
+---
+
+## Legacy Pipeline: V3 (3-Node Dual-Extractor + Adjudicator)
 
 ### Node 1 + 2: Extractors A and B
 

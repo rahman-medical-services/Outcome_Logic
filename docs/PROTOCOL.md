@@ -8,6 +8,41 @@
 
 ---
 
+## 0. Preliminary Test Run (Beta-Blockers in HFrEF)
+
+Before formal Phase 1a data collection begins, the full workflow (Phase 1a manual extraction → V4 pipeline → Phase 2a/2b review → Phase 3 arbitration) will be rehearsed on a small set of papers **outside** the formal study domain. This serves three purposes:
+
+1. **End-to-end workflow validation** — confirm that Phase 1a UI, Phase 2a/2b UI, Phase 3 UI, database writes, and meta-analysis output all function as designed
+2. **Timing calibration** — establish realistic per-paper estimates for Phase 1a and Phase 2a before committing raters to the full 30-paper set
+3. **Rater calibration** — identify systematic disagreements on borderline match_status calls before formal data collection, so that calibration happens before the study, not during
+
+**Test set: Beta-blockers for heart failure with reduced ejection fraction (HFrEF)**
+
+| Trial | Citation | Primary outcome | Effect | N |
+|---|---|---|---|---|
+| CIBIS-II | CIBIS-II Investigators, *Lancet* 1999;353:9–13 | All-cause mortality | HR 0.66 (95% CI 0.54–0.81) | 2647 |
+| MERIT-HF | MERIT-HF Study Group, *Lancet* 1999;353:2001–7 | All-cause mortality | HR 0.66 (95% CI 0.53–0.81) | 3991 |
+| COPERNICUS | Packer M et al., *NEJM* 2001;344:1651–8 | All-cause mortality | HR 0.65 (95% CI 0.52–0.81) | 2289 |
+| SENIORS | Flather MD et al., *Eur Heart J* 2005;26:215–25 | Mortality + CV hospitalisation | HR 0.86 (95% CI 0.74–0.99) | 2128 |
+| BEST | Beta-Blocker Evaluation of Survival Trial, *NEJM* 2001;344:1659–67 | All-cause mortality | HR 0.90 (95% CI 0.78–1.02) | 2708 |
+
+**Benchmark Cochrane review:** Shibata MC et al. *Beta-blockers for heart failure*. Cochrane Database of Systematic Reviews (most recent update). Pooled mortality HR ~0.73 provides the external reference for pilot meta-analysis validation.
+
+**Key design features of this set:**
+- All compare beta-blocker vs placebo in patients with reduced EF — same comparator class across all 5
+- Four report all-cause mortality as HR; SENIORS reports a composite (will test the pipeline's endpoint selection and outcome_type logic); BEST is a null result (tests that the pipeline does not fabricate significance)
+- Large trials with precise estimates — extraction errors are unambiguous, not lost in noise
+- All published in Lancet/NEJM/Eur Heart J — PDF availability is straightforward
+
+**What test run results will and will not contribute:**
+- Results from this set **inform protocol refinement only**. They are not reported as part of the formal validation study.
+- Timing estimates from Phase 1a on these papers **do** feed into the rater burden estimate for the formal 30-paper study.
+- Any systematic match_status disagreements trigger calibration discussion before formal data collection begins.
+
+**PMIDs:** To be verified against live PubMed before PDFs are obtained. Add here when confirmed.
+
+---
+
 ## 1. Study Overview and Rationale
 
 ### 1.1 What changed from v1.0
@@ -47,9 +82,11 @@ The 10 Phase 0 papers from the previous protocol (ORBITA, HIP ATTACK, SPORT disc
 The 5 focused papers will be used for a pilot meta-analysis (Section 9). The focused question must:
 - Have ≥ 5 qualifying RCTs available as full-text PDFs
 - Have a published Cochrane systematic review and meta-analysis on the same question, with pooled estimates, for external benchmarking
-- Be a surgical question (not cardiology or oncology, which are likely over-represented in model training data)
+- Be a general surgery question within the library domain
 
-**Candidate questions:** To be selected by PI. Candidates include laparoscopic vs open colectomy for cancer, mesh vs no mesh for primary inguinal hernia repair, early vs delayed surgery for acute cholecystitis, laparoscopic vs open appendicectomy. Final selection must be recorded here before Phase 1a begins.
+**Candidate questions:** To be selected by PI after the preliminary test run (Section 0) is complete. Candidates include laparoscopic vs open colectomy for cancer, mesh vs no mesh for primary inguinal hernia repair, early vs delayed cholecystectomy for acute cholecystitis, laparoscopic vs open appendicectomy. Final selection must be recorded here before Phase 1a begins.
+
+**Note:** The preliminary test run (Section 0 — beta-blockers in HFrEF) is a separate, non-surgical test set used for workflow validation only. It is not the formal 5-paper focused subset.
 
 ---
 

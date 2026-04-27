@@ -137,6 +137,23 @@ status: "living document — update when decisions change or new risks identifie
 
 ---
 
+### 1.9b V4 architecture: single extractor + LLM critic + deterministic JS (supersedes V3 for production — added 2026-04-20)
+
+**Decision:** Replace the V3 3-node dual-extractor + adjudicator architecture with a single V1 extractor (Gemini flash-lite) + gpt-4o-mini critic + deterministic JS post-processing layer. V3 remains available for legacy data viewing but is no longer the production pipeline.
+
+**Rationale:** The V3 architecture's theoretical advantage (two independent extractors reducing correlated error) did not produce a measurable accuracy improvement in practice. On the 20-paper benchmark, V1 scored 94% and V3 scored 96% — a 2pp difference well within noise. The dominant quality improvement comes from:
+1. **Prompt quality** — the V1 prompt (12 sections, explicit extraction rules) produces clean extractions regardless of architecture.
+2. **Deterministic post-processing** — `canonicaliseLegacyKeys`, `coerceNumericFields`, `backCalculateEvents`, `backCalculateSD`, `enforceOutcomeTypeForRatioMeasures` recover most coverage failures mechanistically without LLM involvement.
+3. **Cross-model critic review** — the gpt-4o-mini critic reviewing Gemini V1 output provides genuine cross-model independence at lower latency than running two full extractors (~27–35s vs ~47s).
+
+**V4's key advantage over V3:** The `_critic` audit trail. Every substantive critic patch is recorded with field name, before/after value, rule number, and provenance tag. This makes errors detectable and correctable in the field — not just in aggregate across papers. The ablation study (needed to prove V3 architectural value) is no longer needed; the audit trail demonstrates the mechanism directly.
+
+**Residual risk:** Single-extractor recall failure (V1 misses the value; critic cannot recover it because it's absent from the stripped paper text). This is the V4 equivalent of V3's Class 2 correlated recall failure, and it is mitigated by: (a) a 12-section V1 prompt with mandatory section coverage, (b) the critic receiving a different section cut of the paper (Abstract + Methods + Results only, Introduction and Discussion stripped), and (c) the uncertain_fields mechanism for irresolvable conflicts.
+
+**Date:** V4 built Session 12 (2026-04-20). V3 deprecated in study UI Session 12. This rationale added 2026-04-27.
+
+---
+
 ### 1.10 Raw fetch() for all Gemini API calls — no SDK
 
 **Decision:** All Gemini API calls use raw `fetch()` to the v1beta REST endpoint. Neither `@google/generative-ai` nor `@google/genai` SDK is used anywhere in the codebase.
@@ -328,15 +345,19 @@ The taxonomy was designed to generate an actionable prompt modification queue: h
 
 ---
 
-### 3.4 Reporting frameworks: DECIDE-AI (Phase 0) + CONSORT-AI (Phase 1)
+### 3.4 Reporting frameworks (revised 2026-04-27)
 
-**Decision:** Phase 0 is reported under DECIDE-AI (Vasey et al., *Nature Medicine* 2022). Phase 1 is reported under CONSORT-AI (Liu et al., *BMJ* 2020).
+**Revised decision (PROTOCOL.md v2.0):** No single framework is formally adopted. The validation study is reported with methodology described explicitly, with STARD 2015 (diagnostic accuracy study reporting) as the structural reference, and TRIPOD-AI and DECIDE-AI guidance cited as informing the design.
 
-**Rationale:** DECIDE-AI is designed for early-phase, feasibility-focused AI evaluations — it is the correct framework for an unblinded, single-rater pilot study. CONSORT-AI is designed for randomised or comparative studies of AI interventions — it is the correct framework for the Phase 1 accuracy study (V1 vs. V3, blinded, multi-rater).
+**Rationale for revision:**
+- CONSORT-AI is for reporting RCTs testing AI as an intervention. OutcomeLogic is not being tested in a randomised trial.
+- DECIDE-AI is for early-phase feasibility evaluations. The new design (30 papers, pre-specified primary endpoints, blinded raters, formal inter-rater reliability) is more rigorous than DECIDE-AI assumes.
+- TRIPOD-AI is for prediction model validation. OutcomeLogic is an extraction tool, not a prediction model.
+- No established framework exists specifically for AI-assisted systematic review extraction accuracy studies.
 
-Using CONSORT-AI for Phase 0 would be methodologically inappropriate — Phase 0 does not have the blinding, rater count, or statistical power that CONSORT-AI assumes.
+**Practical decision:** Write the methods section with sufficient rigour that the study is self-evidently well-designed regardless of which framework label is applied. Cite STARD as the closest structural analog. Acknowledge in the limitations section that no dedicated framework exists for this study type. Reviewers will accept clear methodology over framework compliance.
 
-**Date:** Session 7, 2026-04-15.
+**Original decision (Session 7, 2026-04-15):** DECIDE-AI for Phase 0, CONSORT-AI for Phase 1. Superseded by protocol v2.0 design revision.
 
 ---
 

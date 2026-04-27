@@ -7,7 +7,7 @@ owner: "saqib"
 
 # OutcomeLogic — Project Summary
 
-**As of 24 April 2026 (v5.2.0 · commit f0180e1)**
+**As of 27 April 2026 (v5.4.0 · commit 9feed53)**
 
 ---
 
@@ -100,16 +100,21 @@ Both `v4` and `v1` outputs are saved on every run. This means we always have a b
 
 Pass B: plausibility check — identifies and patches any fixable errors not caught by Rules 1–13.
 
-### Deterministic post-processing (V4 Node 3 — added Sessions 14/15)
+### Deterministic post-processing (V4 Node 3 — current, Sessions 14/15/16/17)
 | Function | What it does |
 |---|---|
+| `canonicaliseLegacyKeys()` | Runs BEFORE critic. Migrates `n_arm_a`→`arm_a_n`, `events_arm_a`→`arm_a_events`; strips `'null'` strings; parses compound fractions (`"159/891"`); strips trailing `%` from arm value/SD fields |
+| `applyPatches()` | Returns `{applied, verifications, skipped}`. CI null-guard blocks overwriting non-null `ci_lower`/`ci_upper`. GRADE guard blocks upgrades. Tags substantive changes with `_<field>_source: "critic_patched:<rule>"` |
+| `mergeUncertainFields()` | Copies `uncertain_candidate_fields` from critic onto candidate `uncertain_fields` arrays |
 | `restoreDroppedCandidateFields()` | Re-merges V1 snapshot into patched candidates — guards against Rule 9 array replacement dropping fields |
-| `coerceNumericFields()` | String integer → Number on all numeric candidate fields |
-| `backCalculateEvents()` | Priority 1: copy `events_arm_a` (direct); Priority 2: back-calc from arm_n×rate% |
-| `backCalculateSD()` | Cochrane §6.5.2 SE back-calc; 1.75× plausibility guard overrides contaminated extracted SD |
+| `coerceNumericFields()` | String → Number on all numeric candidate fields including arm_*_value, arm_*_sd, ci_lower/upper |
+| `guardMDFabrication()` | For MD/SMD: resets arm values to null when one is 0 and the other ≈ between-arm difference |
+| `backCalculateEvents()` | Priority 1: direct V1 extraction; Priority 2: back-calc from arm_n×rate% |
+| `backCalculateSD()` | Cochrane §6.5.2 SE back-calc; 1.75× plausibility guard |
 | `normaliseOutcomeTypes()` | `time-to-event` → `time_to_event` (canonical underscore form) |
+| `enforceOutcomeTypeForRatioMeasures()` | HR always → `time_to_event`, deterministic, no LLM override |
 | `flagAmbiguousSelection()` | ≥2 candidates with different effect measures → `selection_uncertain=true` |
-| `auditMetaAnalysisFields()` | Reports which meta-analysis fields are missing and why |
+| `auditMetaAnalysisFields()` | Reports `missing` fields split into `uncertain` (irresolvable conflict) vs `absent` (not reported) |
 
 ---
 
@@ -133,34 +138,39 @@ Pass B: plausibility check — identifies and patches any fixable errors not cau
 
 ---
 
-## Validation Study — Phase 0 (In Progress)
+## Validation Study (Redesigned — PROTOCOL.md v2.0)
 
-**Goal:** Human grading of V4 extractions against source papers. 10 papers, 26 fields each.
+The old Phase 0 / Phase 1 pilot → ablation study design has been superseded. New design:
 
-**Papers:** 9 landmark surgical RCTs + 1 post-training-cutoff paper (OPTIMAS 2024). Chosen to stress-test specific pipeline failure modes.
+**N = 30 general surgery RCTs.** 25 diverse landmark papers + 5 focused on a single gen surg question with a published Cochrane review.
 
-**Infrastructure built:**
-- `supabase/schema-study.sql` — 5-table schema (papers, extractions, sessions, grades, rater_assignments). **⚠️ Not yet deployed to live Supabase instance — must run before grading.**
-- `public/pilot.html` — per-field grading (exact/partial/fail/hallucinated, taxonomy, severity, correction text)
-- `public/pilot-summary.html` — aggregate heatmap, priority queue, CSV export
+**3-phase design:**
+- **Phase 1a:** 2 independent raters extract the 19 MA fields manually from source PDFs, timed. Pre-pipeline. Establishes temporally blinded ground truth for primary accuracy endpoints.
+- **Phase 2a/2b:** 2 different independent raters check and correct V4 pipeline output, timed. Phase 2a = MA fields only. Phase 2b = all fields.
+- **Phase 3:** Blinded arbitrator resolves all rater-pair discrepancies, rates quality and usability. Produces final validated paper library.
 
-**Go/no-go gate:** ≥85% exact match on primary numeric fields → proceed to Phase 1 powered study.
+**Primary endpoints:** MA field exact-match rate (V4 vs Phase 1a ground truth) + time saving (Phase 1a time vs Phase 2a time per paper).
 
-**What Phase 0 will prove:** Whether the critic adds value on quality fields (ROB, GRADE, COI, lay summary direction) — the JS post-processing layer handles coverage; the critic's value is in quality.
+**Secondary endpoints:** Overall error rate, validated 30-paper library, pilot meta-analysis (V4-extracted fields → pooled estimate vs Cochrane benchmark).
+
+**Preliminary test run:** 5 HFrEF beta-blocker trials (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST) will be used to rehearse the full workflow and calibrate timing estimates before formal data collection. Not part of the formal study dataset.
+
+**UI needed (all new):** Phase 1a blind extraction form, Phase 2a/2b timed review interface, Phase 3 arbitration UI, study management dashboard. See FEATURES.md.
 
 ---
 
 ## What We Are Trying to Prove (Publication Path)
 
-**Thesis:** A V1 extractor + critic + deterministic post-processing architecture achieves significantly higher extraction accuracy and consistency than a single-pass extractor alone, and provides an auditable evidence trail (via `_critic`) that makes errors detectable and correctable.
+**Thesis:** V4 (single extractor + critic + deterministic post-processing) accurately extracts meta-analysis–relevant data from general surgery RCTs, with measurable time savings over manual extraction, demonstrated through prospective blinded human validation.
 
 **Evidence required:**
-1. **Phase 0 pilot** (10 papers, human-graded): exact/partial/fail/hallucinated per field. Priority scores identify worst failure modes → prompt modification queue.
-2. **Stability study** (5 papers × 5 runs): modal agreement rate shows how consistent V4 is across re-runs.
-3. **Critic audit analysis**: `_critic.patches_applied` shows what V4 fixed in V1 output. Graded against source paper to show critic accuracy on quality fields.
-4. **Phase 1 powered validation** (25+ papers, 2 independent raters, kappa ≥0.6): publishable in JAMIA / npj Digital Medicine.
+1. **Phase 1a ground truth + Phase 2a review** (30 papers, 2 rater pairs): MA field accuracy with 95% CIs. Time saving per paper.
+2. **Phase 2b full-field review + Phase 3 arbitration**: Overall error rate, error taxonomy distribution, critic regression rate (Class 8 errors).
+3. **Stability study** (already complete — 5×5 runs): modal agreement rate, EXCEL ambiguity, GRADE guard effectiveness.
+4. **Critic audit analysis**: `_critic.patches` audit trail cross-referenced with Phase 1a ground truth → critic net accuracy on quality fields without an ablation study.
+5. **Pilot meta-analysis** (5-paper gen surg subset): pooled estimate vs Cochrane benchmark.
 
-**Target journals:** JAMIA, JBI, npj Digital Medicine.
+**Target journals:** JAMIA, JBI, npj Digital Medicine, BMJ Open.
 
 ---
 
@@ -168,20 +178,21 @@ Pass B: plausibility check — identifies and patches any fixable errors not cau
 
 | Issue | Status |
 |---|---|
-| `arm_n` missing 16/20 papers | Fundamental PDF-to-text limit. Table 1 rarely parses as clean prose. Not fixable at prompt level. |
+| `arm_n` 85% coverage | 2 structural nulls (SPORT dual-cohort — correct); remainder recovered by canonicalisation (Session 16). |
 | SPORT arm_n null | Correct — dual-cohort design, no unambiguous single N. |
-| EXCEL selection_uncertain | Correct — paper genuinely reports HR as primary and OR in subgroup. Human review required. |
-| SD back-calc blocked when arm_n null | Correct — Cochrane §6.5.2 needs both CI and N. |
-| Critic utility not yet proven on quality fields | Phase 0 grading will address this. |
+| EXCEL selection_uncertain | Correct — paper reports HR as primary AND OR in subgroup. `selection_uncertain=true` set. Human review required. |
+| SD back-calc blocked when arm_n null | Correct — Cochrane §6.5.2 needs both CI and N. ~65% coverage on continuous outcomes. |
+| EXCEL RD CI scale | V1-level instability: oscillates between proportion and percentage-point scale across runs. CI guard protects against critic overwrite. Phase 0 grading annotation. |
+| Critic utility | Demonstrated mechanistically via `_critic.patches` audit trail. Formal quantification requires Phase 1a ground truth cross-reference (critic net accuracy on quality fields). |
 
 ---
 
-## Next Session
+## Next Steps
 
-1. Re-run all 20 papers with latest code (`f0180e1`) — verify SCOT-HEART fix, ORBITA SD, EXCEL flag, BITA/SYNTAX events
-2. Run stability test (5 papers × 5 runs)
-3. Deploy `supabase/schema-study.sql` to Supabase
-4. Begin Phase 0 grading in `pilot.html`
+1. Build validation study UI: Phase 1a blind extraction form, Phase 2a/2b timed review, Phase 3 arbitration, study management dashboard
+2. Preliminary test run: 5 beta-blocker HFrEF papers (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST)
+3. Curate 30-paper formal study set (25 diverse gen surg + 5 focused gen surg with Cochrane review)
+4. Lock PROTOCOL.md, OSF pre-registration, recruit raters
 
 ---
 
