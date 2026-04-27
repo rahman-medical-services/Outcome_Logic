@@ -1,495 +1,494 @@
-# OutcomeLogic Phase 0 Validation Study — Pre-Registration Protocol
+# OutcomeLogic Validation Study — Protocol
 
-**Document version:** 1.0  
-**Date:** 2026-04-12  
-**Status:** Pre-registered. This document must not be modified after the first grading session begins.  
-**PI:** Rahman Medical Services  
-
----
-
-## 1. Study Overview
-
-### Phase 0 — Pilot (current)
-
-| Parameter | Value |
-|---|---|
-| Design | PI-only, unblinded, single-rater |
-| N | 10 pilot papers (pre-specified, see schema-study.sql) |
-| Purpose | Error taxonomy construction; prompt calibration; grading procedure validation |
-| NOT a test of | Accuracy, publication-ready performance claims |
-| Blinding | None. PI has access to pipeline outputs and source documents simultaneously. |
-| Pre-registration | Required before first grade is entered (this document) |
-| Output | Ranked field priority list for V3 prompt revision; error taxonomy; Phase 1 power calculation inputs |
-
-Phase 0 produces no publishable accuracy estimates. Its sole function is to identify systematic pipeline failure modes and calibrate the grading rubric before a powered study begins.
-
-### Phase 1 — Blinded Accuracy Study (pre-specified, not yet begun)
-
-| Parameter | Value |
-|---|---|
-| Design | Prospective, blinded, multi-rater |
-| N | ≥ 25 papers per pipeline version (V1 and V2) |
-| Raters | ≥ 2 independent raters, blinded to pipeline version |
-| Primary endpoint | Exact-match rate across all 26 pre-specified fields |
-| Power | Powered to detect 15 percentage point improvement in exact-match rate (V2 vs V1) at 80% power, two-sided α = 0.05 |
-| Reference standard | Blinded independent extraction from full-text source document |
-| Analysis | Per-field exact-match rate; inter-rater reliability (Cohen's kappa); priority score ranking |
+**Document version:** 2.0  
+**Date:** 2026-04-27  
+**Supersedes:** Version 1.0 (2026-04-12) — Phase 0/Phase 1 ablation design, now obsolete.  
+**Status:** DRAFT — not yet locked. Lock before Phase 1a data collection begins.  
+**PI:** Saqib Rahman  
 
 ---
 
-## 2. Pre-Specified Field List
+## 1. Study Overview and Rationale
 
-The field list is fixed and cannot be amended after Phase 0 grading begins. Fields are split into two classes with different grading methodology:
+### 1.1 What changed from v1.0
 
-- **Fact-extraction fields (24):** graded for exact-match accuracy against the source document. These form the primary accuracy analysis.
-- **Evaluative fields (2):** graded for agreement with PI clinical assessment. These are excluded from the primary exact-match rate and reported separately as an agreement analysis. See Section 2.1.
+The v1.0 protocol was designed around a head-to-head comparison of V1 vs V3 pipelines, with Phase 0 as a small pilot to calibrate grading before a powered comparative study. Three things have changed:
 
-### 2.0 Fact-Extraction Fields (primary analysis, N=24)
+1. **V3 is deprecated.** V4 (V1 extractor + gpt-4o-mini critic + deterministic post-processing) is now the production pipeline. The V1 vs V3 comparison is no longer meaningful.
 
-| field_id | Label | Path in output JSON | severity_max |
+2. **The ablation study is unnecessary.** V4's `_critic` audit trail (patches applied, verifications, skipped patches, patch provenance) provides direct evidence of where and how V1 extraction errors were caught and corrected. This is more informative than a net-effect comparison — it demonstrates the mechanism, not just the aggregate outcome.
+
+3. **The scope is clarified.** The primary use case is meta-analysis automation. The validation should be scoped to that claim: accuracy and time saving on fields required for meta-analysis input. Full-field validation is included to generate an overall error rate and a validated paper library, but is not the primary claim.
+
+### 1.2 Study design in one sentence
+
+A prospective accuracy and efficiency validation study of the V4 pipeline for automated extraction of meta-analysis–relevant data from general surgery RCTs, using temporally blinded ground truth for the primary endpoints and blinded arbitration for all fields.
+
+### 1.3 Paper set
+
+**N = 30 papers**, all general surgery RCTs.
+
+**Composition:**
+- 25 landmark general surgery RCTs — diverse across subspecialty, trial size, outcome type (binary, time-to-event, continuous), and risk of bias profile
+- 5 papers on a single pre-specified focused question for which a published Cochrane review exists (see Section 1.4)
+
+**Selection criteria:**
+- Full-text PDF obtainable (open access, institutional, or author copy)
+- Published RCT (individual or cluster), any sample size
+- Primary endpoint is a clinical outcome (not biomarker or surrogate only)
+- General surgery topic (includes hepatobiliary, colorectal, upper GI, vascular, trauma, emergency surgery, bariatric)
+
+The 10 Phase 0 papers from the previous protocol (ORBITA, HIP ATTACK, SPORT disc, SPORT stenosis, UK FASHIoN, PROFHER, SCOT-HEART, OPTIMAS, SYNTAX, TKR) may be included in the 25 diverse papers if they meet selection criteria. These have already been run through V4 and the pipeline behaviour on them is well-characterised, which is an advantage for error pattern analysis.
+
+**Paper list:** To be finalised by PI before Phase 1a begins. Must be recorded and locked in this document before any Phase 1a extraction is performed.
+
+### 1.4 Meta-analysis validation subset (5 papers)
+
+The 5 focused papers will be used for a pilot meta-analysis (Section 9). The focused question must:
+- Have ≥ 5 qualifying RCTs available as full-text PDFs
+- Have a published Cochrane systematic review and meta-analysis on the same question, with pooled estimates, for external benchmarking
+- Be a surgical question (not cardiology or oncology, which are likely over-represented in model training data)
+
+**Candidate questions:** To be selected by PI. Candidates include laparoscopic vs open colectomy for cancer, mesh vs no mesh for primary inguinal hernia repair, early vs delayed surgery for acute cholecystitis, laparoscopic vs open appendicectomy. Final selection must be recorded here before Phase 1a begins.
+
+---
+
+## 2. Phase Structure
+
+The study has three phases. Different raters are used for Phase 1 and Phase 2 to avoid anchoring.
+
+```
+Phase 1a  ──────────────────────────────────────────────────────────
+  Manual extraction of MA fields from source PDF — timed
+  2 independent raters, BLINDED to pipeline output
+  Produces: ground truth for MA fields + baseline time per paper
+  
+Phase 2a  ──────────────────────────────────────────────────────────
+  Check and correct pipeline MA field output — timed
+  2 DIFFERENT independent raters (not Phase 1 raters)
+  Produces: corrected MA output + pipeline verification time per paper
+
+Phase 2b  ──────────────────────────────────────────────────────────
+  Check and correct pipeline full field output — timed
+  Same 2 raters as Phase 2a
+  Produces: corrected full output + overall error rate
+
+Phase 3   ──────────────────────────────────────────────────────────
+  Blinded arbitrator resolves all Phase 2a/2b discrepancies
+  Rates quality and usability of each pipeline output
+  Produces: validated paper library (primary secondary endpoint)
+```
+
+### 2.1 Temporal blinding
+
+The design sequence is:
+1. Phase 1a raters extract MA fields manually from source PDFs **before the pipeline is run on those papers** (or before Phase 1a raters have access to pipeline output).
+2. Phase 1a data are locked.
+3. Phase 2 raters then check and correct pipeline output — they have not been involved in Phase 1a.
+
+The sequence is the blinding. Phase 1a raters cannot be influenced by pipeline output because they extract before seeing it. Phase 2 raters cannot be influenced by Phase 1a ground truth because they are different people.
+
+### 2.2 Rater requirements
+
+**Phase 1a raters (N = 2):** Surgical trainees or consultants with experience in systematic review methodology. Must be able to interpret RCT methods sections, apply Cochrane RoB 2.0, and make GRADE certainty judgements. Not required to be blinded to each other — inter-rater agreement is measured but raters work independently.
+
+**Phase 2a/2b raters (N = 2):** Must NOT be the same people as Phase 1a raters. Should have equivalent clinical background. Raters are told they are checking AI pipeline output but are not told which fields have been corrected by the critic.
+
+**Arbitrator (N = 1):** Must be blinded to which rater produced which output during arbitration. Should be a consultant surgeon or clinical academic with systematic review experience. The arbitrator resolves discrepancies between Phase 2a and 2b rater pairs and assigns overall quality and usability ratings.
+
+**PI role:** PI (Rahman) may perform Phase 1a extraction if done before running the relevant paper through V4. PI extraction counts as one of the two raters for that paper; an independent second rater is still required. PI does not arbitrate.
+
+### 2.3 Time measurements
+
+**Phase 1a per-paper time:** From first opening the source PDF to final field recorded. Recorded by rater per paper.
+
+**Phase 2a per-paper time:** From receiving pipeline output to final corrected MA field recorded. Recorded by rater per paper.
+
+**Reported metric:** Median time per paper (Phase 1a) vs median time per paper (Phase 2a), with IQR. Reported as time saving and percentage reduction. Additional calculation: time to first extraction-ready output (pipeline run time + Phase 2a time) vs Phase 1a time alone.
+
+---
+
+## 3. Field Specification
+
+Fields are divided into two classes:
+
+- **MA fields (Phase 1a ground truth):** The pre-specified field set required for meta-analysis input. Ground truth is established pre-pipeline by Phase 1a raters. These are the primary accuracy endpoints.
+- **Full fields (Phase 2b only):** All other pipeline output fields. Ground truth is established by Phase 3 arbitration (not pre-pipeline extraction). These produce overall error rate and feed the validated library.
+
+### 3.1 MA Fields (primary accuracy analysis)
+
+| field_id | Label | V4 output path | Notes |
 |---|---|---|---|
-| trial_identification | Trial Identification | reportMeta.trial_identification | 2 |
-| study_design | Study Design | reportMeta.study_design | 4 |
-| authors | Authors | reportMeta.authors | 1 |
-| journal_year | Journal / Year | reportMeta.journal + reportMeta.year | 1 |
-| population | PICO: Population | clinician_view.pico.population | 4 |
-| intervention | PICO: Intervention | clinician_view.pico.intervention | 5 |
-| control | PICO: Control | clinician_view.pico.control | 5 |
-| primary_outcome_def | Primary Outcome: Definition | clinician_view.pico.primary_outcome | 5 |
-| secondary_outcomes | Secondary Outcomes | clinician_view.pico.secondary_outcomes | 3 |
-| baseline_characteristics | Baseline Characteristics | clinician_view.baseline_characteristics | 3 |
-| primary_result_values | Primary Result: Numeric Values | interactive_data.endpoints[0].arms | 5 |
-| primary_result_synthesis | Primary Result: Synthesis | interactive_data.endpoints[0].clinical_synthesis | 4 |
-| risk_of_bias_rationale | Risk of Bias Rationale | clinician_view.critical_appraisal.risk_of_bias_rationale | 3 |
-| limitations | Limitations | clinician_view.critical_appraisal.limitations | 3 |
-| adverse_events | Adverse Events | clinician_view.adverse_events | 4 |
-| subgroups | Subgroup Analyses | clinician_view.subgroups | 3 |
-| context_already_known | Context: Prior Evidence | clinician_view.context.already_known | 2 |
-| context_what_adds | Context: What This Adds | clinician_view.context.what_this_adds | 3 |
-| lay_summary | Lay Summary | patient_view.lay_summary | 2 |
-| sdm_takeaway | Shared Decision Making | patient_view.shared_decision_making_takeaway | 2 |
-| extraction_flags | Extraction Flags Quality | extraction_flags | 3 |
-| source_citations | Source Citations Quality | source_citations | 3 |
-| ni_handling | NI Trial Handling | extraction_flags.ni_trial (conditional) | 5 |
-| library_meta | Library Metadata | library_meta | 2 |
+| pico_population | Population | `clinician_view.pico.population` | Who was enrolled; eligibility criteria summary |
+| pico_intervention | Intervention | `clinician_view.pico.intervention` | Including key delivery details |
+| pico_control | Control / Comparator | `clinician_view.pico.control` | |
+| primary_outcome_def | Primary outcome: definition | `clinician_view.pico.primary_outcome` | Event definition + measurement instrument + timepoint |
+| primary_effect_estimate | Primary result: effect estimate | `primary_endpoint_candidates[selected].value` | Numeric point estimate |
+| primary_ci | Primary result: confidence interval | `primary_endpoint_candidates[selected].ci_lower/.ci_upper` | Both bounds |
+| primary_effect_measure | Effect measure | `primary_endpoint_candidates[selected].effect_measure` | HR / OR / RR / RD / MD / SMD |
+| primary_p_value | Primary result: p-value | `primary_endpoint_candidates[selected].p_value` | Verbatim string (e.g. "P<0.001") |
+| arm_a_n | Sample size: intervention arm | `primary_endpoint_candidates[selected].arm_a_n` | Randomised N preferred |
+| arm_b_n | Sample size: control arm | `primary_endpoint_candidates[selected].arm_b_n` | |
+| arm_a_events | Events: intervention arm | `primary_endpoint_candidates[selected].arm_a_events` | Binary/time-to-event outcomes only |
+| arm_b_events | Events: control arm | `primary_endpoint_candidates[selected].arm_b_events` | Binary/time-to-event outcomes only |
+| arm_a_sd | SD: intervention arm | `primary_endpoint_candidates[selected].arm_a_sd` | Continuous outcomes only |
+| arm_b_sd | SD: control arm | `primary_endpoint_candidates[selected].arm_b_sd` | Continuous outcomes only |
+| follow_up | Follow-up duration | `clinician_view.follow_up_duration` | Primary outcome timepoint |
+| allocation_concealment | Allocation concealment | `clinician_view.critical_appraisal.risk_of_bias_rationale` | Domain extraction from RoB rationale |
+| blinding | Blinding | `clinician_view.critical_appraisal.risk_of_bias_rationale` | Domain extraction |
+| rob_overall | Risk of Bias — overall | `clinician_view.critical_appraisal.risk_of_bias` | Low / Some concerns / High |
+| grade_certainty | GRADE certainty | `clinician_view.critical_appraisal.grade_certainty` | Very low / Low / Moderate / High |
 
-**severity_max** is the maximum plausible harm severity for an error in this field, on the 1–5 scale defined in Section 4.
+**Conditional fields:** `arm_a_events`, `arm_b_events` — graded only for binary and time-to-event outcomes. `arm_a_sd`, `arm_b_sd` — graded only for continuous outcomes. The denominator for each conditional field is the number of papers where the outcome type applies.
 
-**Conditional field:** `ni_handling` is only graded when `extraction_flags.ni_trial = true` in the pipeline output. Its denominator is the number of papers where this flag is present.
+**Note on `rob_overall` and `grade_certainty`:** These are evaluative fields (they require clinical judgement, not just text extraction) but they are primary MA inputs for any Cochrane review. They are included in Phase 1a ground truth because Phase 1a raters can establish independent assessments using Cochrane RoB 2.0 and the GRADE approach. However, they are reported separately using weighted kappa (agreement analysis) rather than exact-match rate, for the reasons described in Section 3.3.
 
-### 2.1 Evaluative Fields (secondary analysis, N=2)
+### 3.2 Full Fields (Phase 2b / overall error rate analysis)
 
-These fields are not extractable facts — they are clinical and methodological judgements generated by the pipeline. Accuracy cannot be assessed by reference to the source document alone; it requires an independent expert assessment as the comparator.
+All other pipeline output fields checked by Phase 2b raters. These include:
 
-| field_id | Label | Path in output JSON | Analysis |
-|---|---|---|---|
-| grade_certainty | GRADE Certainty | clinician_view.critical_appraisal.grade_certainty | Agreement (kappa) |
-| risk_of_bias | Risk of Bias Rating | clinician_view.critical_appraisal.risk_of_bias | Agreement (kappa) |
+- Study design and bibliographic metadata
+- Secondary outcomes
+- Baseline characteristics
+- Subgroup analyses  
+- Adverse events table
+- Primary result synthesis (plain-English summary)
+- Lay summary and shared decision-making takeaway
+- Expert context (Node 4 output)
+- Extraction flags and source citations
 
-**Grading methodology for evaluative fields:**
+These fields are graded using the same match_status categories (Section 5) but their ground truth is the Phase 3 arbitrated consensus, not pre-pipeline extraction. Error rate across all fields is reported as a secondary endpoint.
 
-*Phase 0:* PI performs an independent GRADE certainty and RoB assessment for each paper at the time of grading (applying the GRADE approach and Cochrane RoB 2.0 framework respectively), without looking at the pipeline output first. The PI records their assessment as the `reference_standard_value`. match_status is then assigned as:
-- `exact_match` — pipeline agrees with PI assessment
-- `partial_match` — pipeline is adjacent (within 1 level for GRADE; one category different for RoB: Low↔Moderate or Moderate↔High)
-- `fail` — pipeline is 2+ levels different or directionally wrong
+### 3.3 Reporting for evaluative fields (rob_overall, grade_certainty)
 
-*Phase 1:* Two independent raters perform formal GRADE/RoB assessments; consensus is the reference standard. Published systematic review assessments (Cochrane, NICE, BMJ Best Practice) are used where available as a secondary check. Results are reported as weighted kappa with 95% CI, not as exact-match rate.
+These fields are structural inputs for meta-analysis and systematic review (GRADE and RoB are mandatory in a Cochrane review) but they involve clinical and methodological judgement with known inter-rater variability (~30–40% 1-level disagreement between expert pairs for GRADE).
 
-**Why these fields are structurally different:**
-GRADE certainty and Risk of Bias are evaluative judgements with known inter-rater variability (~30–40% 1-level disagreement between expert pairs for GRADE). A pipeline that "disagrees" with the PI's GRADE assessment may not be wrong — it may reflect legitimate methodological variation. Excluding these from the primary exact-match rate prevents distortion of the accuracy estimate by a different class of task.
+**Primary analysis for these fields:** Weighted kappa between pipeline output and arbitrated Phase 1a consensus. Not included in the primary exact-match rate.
+
+**Benchmarking:** Where a published Cochrane review or NICE evidence review exists for the relevant paper, the published RoB and GRADE assessments are used as an additional reference.
 
 ---
 
-## 3. match_status Operational Definitions
+## 4. Primary and Secondary Endpoints
 
-Four match_status categories are used. These definitions are fixed and apply uniformly across all fields and all raters.
+### Primary endpoints
 
-### 3.1 exact_match
+1. **MA field accuracy:** Exact-match rate across all MA fields (Section 3.1, excluding evaluative fields), comparing pipeline output (post-Phase 2a correction) against Phase 1a ground truth. Reported per-field and overall, with 95% CI.
+
+2. **Time saving:** Median Phase 1a extraction time vs median Phase 2a verification time per paper. Reported as absolute minutes and percentage reduction.
+
+### Secondary endpoints
+
+3. **Overall error rate:** Proportion of all graded fields (MA + full) across all papers where match_status ≠ exact_match, after Phase 3 arbitration.
+
+4. **Validated paper library:** 30 fully arbitrated, structured pipeline outputs for landmark general surgery RCTs. Each paper has a locked extraction with provenance (V4 output + Phase 2 corrections + Phase 3 arbitration decision).
+
+5. **Pilot meta-analysis accuracy:** For the 5-paper focused subset — pooled estimate from V4-extracted fields vs pooled estimate from the benchmark Cochrane review. Reported as ratio of point estimates and overlap of confidence intervals.
+
+6. **Error taxonomy distribution:** Frequency of each of the 7 error classes (Section 7) across all non-exact-match grades. Used to identify which pipeline stages are responsible for residual errors.
+
+7. **Critic utility:** Among fields where V4 output differs from V1 output, the proportion where V4 is correct and V1 is wrong (determined by Phase 1a ground truth). This directly quantifies the critic's net accuracy contribution without requiring an ablation study — the `_critic.patches` audit trail provides the mechanism evidence.
+
+### Inter-rater reliability
+
+Cohen's kappa (unweighted for nominal fields, weighted for ordinal) between the two Phase 1a raters on all MA fields. The two Phase 2a raters are also compared. Threshold for adequate reliability: κ ≥ 0.60. Fields below threshold trigger rater calibration before results are analysed.
+
+---
+
+## 5. match_status Operational Definitions
+
+Four match_status categories. These definitions apply uniformly across all fields, phases, and raters. They are fixed and cannot be amended after Phase 1a data collection begins.
+
+### 5.1 exact_match
 
 **Definition:** The extracted value and the reference standard value convey identical clinical meaning with no material omission, addition, or imprecision. Minor formatting differences that carry no clinical information are permitted.
 
-**Decision rule:** Ask: "Does the extracted value convey exactly what the source document says, to the precision reported?" If yes, grade exact_match. Formatting differences (punctuation, abbreviation, capitalisation) that preserve clinical meaning do not disqualify exact_match.
+**Decision rule:** Ask: "Does the extracted value convey exactly what the source document says, to the precision reported?" If yes, grade exact_match.
 
-**Worked example — numeric field:**
-- Extracted: `HR 0.68 (95% CI 0.53–0.87)`
-- Reference: `HR 0.68 (0.53–0.87)`
-- Grade: **exact_match** — the CI label is absent but the values are identical and the clinical meaning is preserved.
+**Worked examples:**
+- Extracted: `HR 0.68 (95% CI 0.53–0.87)` / Reference: `HR 0.68 (0.53–0.87)` → **exact_match** — CI label absent but values identical.
+- Extracted: `All-cause mortality at 90 days` / Reference: `All-cause mortality at 90 days` → **exact_match** — verbatim agreement.
 
-**Worked example — text field:**
-- Extracted: `All-cause mortality at 90 days`
-- Reference: `All-cause mortality at 90 days`
-- Grade: **exact_match** — verbatim agreement.
+### 5.2 partial_match
 
-### 3.2 partial_match
+**Definition:** The extracted value conveys the correct core clinical concept but with material imprecision, incompleteness, or modifier omission that does not change clinical interpretation. A clinician reading only the extracted value would reach the same decision but with less information.
 
-**Definition:** The extracted value conveys the correct core clinical concept but with material imprecision, incompleteness, or modifier omission that does not change clinical interpretation. The clinician reading the extraction alone would reach the same clinical decision as a clinician reading the full reference value, but would have less information.
+**Decision rule:** Apply the clinical interpretation test. Same decision → partial_match. Decision might differ → fail.
 
-**Decision rule:** Apply the clinical interpretation test. Would a clinician reading only the extracted value (not the reference standard) reach the same clinical decision? If yes, grade partial_match. If the clinical decision might differ, grade fail.
+**Worked examples:**
+- Extracted: `Mortality at 90 days` / Reference: `All-cause mortality at 90 days` → **partial_match** — "all-cause" absent but does not change decision in surgical RCT context.
+- Extracted: `HR 0.68` (no CI) / Reference: `HR 0.68 (95% CI 0.53–0.87)` → **partial_match** — point estimate correct; CI required for clinical decision-making is absent.
 
-**Worked example — text field:**
-- Extracted: `Mortality at 90 days` (missing "all-cause" modifier)
-- Reference: `All-cause mortality at 90 days`
-- Grade: **partial_match** — timeframe is correct; "all-cause" modifier is absent but in a surgical RCT context would not typically change the clinical decision.
+### 5.3 fail
 
-**Worked example — numeric field:**
-- Extracted: `HR 0.68` (no confidence interval)
-- Reference: `HR 0.68 (95% CI 0.53–0.87)`
-- Grade: **partial_match** — point estimate is correct but confidence interval, which is required for clinical decision-making, is absent.
+**Definition:** The extracted value is incorrect, missing, or so incomplete that it changes clinical interpretation. Includes inversions, wrong values, missing timeframes or denominators that are clinically essential.
 
-### 3.3 fail
+**Decision rule:** Any of: (a) value absent where source contains value; (b) wrong in direction or magnitude; (c) missing information that would change clinical decision; (d) wrong category for categorical field.
 
-**Definition:** The extracted value is incorrect, missing, or so incomplete that it changes clinical interpretation. This includes inversions, wrong values, and missing timeframes or denominators that are clinically essential.
+**Worked examples:**
+- Extracted: `HR 1.68` / Reference: `HR 0.68` → **fail** — direction inverted.
+- Extracted: `Mortality` / Reference: `All-cause mortality at 90 days` → **fail** — timeframe clinically essential.
+- Extracted: (empty) / Reference: any value → **fail** — missing extraction.
 
-**Decision rule:** Any of the following → grade fail: (a) value is absent/empty where the source document contains a value; (b) value is wrong in direction or magnitude; (c) missing information that would change clinical decision; (d) wrong category selected (for categorical fields).
+### 5.4 hallucinated
 
-**Worked example — numeric field (direction inversion):**
-- Extracted: `HR 1.68`
-- Reference: `HR 0.68`
-- Grade: **fail** — direction inverted; opposite treatment recommendation.
+**Definition:** The extracted value has no correspondence in the source document. Distinguished from a wrong extraction by the absence of any source text that could be misinterpreted to produce the extracted value.
 
-**Worked example — text field (timeframe missing):**
-- Extracted: `Mortality`
-- Reference: `All-cause mortality at 90 days`
-- Grade: **fail** — timeframe is clinically essential for this outcome; without it the extracted value is not usable.
+**Decision rule:** Rater must be confident (not merely uncertain) that the value does not appear anywhere in the paper including tables, appendices, and supplementary material. When in doubt, grade fail rather than hallucinated.
 
-**Worked example — empty field:**
-- Extracted: (empty)
-- Reference: `All-cause mortality at 90 days`
-- Grade: **fail** — value exists in source but not extracted.
-
-### 3.4 hallucinated
-
-**Definition:** The extracted value has no correspondence in the source document. The value does not appear in any section of the paper. This is distinguished from a wrong extraction (which would be fail) by the absence of any source text that could be misinterpreted to produce the extracted value.
-
-**Decision rule:** The rater must be confident (not merely uncertain) that the value does not appear in any section of the source document, including supplementary appendices, tables, and footnotes. When in doubt, grade fail rather than hallucinated.
-
-**Treatment in calculations:** hallucinated counts as fail for exact-match rate calculations. It is recorded separately for taxonomy analysis — assign error_taxonomy = `hallucination` (Class 6) when grading a hallucinated value. Do not leave taxonomy null for hallucinated rows.
+**Treatment:** Counts as fail for exact-match rate calculations. Recorded separately for taxonomy analysis — assign error_taxonomy = Class 6 (Hallucination).
 
 **Worked example:**
-- Extracted: `p=0.03 for interaction (age subgroup)`
-- Reference: No interaction p-value appears anywhere in the paper
-- Grade: **hallucinated** — rater has confirmed by reading the full paper that no such value appears.
+- Extracted: `p=0.03 for interaction (age subgroup)` / No such value appears anywhere in paper → **hallucinated**.
 
-### 3.5 Ambiguous cases
-
-When the boundary between exact_match and partial_match, or between partial_match and fail, is unclear, apply the **clinical interpretation test**:
+### 5.5 Ambiguous cases — clinical interpretation test
 
 > "If a clinician read only the extracted value — not the source document — would they reach the same clinical decision as a clinician who read the full reference value?"
 
-- Same decision → grade one level more favourable (exact_match if the dispute is exact vs partial; partial_match if the dispute is partial vs fail)
+- Same decision → grade one level more favourable
 - Different decision possible → grade one level less favourable
 
-### 3.6 Denominator rule
+### 5.6 Denominator rule
 
-The denominator for each field's frequency calculations is the number of papers where the field was present in the pipeline output and was graded. Empty fields that are correctly empty (e.g., no adverse events in a paper that reports none) are graded as **exact_match** — correct absence. The grader must record a note in correction_text confirming the source document also has no value.
-
-For conditional fields (ni_handling): denominator = number of papers where `extraction_flags.ni_trial = true`.
+The denominator for each field's frequency calculation is the number of papers where the field was graded. Correctly absent fields (field not present in source document; pipeline correctly outputs null or empty) are graded **exact_match** with a note in correction_text confirming the source also has no value. Conditional fields (arm events for non-binary outcomes, etc.) use the conditional denominator defined in Section 3.1.
 
 ---
 
-## 4. Harm Severity Rubric with Anchor Vignettes
+## 6. Harm Severity Rubric
 
-Scale: 1 = Cosmetic → 5 = Dangerous clinical
+Scale: 1 (cosmetic) → 5 (dangerous clinical). Applied to all non-exact-match grades.
 
 ### Severity 1 — Cosmetic
 
-No clinical implication. The error does not affect any clinical or meta-analytic use of the output.
+No clinical implication. Error does not affect any clinical or meta-analytic use of the output.
 
 **Decision test:** Would a systematic review researcher care? If no, grade 1.
 
 **Anchor vignettes:**
-- Author initial format error: `R Al-Lamee` extracted as `Al-Lamee R`. No clinical relevance.
+- Author initial format: `R Al-Lamee` vs `Al-Lamee R`.
 - Journal name abbreviated vs full: `N Engl J Med` vs `New England Journal of Medicine`.
+- Trial name capitalisation: `ORBITA` vs `Orbita`.
 - Whitespace or punctuation differences not affecting readability.
-- Trial name capitalisation difference: `ORBITA` vs `Orbita`.
 
 ### Severity 2 — Minor clinical
 
-The error introduces a minor inaccuracy that would not change any clinical decision in any plausible scenario. Would not affect systematic review inclusion/exclusion.
+Minor inaccuracy that would not change any clinical decision. Would not affect systematic review inclusion/exclusion.
 
 **Decision test:** Would this affect a meta-analyst's data extraction? If no, grade 2. If yes, grade 3+.
 
 **Anchor vignettes:**
-- Year off by one: `2017` extracted as `2018` for ORBITA (published online 2017, in print 2018).
+- Year off by one: `2017` vs `2018` for ORBITA (published online 2017, in print 2018).
 - Lay summary missing one secondary benefit that is clearly secondary and non-essential.
-- SDM takeaway slightly oversimplified but directionally correct and not misleading.
-- Specialty described as `Shoulder surgery` instead of `Proximal humerus ORIF` — loses specificity but does not mislead.
 - Trial identification missing the acronym but containing the full description.
+- Specialty described as `Shoulder surgery` instead of `Proximal humerus ORIF` — loses specificity but does not mislead.
 
 ### Severity 3 — Moderate clinical
 
-The error introduces imprecision that could cause minor recalibration of treatment confidence but would not reverse the clinical decision. May affect systematic review data extraction quality but would not invert a meta-analytic conclusion.
+Imprecision that could cause minor recalibration of treatment confidence but would not reverse the clinical decision. May affect systematic review data extraction quality but would not invert a meta-analytic conclusion.
 
-**Decision test:** Would a meta-analyst extract a different value, but reach the same pooled conclusion? If yes, grade 3.
+**Decision test:** Would a meta-analyst extract a different value but reach the same pooled conclusion? If yes, grade 3.
 
 **Anchor vignettes:**
-- Primary outcome timeframe omitted: `mortality` extracted instead of `90-day mortality` — the timeframe is known from context but missing from the extracted field.
-- Secondary outcome mislabelled (e.g., KOOS score labelled as Oxford Hip Score) — could cause confusion in a meta-analysis but is detectable.
+- Primary outcome timeframe omitted: `mortality` vs `90-day mortality` — timeframe is inferrable from context but missing.
+- Secondary outcome mislabelled (e.g., KOOS score labelled as Oxford Hip Score) — detectable but causes confusion.
 - Baseline characteristics table missing one of several reported variables.
-- Lay summary missing a clinically important qualifier (e.g., "benefit was only seen in pre-specified subgroup" omitted) — changes confidence but not direction.
-- Source citation pointing to the right table but wrong row — used for ranking, creates plausible-looking but incorrect grounding.
-
-*Note: GRADE certainty and RoB are evaluative fields assessed separately (Section 2.1). Severity ratings for those fields apply within the agreement analysis framework, not here.*
+- Lay summary missing a qualifier ("benefit only in pre-specified subgroup" omitted) — changes confidence but not direction.
+- Source citation pointing to the right table but wrong row.
 
 ### Severity 4 — Serious clinical
 
-The error would materially affect clinical guideline development, systematic review conclusions, or meta-analytic synthesis. A clinician using this output would have meaningfully wrong information.
+Error would materially affect clinical guideline development, systematic review conclusions, or meta-analytic synthesis. A clinician using this output would have meaningfully wrong information.
 
 **Decision test:** Would a clinician or guideline committee reach a materially different conclusion — same direction but wrong magnitude or wrong population? If yes, grade 4.
 
 **Anchor vignettes:**
-- Primary result CI extracted from a subgroup table instead of the primary analysis (e.g., SPORT: CI from per-protocol analysis instead of ITT).
+- Primary result CI extracted from a subgroup table instead of the primary ITT analysis.
 - Non-inferiority margin value wrong — would affect NI test interpretation.
-- STICH: complex geographic subgroup result extracted as primary result — would misrepresent a landmark trial.
-- Intervention description missing a key component (e.g., ORBITA: "PCI" extracted without noting it was sham-controlled — loses the defining methodological feature of the trial).
-- Adverse events section missing a Grade ≥3 event that occurred in ≥10% of patients — material omission for clinical decision-making.
-
-*Note: GRADE certainty and RoB are evaluative fields assessed separately (Section 2.1). Severity ratings for those fields apply within the agreement analysis framework, not here.*
+- Intervention description missing a key component (e.g., ORBITA: "PCI" extracted without noting sham-controlled — loses the defining methodological feature).
+- Adverse events section missing a Grade ≥3 event occurring in ≥10% of patients.
+- STICH: complex geographic subgroup result extracted as primary result.
 
 ### Severity 5 — Dangerous clinical
 
-The error directly inverts a clinical treatment recommendation. Any clinician acting on this output would be advised to take the opposite action to what the evidence supports.
+Error directly inverts a clinical treatment recommendation. Any clinician acting on this output would be advised to take the opposite action to what the evidence supports.
 
 **Decision test:** Does the error flip direction, invert arms, or conflate NI with superiority? If yes, grade 5.
 
 **Anchor vignettes:**
-- Intervention and control arms inverted: HR 0.68 favouring intervention extracted as HR 0.68 favouring control — opposite treatment recommendation.
-- HR direction inverted: `HR 0.68` (benefit) extracted as `HR 1.47` (harm), or labelled as favouring the wrong arm.
-- NI result labelled as superiority result — the clinical conclusion changes from "not inferior" to "superior."
-- Absolute risk reduction extracted as absolute risk increase — reverses the direction of benefit.
-- PROFHER: NI trial correctly extracted as non-inferior but labelled as "no significant difference" with superiority framing — would mislead clinicians about the strength of evidence for conservative management (taxonomy = semantic, severity = 5).
-- Any error that would, if acted upon, lead a clinician to choose a more harmful treatment over a more beneficial one.
+- Intervention and control arms inverted: HR 0.68 favouring intervention extracted as favouring control.
+- HR direction inverted: `HR 0.68` (benefit) extracted as `HR 1.47` (harm).
+- NI result labelled as superiority — changes clinical conclusion from "not inferior" to "superior".
+- Absolute risk reduction extracted as absolute risk increase.
+- PROFHER: NI trial correctly extracted as non-inferior but labelled "no significant difference" with superiority framing — misleads about strength of evidence for conservative management.
 
 ---
 
-## 5. Error Taxonomy Classification Rules
+## 7. Error Taxonomy
 
-For every grade where match_status is partial_match, fail, or hallucinated, assign one of the seven taxonomy classes below. Use the decision tree first; refer to class descriptions when borderline.
+For every grade where match_status is partial_match, fail, or hallucinated, assign one of seven taxonomy classes. Use the decision tree first; refer to class descriptions when borderline.
 
-Full definitions, subtypes, and the Phase 0 analysis sheet are in `docs/ERROR_TAXONOMY.md`.
+Full definitions and subtypes are in `docs/ERROR_TAXONOMY.md`.
 
 ### Decision tree
 
 ```
-1. Was the correct value present in primary_endpoint_candidates?
-   → NO (one or both extractors failed to surface it)
-     → Did BOTH extractors fail to surface it?  →  Class 2 (Correlated Recall Failure)
-     → Only one extractor failed?               →  Class 1 (Recall Failure)
-
+1. Was the correct value absent from primary_endpoint_candidates entirely?
+   → Did V1 fail to extract it?       →  Class 1 (Recall Failure — V1)
+   
 2. Was the correct value in candidates but not selected?
-   → YES  →  Was a clear hierarchy rule violated (adjusted > unadjusted, ITT > PP)?
-               → YES  →  Class 3a (Ranking: Hierarchy Violation)
-               → NO   →  Class 3b (Ranking: Ambiguity Resolution Failure)
+   → Priority hierarchy violation?    →  Class 3a (Ranking: Hierarchy)
+   → Ambiguity not resolved?          →  Class 3b (Ranking: Ambiguity)
 
-3. Is the value numerically/categorically correct but the label, population tag,
-   analysis type, or timeframe wrong?
-   → YES  →  Class 4 (Misclassification)
+3. Value numerically correct but label / population / timeframe wrong?
+   → YES                              →  Class 4 (Misclassification)
 
-4. Are the values correct but the clinical interpretation wrong
-   (GRADE rating, RoB, NI framing, direction language)?
-   → YES  →  Class 5 (Interpretation Failure)
+4. Values correct but clinical interpretation wrong?
+   (GRADE, RoB, NI framing, lay direction)
+   → YES                              →  Class 5 (Interpretation Failure)
 
-5. Does the extracted field contain content not in the source document?
-   → YES  →  Class 6 (Hallucination)
+5. Extracted content not in source document?
+   → YES                              →  Class 6 (Hallucination)
 
-6. Is the value substantively correct but structurally malformed
-   (wrong enum, wrong data type, formatting)?
-   → YES  →  Class 7 (Formatting / Enum Error)
+6. Value substantively correct but structurally malformed?
+   (wrong enum, wrong type, formatting)
+   → YES                              →  Class 7 (Formatting / Enum Error)
+
+7. Critic patch introduced the error (was correct in V1)?
+   → YES                              →  Class 8 (Critic Regression)
 ```
 
----
+**Note on Class 8 (Critic Regression) — new in v2.0:** When Phase 1a ground truth shows V4 output is wrong on a field and the `_critic.patches` audit trail shows the critic changed that field from the (correct) V1 value, this is a critic regression. Distinct from V1-origin errors (Classes 1–7). Critical for evaluating critic net accuracy (Secondary endpoint 7).
 
-### Class 1 — Recall Failure
+### Class descriptions (abbreviated)
 
-**Origin:** Extractor A or B (one surfaced the correct value; the other did not).
+**Class 1 — Recall Failure:** Correct value was findable in the paper by an attentive human reader but V1 did not extract it. The critic cannot catch it because it wasn't in the candidate set.
 
-**Decision rule:** The correct value was absent from `primary_endpoint_candidates` but would have been findable in the paper by an attentive human reader. At least one extractor reached a different section of the paper than the other.
+**Class 2 — DEPRECATED in V4.** In V3, Class 2 was "Correlated Recall Failure" (both extractors fail). V4 uses a single extractor; correlated failure is no longer applicable as a separate class. V1 failures are all Class 1; critic failures are Class 8.
 
-**Phase 0 examples:**
-- Gemini (Extractor A) extracts the adjusted HR from Table 3; GPT (Extractor B) extracts only the abstract unadjusted HR. The adjusted value was in candidates via A but not B. If the adjudicator then selects the wrong one → ranking failure (Class 3). If B's omission meant the correct value never reached candidates → Class 1 for B.
-- SPORT disc: ITT result is in a supplementary table. One extractor finds it; the other reports only the as-treated result prominently reported in the abstract.
-- SCOT-HEART: 5-year outcome data appears in a late section. One extractor truncates before reaching it.
+**Class 3 — Ranking Failure:** Correct value was in candidates (`selected: false`) but a less appropriate candidate was selected as primary.
+- 3a — Priority violation (unadjusted over adjusted; PP over ITT)
+- 3b — Ambiguity resolution failure (legitimate candidates, wrong choice)
 
----
+**Class 4 — Misclassification:** Numeric or categorical value correct; label, population tag, analysis type, or timeframe wrong.
 
-### Class 2 — Correlated Recall Failure
+**Class 5 — Interpretation Failure:** Extracted values correct; clinical or methodological interpretation wrong (GRADE, RoB, NI framing, lay summary direction).
 
-**Origin:** Both extractors.
+**Class 6 — Hallucination:** Value does not appear anywhere in the source document.
 
-**Decision rule:** The correct value was absent from `primary_endpoint_candidates` entirely. Neither extractor surfaced it. This is the highest-severity class — the output looks clean and plausible but is wrong. Requires PI to verify by checking the source document directly.
+**Class 7 — Formatting / Enum Error:** Value substantively correct but structurally malformed (wrong enum value, wrong data type, CI as string instead of numeric pair).
 
-**Indicator in output:** `suspicious_agreement: false` despite an error (the adjudicator had nothing to flag). Or `primary_endpoint_candidates.length === 1` with a plausible but wrong single value.
-
-**Phase 0 examples:**
-- Both extractors read the same table row and extract the same wrong HR (e.g., SPORT: both extract per-protocol analysis because it is the first numeric result in the abstract).
-- EXCEL: both extractors report the 3-year composite outcome; neither surfaces the 5-year follow-up data that changes the clinical conclusion.
-- Any paper where abstract and full-text report different values: if both extractors anchor on the abstract and neither searches the Results section table, the correct full-text value is absent from all candidates.
-
----
-
-### Class 3 — Ranking Failure
-
-**Origin:** Adjudicator.
-
-**Decision rule:** The correct value was present in `primary_endpoint_candidates` with `selected: false` but a less appropriate candidate was selected. Check which ranking rule was violated.
-
-**Subtypes:**
-- **3a** — Priority violation: unadjusted selected over adjusted; PP over ITT; interim over final.
-- **3b** — Label trust: adjudicator relied on the extractor's label rather than verifying against the methods section.
-- **3c** — Anti-bias failure: adjudicator selected a more extreme value (HR further from null) or a value that appeared earlier in the abstract, without analytical justification.
-- **3d** — Source trust: adjudicator weighted a synthetic or uncertain citation as confirmation.
-
-**Phase 0 examples:**
-- SPORT disc: adjusted HR was in candidates (Extractor A surfaced it) but adjudicator selected unadjusted HR because it was labelled as the "primary analysis result" by Extractor B.
-- STICH: final timepoint result was in candidates but adjudicator selected 1-year interim result because it appeared first in the Results section.
-- ORBITA: sham-controlled exercise time HR was in candidates but adjudicator selected a secondary functional score because it was more prominent in the abstract.
-
----
-
-### Class 4 — Misclassification
-
-**Origin:** Extractor A or B.
-
-**Decision rule:** The numeric or categorical value is correct but the label, population tag, analysis type, or timeframe is wrong. The correct information is present; it is attached to the wrong descriptor.
-
-**Phase 0 examples:**
-- HR 0.68 extracted correctly but labelled as "unadjusted" when it is the adjusted Cox model result (SPORT, EXCEL).
-- ITT analysis result tagged as `PP` in the population field.
-- study_design = `observational` for a randomised trial.
-- SCOT-HEART: coronary CTA classified as the primary intervention when it is the diagnostic test (intervention should be CTA-guided management).
-- PROFHER: surgical repair classified as the experimental arm when it is the comparator (convention in the paper may create this confusion).
-
----
-
-### Class 5 — Interpretation Failure
-
-**Origin:** Extractor or adjudicator (whichever generates the interpretation field).
-
-**Decision rule:** The extracted numeric or categorical values are correct but the clinical or methodological interpretation is wrong. Applies to GRADE, RoB, NI framing, lay summary direction language, and SDM takeaways.
-
-**Phase 0 examples:**
-- GRADE certainty = `High` for SPORT disc (open-label RCT with high crossover rate; should be `Low` or `Very Low`).
-- Risk of bias = `Low` for ORBITA before recognising the sham-controlled design reduces performance bias (this is a severity-2 interpretation failure — underappreciating methodological rigour).
-- PROFHER: NI result described as "no significant difference" rather than "non-inferior" — changes clinical framing from established equivalence to inconclusive (severity 5).
-- UK FASHIoN: patient-reported outcome instrument framed as objective when it is subjective — affects RoB domain assessment.
-- Lay summary stating the intervention "is better" when the result is non-inferiority success (not superiority).
-
----
-
-### Class 6 — Hallucination
-
-**Origin:** Extractor or adjudicator.
-
-**Decision rule:** The rater must be confident (not merely uncertain) that the extracted value does not appear anywhere in the source document, including tables, appendices, and supplementary material. When uncertain, grade fail (Class 1–5) rather than hallucination.
-
-**Note on synthetic citations:** Source citation fields may contain plausible-looking but non-verbatim text (see LEARNINGS.md). Grade as Class 6 only when the cited location or value is verifiably absent from the paper, not merely paraphrased. Synthetic citations that correctly point to the right table row are tolerated.
-
-**Phase 0 examples:**
-- Subgroup interaction p-value reported for a subgroup analysis not conducted in the paper.
-- A confidence interval cited as appearing in "Table 4" when the paper has no Table 4.
-- A secondary outcome described that is not in the paper's registered protocol or Results section.
-- Node 4 expert context citing a follow-up study that does not exist.
-
----
-
-### Class 7 — Formatting / Enum Error
-
-**Origin:** Post-processing (`postProcess()` in `lib/pipeline.js`).
-
-**Decision rule:** The value is substantively correct but fails structural validation. Apply only when the content is correct and the error is purely representational.
-
-**Phase 0 examples:**
-- `grade_certainty: "Moderate-High"` instead of the valid enum `"Moderate"`.
-- CI reported as `"53-87"` instead of the numeric pair `0.53, 0.87`.
-- HR reported as a percentage reduction (`"32% reduction"`) instead of a ratio (`0.68`).
-- `risk_of_bias: null` when the value was extracted but lost in post-processing.
-
----
+**Class 8 — Critic Regression:** V1 extraction was correct; critic patch introduced an error. Identified by cross-referencing `_critic.patches` with Phase 1a ground truth.
 
 ### Taxonomy in analysis
 
-All seven classes are recorded in `error_taxonomy_dist` in the summary heatmap. For analysis:
-- Classes 1–2 → extractor problem; prompt diversity or escalation fix
-- Class 3 → adjudicator problem; ranking rule or anti-bias fix
-- Classes 4–5 → prompt instruction problem; label verification or interpretation rubric fix
-- Class 6 → grounding problem; source verification or citation requirement fix
-- Class 7 → post-processing bug; `postProcess()` enum enforcement fix
+- Class 1 → V1 prompt problem (coverage, section search)
+- Classes 3–5 → V1 prompt instruction problem (labelling, ranking, interpretation rules)
+- Class 6 → Grounding problem (source verification)
+- Class 7 → Post-processing bug (enum enforcement, type coercion)
+- Class 8 → Critic rule problem (prompt null-guards, enforcement, scope)
 
-High frequency of Class 2 (correlated recall) in any field → immediate prompt redesign before Phase 1. This is the structurally undetectable failure mode.
+High Class 8 frequency in a specific field → review that critic rule and consider adding a deterministic JS enforcement. Class 8 errors are the most actionable for further pipeline iteration.
 
 ---
 
-## 6. Priority Score Definition
+## 8. Priority Score
 
-For each field, priority_score quantifies the urgency of prompt modification work:
+For each field, priority_score quantifies the urgency of pipeline improvement work:
 
 ```
-priority_score = avg_harm_severity × (fail_count + partial_count + hallucinated_count) / total_graded_count
+priority_score = avg_harm_severity × error_rate
 ```
 
 Where:
-- `avg_harm_severity` = mean harm_severity across all non-exact-match grades for this field (exclude null severity values)
-- `fail_count` = number of grades with match_status = 'fail'
-- `partial_count` = number of grades with match_status = 'partial_match'
-- `hallucinated_count` = number of grades with match_status = 'hallucinated'
-- `total_graded_count` = number of papers where this field was present in the output and graded (the denominator)
+- `avg_harm_severity` = mean harm_severity across all non-exact-match grades for this field
+- `error_rate` = (fail + partial + hallucinated) / total graded
 
-Fields with priority_score > 2.0 require immediate prompt modification before Phase 1 begins. Fields with priority_score 1.0–2.0 are flagged for review. Fields with priority_score < 1.0 are monitored but do not block Phase 1.
+Fields with priority_score > 2.0 → immediate pipeline modification.  
+Fields with priority_score 1.0–2.0 → flagged for review.  
+Fields with priority_score < 1.0 → monitored.
 
 ---
 
-## 7. Reporting Framework Compliance
+## 9. Pilot Meta-Analysis (5-paper subset)
 
-### Phase 0 — DECIDE-AI
+### Purpose
 
-Phase 0 is reported under the **DECIDE-AI framework** (Vasey et al., *Nature Medicine* 2022 — Reporting guideline for the early-stage clinical evaluation of decision support systems driven by artificial intelligence: DECIDE-AI). DECIDE-AI is designed for early-phase, feasibility-focused AI evaluations — it is the appropriate framework for an unblinded, single-rater, pilot study.
+To validate the end-to-end workflow: pipeline extraction → meta-analysis input → pooled estimate. Field-level accuracy (Section 4) validates individual extractions; this validates whether the aggregate output is usable for its intended purpose.
 
-Key DECIDE-AI items applicable to this study:
+### Method
 
-| Item | Requirement | OutcomeLogic status |
+1. V4 extracts MA fields from the 5 focused papers.
+2. Phase 2a raters check and correct the extracted fields (as per normal Phase 2a process).
+3. Arbitrated V4 output (post-Phase 3) is used as the meta-analysis input dataset.
+4. A standard random-effects meta-analysis is run on the arbitrated data using the extracted effect estimates, CIs, and sample sizes.
+5. The pooled estimate is compared against the benchmark Cochrane review pooled estimate on the same question.
+
+### Reported metrics
+
+- Ratio of pooled point estimates (V4-derived vs Cochrane): target < 5% difference
+- Overlap of 95% CIs: qualitative (fully overlapping / partially overlapping / non-overlapping)
+- Heterogeneity statistic (I²): comparison with Cochrane review value
+- Number of papers where V4 extraction errors required correction before the paper could be included (field-level errors that would have produced an incorrect meta-analytic contribution)
+
+### Benchmark source
+
+The published Cochrane review must be specified and locked before Phase 1a begins. The Cochrane pooled estimate is the external reference standard. If the Cochrane review has been updated since the individual papers were published, use the version that covers the same paper set.
+
+---
+
+## 10. Reporting Framework
+
+### Framework: TRIPOD-AI
+
+This study is reported under the **TRIPOD-AI** extension (Collins et al., *BMJ* 2021, updated guidance for AI prediction/extraction models). TRIPOD-AI is appropriate for a prospective accuracy validation of a clinical AI extraction system.
+
+Key TRIPOD-AI items:
+
+| Item | Requirement | Status |
 |---|---|---|
-| AI system specification | Version identifier, training data cutoff, model architecture | V3 pipeline (Gemini flash-lite + GPT-4o-mini + Adjudicator). Gemini and OpenAI models are third-party; training data cutoffs are not disclosed by providers but are documented where known. |
-| Intended use | Clinical context, target users, decision being supported | Evidence synthesis tool for qualified clinicians. Intended use = structured extraction of RCT data for systematic review. Not SaMD. |
-| Input data | Source type, completeness, how inputs were obtained | Phase 0: full-text PDFs uploaded by PI. Source type = `full-text-pdf` for all papers. See Section 8. |
-| Performance measures | Exact-match rate per field; priority score | Defined in Section 2 and Section 6. |
-| Failure mode analysis | Structured characterisation of errors | 7-class taxonomy (Section 5). |
-| Human oversight | What human review occurs and at what stage | PI reviews all extractions against source document (unblinded). Grading is the review mechanism. |
-| Uncertainty | Confidence intervals or ranges for accuracy estimates | Phase 0 produces no publishable accuracy estimates (N=10). Confidence intervals are a Phase 1 requirement. |
-| Limitations | Systematic limitations of the evaluation | Unblinded PI-only review; potential confirmation bias; no inter-rater reliability in Phase 0. |
+| AI system | Version, model(s), architecture | V4 pipeline: Gemini 2.5 Flash Lite (extractor) + GPT-4o-mini (critic) + deterministic JS post-processing. Version tag to be recorded at paper selection lock. |
+| Intended use | Clinical context, decision supported | Automated extraction of RCT data for meta-analysis input. Target users: clinical academics, systematic reviewers. |
+| Reference standard | How ground truth was established | Phase 1a: pre-pipeline manual extraction by 2 blinded independent raters. Phase 3 arbitration for full-field output. |
+| Sample size justification | Basis for N=30 | See Section 10.1 |
+| Statistical analysis | Methods for accuracy and reliability | Exact-match rate with Wilson 95% CI; weighted kappa for evaluative fields; Wilcoxon signed-rank for time comparison |
+| Subgroup analysis | Pre-specified subgroups | By outcome type (binary / time-to-event / continuous), by error class, by trial size |
+| Limitations | Known limitations | Single-specialty (general surgery); single pipeline version; PI constructed pipeline and also performs some ground truth extraction (temporal blinding mitigates but does not eliminate). |
 
-### Phase 1 — CONSORT-AI
+### 10.1 Sample size justification
 
-Phase 1 is reported under the **CONSORT-AI extension** (Liu et al., *BMJ* 2020 — Reporting guidelines for clinical trial reports for interventions involving artificial intelligence: the CONSORT-AI extension). Phase 1 is a comparative accuracy study (V3 vs V1) and meets the threshold for CONSORT-AI.
+N = 30 is chosen on pragmatic grounds for a first validation study of this type. It provides:
+- Sufficient papers to report per-field exact-match rates with CIs that are interpretable (~12 papers per outcome type on average)
+- Adequate rater burden for the Phase 1a task (~15–22 hrs per rater at 30–45 min/paper) without requiring compensation
+- A library of sufficient size to be a credible demonstration asset
 
-The following eight requirements must all be satisfied before Phase 1 data are submitted for publication:
-
-1. **Minimum rater count:** ≥ 2 independent raters for all 26 fields across all papers. No single-rater data to be included in primary analysis.
-
-2. **Inter-rater reliability threshold:** Cohen's kappa ≥ 0.60 for all five primary fields (primary_result_values, primary_outcome_def, intervention, control, grade_certainty). Fields below this threshold require rater calibration before Phase 1 data are locked.
-
-3. **Formal power calculation:** Pre-registered power calculation showing ≥ 80% power to detect the pre-specified 15 percentage point improvement in exact-match rate (V3 vs V1) at two-sided α = 0.05, with the chosen N and expected standard deviation from Phase 0 data.
-
-4. **Blinded reference standard:** The reference standard must be established by a rater who is blinded to pipeline output at the time of extraction. The PI may establish the reference standard for Phase 0 (unblinded) but must be blinded for Phase 1.
-
-5. **CONSORT-AI compliance:** The study report must include all items from the CONSORT-AI extension checklist, including: AI system version, input data characteristics, performance disaggregated by paper type and source type, and confidence intervals for all accuracy estimates.
-
-6. **Source type stratification:** Phase 1 must use uploaded PDFs for all papers (matching Phase 0 methodology). Accuracy must be reported for `full-text-pdf` source type. No abstract-only runs in Phase 1.
-
-7. **Version blinding:** Raters must be blinded to pipeline version (V1 vs V3) during grading. Version labels must be masked in the grading interface. Unblinding occurs only at the analysis stage.
-
-8. **Pre-registration of Phase 1:** Phase 1 must be pre-registered on a public registry (OSF or ClinicalTrials.gov) before data collection begins. The registration must include: primary and secondary endpoints, power calculation, rater recruitment criteria, analysis plan, and stopping rules.
+This is not powered for a pre-specified minimum detectable difference in a comparative study. No comparator arm exists — this is a single-arm accuracy validation. Power calculations are applicable to comparative designs; they are not the appropriate justification framework for a single-arm accuracy study of this type.
 
 ---
 
-## 8. Source Input Constraint — Phase 0 and Phase 1
+## 11. Pre-Registration and Locking
 
-**All Phase 0 and Phase 1 papers must be submitted as uploaded PDFs.** DOI and PMID-based retrieval is not used for study papers. This eliminates the following sources of variability:
+This document must be finalised and locked before Phase 1a extraction begins. The following must be recorded before locking:
 
-- DOI-to-fulltext fetch failures or partial text retrieval (Jina/EPMC)
-- PMC full-text availability differences across papers
-- Abstract-only fallback for papers behind paywalls
-- Differences in text cleaning between source types
+- [ ] Complete list of 30 papers with PMIDs/DOIs
+- [ ] Focused question for 5-paper subset and Cochrane review citation
+- [ ] V4 pipeline version tag at time of lock
+- [ ] Phase 1a rater names and roles
+- [ ] Phase 2a/2b rater names and roles
+- [ ] Arbitrator name and role
+- [ ] Anticipated Phase 1a start date
 
-**Practical implication:** For each study paper, the PI obtains the full-text PDF directly (institutional access, open access, or author copy) and uploads it via the analysis UI. The pipeline `source_type` field will read `full-text-pdf` for all study extractions. Any paper where a full-text PDF cannot be obtained is excluded from the study — not substituted with an abstract-only run.
+**Pre-registration:** OSF pre-registration is recommended before Phase 1a data collection begins. The registered document should include Sections 1–5 and the paper list. Sections 6–10 (analysis methods) may be included or appended as supplementary.
 
-**Traceability:** The PDF filename or a hash should be noted in the grading session comments for each paper to enable re-running if the pipeline is modified during Phase 0 iteration. This is informal in Phase 0; formal in Phase 1 (PDFs must be archived with a hash against each extraction ID).
+**Amendment procedure:** Any change to the pre-specified paper list, field list, or primary endpoint definition after locking constitutes a protocol amendment and must be documented with date and justification. The locked version of this document must be preserved.
+
+---
+
+## 12. Source Input Constraint
+
+**All 30 papers must be submitted as uploaded full-text PDFs.** DOI and PMID-based retrieval is not used for study papers. This eliminates variability from partial text retrieval, PMC availability differences, abstract-only fallback, and text cleaning differences across source types.
+
+**Traceability:** For each paper, record the PDF filename and a SHA-256 hash against the extraction record in the database. PDFs are archived for the duration of the study. Any paper where a full-text PDF cannot be obtained is excluded and replaced with the next paper on the pre-specified reserve list (which must also be specified before locking).
+
+---
+
+*End of protocol v2.0*
