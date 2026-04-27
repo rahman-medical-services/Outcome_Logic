@@ -446,6 +446,33 @@ Format: what was tried → what happened → what the correct approach is → da
 
 ---
 
+---
+
+## Session 17 (2026-04-27) — Pre-Phase 0 Deterministic Fixes
+
+### Prompt null-guards on CI fields are not sufficient — JS null-guard is mandatory
+**Tried:** Rule 1 in the critic prompt included explicit language: "only patch if current value is null." This was added in Session 13 and seemed to work.
+**What happened:** SYNTAX `ci_upper=1.81` (RR CI, correctly extracted by V1) was overwritten by the critic with `8.3` — the absolute RD CI value from a different row of the same table, in percentage points. The prompt null-guard was not respected. The critic applied the patch because it had generated a corrected_value and didn't re-check the current value before emitting the patch.
+**Root cause:** LLMs do not reliably self-censor patch emission based on a conditional rule buried in a 2000-token system prompt. The "only if null" instruction is evaluated at reasoning time, not at emit time. The model can convince itself a field needs patching even when it's populated.
+**Fix:** JS-level guard in `applyPatches()`: for any patch to `ci_lower` or `ci_upper`, if the current value is already non-null, skip the patch and log a "CI-guard" reason to `skipped_patches`. This fires unconditionally — no LLM reasoning path can override it. The prompt instruction is retained as a hint; the JS guard is the enforcement layer.
+**Rule:** Prompt null-guards on high-stakes fields are necessary documentation but never sufficient enforcement. For any field where an incorrect patch produces a precisely-wrong-but-plausible value, add a JS-level guard that blocks the overwrite unconditionally. Prompt + JS is defence in depth. Prompt alone is not defence.
+**Date:** 2026-04-27
+
+### Critic quality rules can regress V1's correct outcome_type — enforce deterministically post-patch
+**Tried:** Rule 12 in the critic was designed to infer outcome_type from effect_measure. "HR ALWAYS = time_to_event" was explicitly stated in the Rule 12 prompt.
+**What happened:** ISCHEMIA candidate had `outcome_type=time_to_event` (correct, from V1). The critic applied a Rule 12 patch changing it to `binary` with reasoning: "composite of clinical events is binary by nature." The prompt instruction was ignored because the critic's plausibility reasoning overrode the rule.
+**Root cause:** When a rule contains a categorical override ("HR always = X") alongside a broader classification task, the LLM can apply its general classification reasoning rather than the specific override. Classification tasks are particularly susceptible — the model pattern-matches to training knowledge about what "composite events" are.
+**Fix:** `enforceOutcomeTypeForRatioMeasures()` runs after all critic patches. For any candidate with `effect_measure === 'HR'`, sets `outcome_type = time_to_event` unconditionally and records `_outcome_type_source = "enforced:HR_always_time_to_event"`. No prompt path can produce a different value because enforcement happens in deterministic JS after all LLM output is processed.
+**Rule:** Categorical overrides that must hold absolutely ("X always implies Y") should not be implemented as prompt instructions alone if the rule can conflict with the model's general reasoning. Implement them as post-processing enforcements. The critic prompt is now documentation; the enforcement is in code.
+**Date:** 2026-04-27
+
+### LLM string output includes trailing `%` on numeric value fields — coercion requires pre-stripping
+**Tried:** `coerceNumericFields()` converts string-typed numeric values (e.g. `"5.3"` → `5.3`) using `!isNaN(c[f])` as the gate.
+**What happened:** V1 sometimes emits `"5.3%"` for `arm_a_value` fields (confirmed on ISCHEMIA arm data). `isNaN("5.3%") = true`, so coercion is silently blocked. The string persists downstream. Arithmetic on the field fails.
+**Fix:** In `canonicaliseLegacyKeys()` Step 1, strip trailing `%` from `arm_a_value`, `arm_b_value`, `arm_a_sd`, `arm_b_sd` before the coercion pass sees them. After stripping, `"5.3"` passes `!isNaN()` and is correctly coerced.
+**Rule:** LLMs may annotate numeric values with units (`%`, `mg`, `days`) as context markers. Pre-stripping known unit suffixes at the canonicalisation boundary is cleaner than extending the coercion gate. Add unit-strip logic to `canonicaliseLegacyKeys()` alongside `'null'`-strip and legacy-key migration.
+**Date:** 2026-04-27
+
 ### Subgroup interactions p-value meaning is counterintuitive and must be explained explicitly
 **What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
 **Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.
