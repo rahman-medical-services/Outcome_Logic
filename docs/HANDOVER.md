@@ -1,8 +1,8 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 10
-session: "Session 14/15 — 2026-04-24"
+version: 11
+session: "Session 16 — 2026-04-27"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -19,7 +19,7 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 ---
 
-## Current State (as of 24 April 2026 — v5.2.0)
+## Current State (as of 27 April 2026 — v5.3.0)
 
 **Branch:** All work committed directly to `main`. No active feature branches.
 
@@ -39,6 +39,45 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 
 **⚠️ SCHEMA NOT YET DEPLOYED — must run `supabase/schema-study.sql` before grading any paper.**
 The schema was rewritten in Session 8 and updated in Session 11 (`cannot_determine` CHECK constraint). Run via Supabase Dashboard → SQL Editor.
+
+---
+
+## Completed in Session 16 (2026-04-27) — Meta-analysis hardening
+
+External Opus critique of v1 vs v4 outputs (20 papers + 5×5 stability) verified against primary data; valid claims actioned. Five fixes shipped on branch `claude/meta-analysis-hardening`. Fix #5 (silent run failures from JSON-parse / Gemini 503) deferred — it surfaces as a Vercel timeout and is not resolvable on the current Vercel plan; the app already errors visibly when these fire.
+
+**lib/pipeline-v4.js:**
+- ✅ **`canonicaliseLegacyKeys()`** (NEW) — runs immediately after V1 extractor, BEFORE critic. Migrates V1 legacy field names (`n_arm_a` → `arm_a_n`, `events_arm_a` → `arm_a_events`, `n_arm_b`, `events_arm_b`) onto canonical names; deletes legacy keys; coerces literal string `'null'` → real null; parses compound fractions like `"159/891"` (SYNTAX) into events numerator + N denominator. Rationale: V1 prompt still emits legacy names on most candidates, downstream code reads canonical names → silent data loss. Confirmed: 40 candidates across 20 papers had `n_arm_a` populated with `arm_a_n` null. Item 5 in the previous "Known Issues" list ("PDF-to-text limitation, not fixable at prompt level") was empirically false — this was a canonicalisation bug, now resolved.
+- ✅ **`coerceNumericFields()` extended** — added `arm_a_value`, `arm_b_value`, `arm_a_sd`, `arm_b_sd`, `value`, `point_estimate`, `ci_lower`, `ci_upper` to the coerced field list. Fixes type oscillation across runs (TKR `arm_a_value: 32.5` (number) × 3 vs `'32.5'` (string) × 2 in 5×5 stability test).
+- ✅ **`guardMDFabrication()`** (NEW) — for `effect_measure ∈ {MD, SMD}`, detects pattern where one arm is 0 and the other equals |between-arm difference| within 5% tolerance. Resets both per-arm values to null and records `_md_fabrication_blocked` provenance. Stops Rule 7 from manufacturing fake per-arm change scores from the between-arm MD.
+- ✅ **Rule 7 prompt augmented** — added MD/SMD GUARD section explicitly forbidding (a) using the between-arm difference as an arm value, (b) setting an arm to 0 unless the paper says "no change", (c) deriving one arm from the other plus the MD.
+- ✅ **`applyPatches()` redesigned** — now returns `{ applied, verifications, skipped }` (was `{ applied, skipped }`). A patch is **substantive** (`applied`) only if `JSON.stringify(before) !== JSON.stringify(after)`; otherwise it is a **verification** (no-op). External critique flagged 48% no-op rate (62/129 patches) — these were inflating the "patches applied" count with already-correct re-statements. `_critic` now exposes `patches_applied` (substantive only) and `verifications_count` separately. Existing UI (study.html) reads `patches_applied`/`patches_skipped` — compatible (semantics tightened: applied is now substantive only).
+- ✅ **Critic provenance tags** — when `applyPatches()` makes a substantive change at `primary_endpoint_candidates[N].<field>`, it now writes a sibling `_<field>_source = "critic_patched:<rule>"` on the candidate. Downstream consumers (and stability comparisons) can distinguish V1-extracted values from critic-corrected values.
+
+**Removed legacy fallbacks:**
+- `backCalculateEvents()`, `backCalculateSD()`, `auditMetaAnalysisFields()` no longer read `c.n_arm_a ?? c.arm_a_n` — legacy keys are deleted by the canonicalisation pass and the canonical key is the single source of truth. The "Priority 1: copy `events_arm_a` → `arm_a_events`" branch in `backCalculateEvents` is also obsolete (canonicalisation does it earlier) — replaced with a simple "tag as extracted if already populated, else back-calculate from N×rate" path.
+
+### Execution order (post-Session 16)
+
+```
+runPipelineV1()
+  → canonicaliseLegacyKeys()           [NEW: BEFORE critic]
+  → runCritic()                        [LLM]
+  → applyPatches()                     [returns applied/verifications/skipped]
+  → restoreDroppedCandidateFields()
+  → coerceNumericFields()              [extended scope]
+  → guardMDFabrication()               [NEW]
+  → backCalculateEvents()
+  → backCalculateSD()
+  → normaliseOutcomeTypes()
+  → flagAmbiguousSelection()
+  → auditMetaAnalysisFields()
+```
+
+### Known limits not fixed in Session 16 (deliberately deferred)
+
+- **Silent run failures (~20% from external critique)**: 3/25 JSON-parse + 2/25 Gemini 503 in stability test. Root cause is Vercel timeout under load. The app already raises an error to the user when this happens; the underlying timeout cannot be resolved on the current Vercel plan. Revisit when Vercel plan upgrade is on the table.
+- **Meta-analysis workflow scaffolding**: review/lock/export pipeline for confirmed extractions before they enter a meta-analysis dataset. Out of scope for this session — addressed when Phase 0 grading produces a curated set.
 
 ---
 
@@ -171,6 +210,8 @@ PDF text (references stripped)
       ▼
 Node 1: runPipelineV1() — Gemini flash-lite, thinkingBudget:1024        ~15–20s
       │
+      ├─► canonicaliseLegacyKeys()    — n_arm_a→arm_a_n, events_arm_a→arm_a_events,
+      │                                 string 'null'→null, "159/891"→{events,n}
       ├─► v1Snapshot = JSON.parse(JSON.stringify(v1Result))   [saved as 'v1' version]
       │
       ▼
@@ -179,16 +220,21 @@ Node 2: gpt-4o-mini critic (13 rules + plausibility)                   ~12–15s
       │
       ▼
 Node 3: deterministic post-processing                                     <1s
-  applyPatches()                      — apply critic dot-path patches
+  applyPatches()                      — returns {applied, verifications, skipped};
+                                        substantive patches tagged with provenance
+                                        (_<field>_source = "critic_patched:<rule>")
   restoreDroppedCandidateFields()     — re-merge pre-patch snapshot (Rule 9 guard)
-  coerceNumericFields()               — string integers → Number
-  backCalculateEvents()               — Priority 1: copy events_arm_a; Priority 2: back-calc
+  coerceNumericFields()               — string numerics → Number (incl. arm_*_value/sd)
+  guardMDFabrication()                — for MD/SMD, reset arm values when one is 0
+                                        and the other ≈ between-arm difference
+  backCalculateEvents()               — back-calc from N×rate% when canonical events null
   backCalculateSD()                   — Cochrane §6.5.2, 1.75× plausibility guard
   normaliseOutcomeTypes()             — time-to-event → time_to_event
   flagAmbiguousSelection()            — ≥2 candidates with different effect_measure
   auditMetaAnalysisFields()           — meta_analysis_gaps report
       │
-      └─► v1Result._critic = { patches_applied, patches_skipped, skipped_patches,
+      └─► v1Result._critic = { patches_applied (substantive), verifications_count,
+                                patches_skipped, patches, verifications, skipped_patches,
                                 quality_notes, violations_found, meta_analysis_gaps,
                                 selection_uncertain, selection_uncertain_note, model }
           [saved as 'v4' version]
@@ -226,7 +272,7 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 2. **PDF export broken** — export button produces blank PDF. File → Print works. Parked until after study runs.
 3. **V4 Vercel timeout risk**: Node 1 ~17s + Node 2 ~12–15s = ~29–32s total. Well within 60s for study.js.
 4. **`finish_reason: length`** on critic — logged as warning. Increase `max_completion_tokens` only if needed (currently 4000).
-5. **arm_a_n/arm_b_n missing 16/20 papers** — fundamental PDF-to-text limitation. Table 1 doesn't survive PDF parsing as clean prose. Not further fixable at prompt level.
+5. **arm_a_n/arm_b_n canonicalisation** — RESOLVED in Session 16. Earlier diagnosis ("PDF-to-text limitation, not fixable") was wrong. Data was being extracted by V1 into legacy field names (`n_arm_a`, `events_arm_a`) and downstream code was reading the canonical names (`arm_a_n`, `arm_a_events`) — silent data loss for ~40 candidates across 20 papers. Fixed by `canonicaliseLegacyKeys()` running before the critic. Lesson logged in LEARNINGS.md.
 6. **`expertContext status: error`** = Node 4 timed out (45s). Normal PubMed slowness. Not a bug.
 7. **Correlated table misread residual risk** — V4 critic (OpenAI) reviewing V1 (Gemini) provides cross-model diversity. If V1 misread is invisible in the stripped paper text, critic cannot catch it.
 8. **Rule 2 AE — HIP ATTACK edge case**: "major complications" composite subsumes most clinical AEs. Rule 2 will clear the AE table. Technically correct but produces empty AE section. Annotate in Phase 0 grades.
@@ -240,14 +286,16 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 ## Priority Order — Next Session
 
 ### Immediate (first task)
-1. **Re-run all 20 papers through V4** (commit `f0180e1` is live). Export JSON and verify:
-   - SCOT-HEART: effect_value should now be 0.59 (not null) — regression fixed in c4c1aee
-   - ORBITA: arm_a_sd should be ~90 (back-calc from CI), not 178.7 (baseline contamination)
-   - UK FASHIoN: GRADE should be stable across re-runs (guard blocks stochastic upgrade)
-   - EXCEL: `extraction_flags.selection_uncertain=true` and descriptive note present
-   - BITA: arm_a_events=140 (direct extraction, not 134 from back-calc)
-   - SYNTAX: arm_a_events=205 (direct extraction, not 253 from back-calc)
-   - Run stability test (5 papers × 5 runs) — check EXCEL flag, ORBITA SD, UK FASHIoN GRADE
+1. **Re-run all 20 papers through V4** (Session 16 branch merged to main). Export JSON and verify:
+   - **arm_a_n / arm_b_n now populated on the canonical key** (no `n_arm_a` legacy key remaining) on papers that were null before — should be ~16/20 papers improved
+   - **No legacy `n_arm_a`, `n_arm_b`, `events_arm_a`, `events_arm_b` keys anywhere in output** (canonicalisation strips them)
+   - **No string `'null'`** in any candidate field (ART had this previously)
+   - **Compound-fraction parse**: SYNTAX `events_arm_a: "159/891"` → `arm_a_events=159`, `arm_a_n=891` (if not already set)
+   - **MD/SMD guard**: any continuous trial that previously had `arm_a_value === MD` and `arm_b_value === 0` (or vice versa) should now have both null + `_md_fabrication_blocked` set
+   - **Type discipline**: re-run TKR 5× and confirm `arm_a_value` is consistently a Number (not oscillating string/number)
+   - **Critic metadata**: `_critic.patches_applied` (substantive only) should be lower than before; `_critic.verifications_count` is new
+   - **Provenance**: any candidate field changed by the critic should carry `_<field>_source: "critic_patched:<rule>"`
+   - SCOT-HEART, ORBITA, UK FASHIoN, EXCEL, BITA, SYNTAX checks from Session 14/15 should still pass
 
 ### Phase 0 (blocking)
 2. **Deploy `supabase/schema-study.sql`** — must do before grading (Dashboard → SQL Editor).
@@ -298,4 +346,5 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 - Session 11 (2026-04-19): 20-paper V1 vs V3 review. V1 prompt upgraded (12 sections). SEARCH SCOPE mandatory. Subgroup GROUPING RULE. cannot_determine status.
 - Session 12 (2026-04-20): V4 pipeline built (V1 extractor + gpt-4o-mini critic, 13 rules, audit trail). V4 dual-save (saves V1 byproduct). V3 deprecated in study.html. Stability testing section (in-memory, dry_run). Study design revised: Phase 1 head-to-head no longer needed. V4 scores 99.7% on rubric. Rules 9–13 added (secondary completeness, NI framing, lay summary direction, outcome_type, SD per arm). Pass B can now emit patches. auditMetaAnalysisFields outcome-type-aware.
 - Session 13 (2026-04-23): Full 20-paper V4 analysis (mean 7.9/10 rubric). stripForCritic bug fixed (MIN_DISC_POSITION guard). Identified and fixed: Rule 1 null-guard + multi-candidate CI guard (ORBITA/PROFHER regression), Rule 2 primary-only AE exclusion + has_data guard (HIP ATTACK), Rule 6 mandatory patch + non-overwrite (COI), Rule 12 HR always time-to-event (CORONARY/HIP ATTACK regression), Pass B confirmatory note suppression, V1 arm_a_n/AE prompt. Rules redesigned after first-pass fixes caused regressions (see LEARNINGS.md).
+- Session 16 (2026-04-27): Meta-analysis hardening. External Opus critique verified against primary data. 5 fixes shipped: canonicaliseLegacyKeys (resolves the false "arm_a_n PDF-limitation" diagnosis — 40 candidates were stranded in legacy keys), coerceNumericFields scope extended (kills type oscillation across runs), guardMDFabrication + Rule 7 prompt update (blocks fabricated MD/SMD per-arm values from between-arm difference), applyPatches now distinguishes substantive vs verification (no-op) patches, critic-patched candidate fields tagged with `_<field>_source = critic_patched:<rule>`. Silent run failures (~20%) deferred — Vercel timeout, not resolvable on current plan.
 - Session 14/15 (2026-04-24): Full 20-paper V4 re-run. Analysed SPORT arm_n (structural gap, correct null). Identified arm_events coverage artefact (V1 uses events_arm_a, V4 uses arm_a_events — both present = 100% coverage). Verified external LLM claims against primary data (ChatGPT EXCEL ci_lower claim wrong). 7 fixes: coerceNumericFields, backCalculateEvents priority (direct > back-calc), backCalculateSD (Cochrane §6.5.2), provenance tags, primary_result_synthesis in V1, canonical effect_measure labels, p_value format. SCOT-HEART regression fixed (restoreDroppedCandidateFields + Rule 9 prompt guard). Stability analysis: 4 fixes (normaliseOutcomeTypes, SD plausibility guard 1.75×, GRADE guard, flagAmbiguousSelection). Final scores V1=94%, V4=96%. Commits: ca658f7, c4c1aee, f0180e1.
