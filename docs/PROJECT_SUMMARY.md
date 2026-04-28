@@ -174,10 +174,12 @@ The old Phase 0 / Phase 1 pilot → ablation study design has been superseded. N
 4. **Critic audit analysis**: `_critic.patches` audit trail cross-referenced with Phase 1a ground truth → critic net accuracy on quality fields without an ablation study.
 5. **Pilot meta-analysis** (5-paper gen surg subset): pooled estimate vs Cochrane benchmark.
 
-**Publication strategy (3 outputs):**
-1. **Paper 1 — Methodology** (JAMIA or JCE): V4 architecture, schema-as-product framing, critic mechanism, audit trail
-2. **Paper 2 — Surgical validation** (BJS or Annals of Surgery): 30-paper prospective validation, accuracy + time saving, crossover design
-3. **Data paper** (Scientific Data or BMJ Open): 30-paper validated extraction library
+**Products:**
+1. **OutcomeLogic (the tool)** — on-demand extraction, any paper, ~30 seconds. Live now. Primary product.
+2. **The validated library** — curated, growing database of human-arbitrated RCT extractions. Starts at 30 general surgery papers from the validation study; expands by specialty. Second product, complementary to the tool.
+
+**Publication:**
+- **Single outcomes paper** (BJS, Annals of Surgery, or JAMIA): V4 architecture + 30-paper prospective blinded validation results. Credibility anchor for both products. No methodology-only paper — results are what make the architecture interesting.
 
 ---
 
