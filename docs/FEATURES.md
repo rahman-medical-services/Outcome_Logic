@@ -177,16 +177,25 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 **Required features:**
 - Paper table: phase 1a (rater A done? rater B done?), phase 2a (rater A done? rater B done?), phase 2b (same), phase 3 (arbitrated?)
 - Click-through to open any paper in the relevant UI for the current phase
-- Export button: downloads arbitrated Phase 3 output as structured JSON (meta-analysis input dataset)
-**Effort:** ~2 hrs. Extension of existing `study.html`.
+- **Crossover assignment display:** Papers 1–15 show Pair A→Phase 1a / Pair B→Phase 2a; papers 16–30 show swap. Rater identity enforced in Phase 1a and Phase 2a UIs (rater only sees their assigned papers).
+- **Export button:** Downloads all Phase 3 arbitrated outputs as structured JSON. Must include per paper: all 19 MA field arbitrated values, match_status per field, Phase 1a ground truth values (both raters), Phase 2a rater corrections (both raters), Phase 3 arbitrator decision, Phase 1a time per rater, Phase 2a time per rater, pipeline `_runtime_seconds`. This export is the meta-analysis input dataset and the validated library asset.
+**Effort:** ~2–3 hrs. Extension of existing `study.html`.
 
 ### ⬜ Supabase schema update for multi-phase, multi-rater study
-**Status:** Not started. Existing schema supports Phase 0 (single-rater grading). Needs extension.
-**Changes required:**
-- `study_grades` → add `rater_id TEXT`, `phase TEXT CHECK IN ('1a','2a','2b','3')`, `time_seconds INTEGER`
-- Or new tables: `phase1a_extractions` (manual extraction records), `phase2_grades` (pipeline correction records with rater_id + phase), `phase3_arbitrations` (final decisions)
-- UNIQUE constraint: `(output_id, field_name, rater_id, phase)` — one grade per rater per field per phase
-**Effort:** ~1 hr (schema design + SQL + Supabase deploy).
+**Status:** Not started. Existing schema supports Phase 0 (single-rater grading). Needs full rewrite for 3-phase design.
+**New tables needed:**
+- `validation_papers` — the 30 formal papers (separate from `study_papers` which has Phase 0 data). Fields: id, title, pmid, doi, pdf_sha256, crossover_assignment ('a_phase1a' | 'a_phase2a'), phase1a_locked (bool), phase2a_locked (bool), phase3_locked (bool).
+- `phase1a_extractions` — manual extraction records. Fields: id, paper_id, rater_id, field_name, extracted_value, cannot_determine (bool), time_seconds (per-paper, recorded on submit), submitted_at. UNIQUE (paper_id, rater_id, field_name).
+- `phase2_grades` — pipeline correction records. Fields: id, paper_id, extraction_id (FK to study_extractions), rater_id, phase ('2a'|'2b'), field_name, match_status, correction_value, harm_severity, error_taxonomy, time_seconds (per-paper on submit), submitted_at. UNIQUE (paper_id, rater_id, phase, field_name).
+- `phase3_arbitrations` — final arbitrated decisions. Fields: id, paper_id, field_name, arbitrated_value, arbitrator_decision ('adopt_a'|'adopt_b'|'new_value'|'exact_match'), arbitrator_notes, quality_rating (1-5), usability_rating (1-5), arbitrated_at.
+**Effort:** ~1–2 hrs (schema design + SQL + Supabase deploy).
+**Do this first** — all UIs depend on it.
+
+### ⬜ Acceptance gate — preliminary test run (5 beta-blocker papers)
+**Status:** Not started. Blocked on all 4 UIs being complete.
+**What it is:** PI runs the full workflow end-to-end on CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST before recruiting formal study raters.
+**Steps:** Phase 1a extraction (PI, manual, timed) → V4 pipeline run → Phase 2a review (PI or colleague, timed) → Phase 3 arbitration → Export arbitrated JSON → run pilot meta-analysis vs Shibata Cochrane review.
+**Gate:** If any UI component fails, breaks, or produces unusable export during this test, fix before proceeding. This is the acceptance test for all 4 UIs.
 
 ---
 

@@ -330,38 +330,76 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 
 ---
 
-## Priority Order — Next Session
+## Priority Order — Next Sessions
 
-### Immediate — Validation study UI (blocking everything else)
+### Exclusive focus: Validation study UI (all 4 components, fully tested)
 
-The validation study design is finalised (PROTOCOL.md v2.0). Before any data collection can begin, four UI components are needed:
+All four UI components must be **built, working, and tested by the PI** before the formal study begins. Nothing else should be started until all four are done and the preliminary test run (5 beta-blocker papers) has been completed by the PI end-to-end.
 
-1. **Phase 1a UI** — manual extraction form for 19 MA fields, per rater, per paper. No pipeline output visible. Built-in timer. Rater login. Existing `pilot.html` is Phase 2 style (pipeline output shown) — Phase 1a is a blank form. See FEATURES.md.
-2. **Phase 2a/2b UI** — pipeline output display with per-field correction interface and timer. `pilot.html` is close to this but needs timing, rater identity, and Phase 2a/2b mode switch.
-3. **Phase 3 arbitration UI** — side-by-side rater pair comparison, discrepancy highlighting, arbitrator decision fields, overall quality/usability rating.
-4. **Study management view** — which papers are at which phase, rater completion status, export.
+**Build order:**
 
-### Then — Preliminary test run (5 beta-blocker papers)
+**1. Supabase schema update** (do this first — everything else depends on it)
+- New tables for multi-rater, multi-phase, timed grading
+- See FEATURES.md "Supabase schema update" for full spec
+- Old `schema-study.sql` is Phase 0 design — full rewrite needed
 
-Once UI is built, run the full workflow on the 5 HFrEF beta-blocker papers (Section 0 of PROTOCOL.md):
-- CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST
-- PI does Phase 1a extraction on these papers (before running them through V4)
-- Run through V4
-- Phase 2a/2b check (PI or colleague)
-- Run pilot meta-analysis against Cochrane benchmark (Shibata et al.)
-- Calibrate timing estimates and match_status edge cases
+**2. Phase 1a UI** (`public/phase1a.html`) — HIGHEST PRIORITY
+- Blank per-rater form for 19 MA fields (Section 3.1 of PROTOCOL.md)
+- No pipeline output visible at any point — not even after submission
+- Built-in per-paper timer (starts on first field input, stops on submit)
+- Rater login (rater_id stored with every record)
+- Rater cannot see the other rater's submission for the same paper until both have submitted
+- Auto-save per field; explicit submit to lock
+- See FEATURES.md for full field list and spec
 
-### Then — Paper curation for formal study
+**3. Phase 2a/2b UI** (additions to `public/pilot.html`)
+- Rater login, phase selector (2a = MA fields only, 2b = all fields)
+- Per-paper timer
+- V4 field values shown; `_critic` audit trail NOT shown (key blinding requirement)
+- Two separate rater records stored independently per paper
+- See FEATURES.md spec
 
-- Curate 25 diverse general surgery RCTs for the 30-paper formal set
-- Select focused 5-paper gen surg question with Cochrane review for the formal meta-analysis subset
+**4. Phase 3 arbitration UI** (`public/phase3.html`)
+- Side-by-side: V4 output / Rater A / Rater B per field
+- Discrepancy highlighting (amber = raters disagree, green = same correction, grey = both exact_match)
+- Arbitrator selects: adopt A / adopt B / new value / confirm exact_match
+- Overall quality and usability rating per paper (1–5)
+- Submit locks paper as final validated output
+- See FEATURES.md spec
+
+**5. Study management dashboard** (additions to `public/study.html`)
+- Paper table with phase completion status per rater
+- Click-through to open paper in relevant phase UI
+- **Export button**: downloads all Phase 3 arbitrated outputs as structured JSON (this is the meta-analysis input dataset and the validated library asset)
+- Export must include: all 19 MA fields (arbitrated values), match_status per field, Phase 1a ground truth values, Phase 2 rater corrections, Phase 3 arbitrator decision, per-paper Phase 1a and Phase 2a times, pipeline `_runtime_seconds`
+
+**Crossover assignment (implement in study management view):**
+- Papers 1–15: Rater Pair A assigned to Phase 1a; Rater Pair B assigned to Phase 2a
+- Papers 16–30: Rater Pair A assigned to Phase 2a; Rater Pair B assigned to Phase 1a
+- Assignment recorded in DB; Phase 1a and Phase 2a UIs enforce it (rater can only see papers they are assigned to)
+
+### Acceptance gate — preliminary test run
+
+Before recruiting formal study raters, the PI must complete the full workflow on the 5 beta-blocker papers (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST) using the built UIs:
+1. PI runs Phase 1a extraction on all 5 papers (manually, using Phase 1a UI, timed)
+2. V4 pipeline run on all 5 papers
+3. Phase 2a review of pipeline output (PI or colleague, using Phase 2a UI, timed)
+4. Phase 3 arbitration (any disagreements)
+5. Export arbitrated output and run pilot meta-analysis vs Shibata Cochrane review
+
+If any UI component fails, breaks, or produces unusable export data during this test, fix before proceeding. The test run is the acceptance test.
+
+### Then — Paper curation and lock
+
+- Curate 25 diverse general surgery RCTs (excluding the 10 Phase 0 papers)
+- Select focused 5-paper gen surg question with Cochrane review
 - Lock PROTOCOL.md Section 11 checklist, OSF pre-registration
 - Recruit Phase 1a and Phase 2a/2b raters
 
 ### Parked
 - **`_EXTRACTOR_SHARED_SECTIONS` rebuild** — V4 supersedes V3; V3 is legacy.
 - **Fix PDF export** — parked until study complete.
-- **Deploy `supabase/schema-study.sql`** — schema will need updating before validation study; old Phase 0 schema (10 pilot papers, pilot.html workflow) is superseded by the new 3-phase design.
+- **Pipeline improvements** — no further pipeline changes until validation data collected.
 
 ---
 
