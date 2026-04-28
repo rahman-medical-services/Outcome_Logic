@@ -249,7 +249,11 @@ async function handleRun(req, res) {
     } else if (version === 'v4') {
       console.log('[study-run] Routing to V4 pipeline (V1 extractor + gpt-4o-mini critic)');
       // V4 returns { v4, v1 } — both are saved in a single request
+      const pipelineStart = Date.now();
       pipelineResult = await runPipelineV4(ctx, sourceMeta);
+      const runtimeSeconds = Math.round((Date.now() - pipelineStart) / 1000);
+      pipelineResult.v4._runtime_seconds = runtimeSeconds;
+      console.log(`[study-run] V4 pipeline completed in ${runtimeSeconds}s`);
     } else {
       pipelineResult = await runPipeline(ctx, sourceMeta);
     }

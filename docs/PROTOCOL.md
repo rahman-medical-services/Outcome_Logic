@@ -73,7 +73,7 @@ A prospective accuracy and efficiency validation study of the V4 pipeline for au
 - Primary endpoint is a clinical outcome (not biomarker or surrogate only)
 - General surgery topic (includes hepatobiliary, colorectal, upper GI, vascular, trauma, emergency surgery, bariatric)
 
-The 10 Phase 0 papers from the previous protocol (ORBITA, HIP ATTACK, SPORT disc, SPORT stenosis, UK FASHIoN, PROFHER, SCOT-HEART, OPTIMAS, SYNTAX, TKR) may be included in the 25 diverse papers if they meet selection criteria. These have already been run through V4 and the pipeline behaviour on them is well-characterised, which is an advantage for error pattern analysis.
+**Exclusion:** The 10 Phase 0 papers from the previous protocol (ORBITA, HIP ATTACK, SPORT disc, SPORT stenosis, UK FASHIoN, PROFHER, SCOT-HEART, OPTIMAS, SYNTAX, TKR) are **excluded** from the formal 30-paper set. These papers were used iteratively during pipeline development — the pipeline has been tuned against them in repeated cycles, creating selection bias. Including them would inflate accuracy estimates on the fields that triggered prompt changes. The 30 formal papers must be unseen by the PI as pipeline test cases.
 
 **Paper list:** To be finalised by PI before Phase 1a begins. Must be recorded and locked in this document before any Phase 1a extraction is performed.
 
@@ -119,29 +119,42 @@ Phase 3   ───────────────────────�
 ### 2.1 Temporal blinding
 
 The design sequence is:
-1. Phase 1a raters extract MA fields manually from source PDFs **before the pipeline is run on those papers** (or before Phase 1a raters have access to pipeline output).
+1. Phase 1a raters extract MA fields manually from source PDFs **before the pipeline is run on those papers**. Phase 1a raters are not given access to pipeline output at any stage.
 2. Phase 1a data are locked.
-3. Phase 2 raters then check and correct pipeline output — they have not been involved in Phase 1a.
+3. The V4 pipeline is run on all 30 papers. Phase 2 raters then check and correct pipeline output — they have not been involved in Phase 1a.
 
-The sequence is the blinding. Phase 1a raters cannot be influenced by pipeline output because they extract before seeing it. Phase 2 raters cannot be influenced by Phase 1a ground truth because they are different people.
+The sequence is the blinding. Phase 1a raters cannot be influenced by pipeline output because they extract before seeing it, and they never see the pipeline output at all. Phase 2 raters cannot be influenced by Phase 1a ground truth because they are different people.
 
-### 2.2 Rater requirements
+### 2.2 Crossover design for time comparison
 
-**Phase 1a raters (N = 2):** Surgical trainees or consultants with experience in systematic review methodology. Must be able to interpret RCT methods sections, apply Cochrane RoB 2.0, and make GRADE certainty judgements. Not required to be blinded to each other — inter-rater agreement is measured but raters work independently.
+To eliminate rater speed as a confound on the time comparison (Phase 1a manual extraction vs Phase 2a pipeline verification), a crossover assignment is used:
 
-**Phase 2a/2b raters (N = 2):** Must NOT be the same people as Phase 1a raters. Should have equivalent clinical background. Raters are told they are checking AI pipeline output but are not told which fields have been corrected by the critic.
+- **Papers 1–15:** Rater Pair A performs Phase 1a manual extraction; Rater Pair B performs Phase 2a pipeline verification
+- **Papers 16–30:** Rater Pair A performs Phase 2a pipeline verification; Rater Pair B performs Phase 1a manual extraction
 
-**Arbitrator (N = 1):** Must be blinded to which rater produced which output during arbitration. Should be a consultant surgeon or clinical academic with systematic review experience. The arbitrator resolves discrepancies between Phase 2a and 2b rater pairs and assigns overall quality and usability ratings.
+Each rater pair appears in both Phase 1a and Phase 2a conditions, on different paper sets. The within-rater time comparison (Phase 1a time for papers they extracted vs Phase 2a time for papers they reviewed) is the primary test of time saving — it is free of between-rater speed confounds. A Wilcoxon signed-rank test on paired within-rater per-paper times is the primary statistical test for the time endpoint.
 
-**PI role:** PI (Rahman) may perform Phase 1a extraction if done before running the relevant paper through V4. PI extraction counts as one of the two raters for that paper; an independent second rater is still required. PI does not arbitrate.
+### 2.3 Rater requirements
 
-### 2.3 Time measurements
+**Phase 1a raters (N = 2):** Surgical trainees or consultants with experience in systematic review methodology. Must be able to interpret RCT methods sections, apply Cochrane RoB 2.0, and make GRADE certainty judgements. Not required to be blinded to each other — inter-rater agreement is measured but raters work independently. **PI (Rahman) does not perform Phase 1a extraction.** The PI designed the pipeline; performing ground truth extraction would compromise independence even with temporal blinding. An external independent rater pair is required for all 30 papers.
+
+**Phase 2a/2b raters (N = 2):** Must NOT be the same people as Phase 1a raters. Should have equivalent clinical background. Raters are shown V4 pipeline output (field values visible) but the `_critic` audit trail (which fields were corrected by the critic and why) is **not shown**. This ensures Phase 2 verification is independent of knowledge of critic corrections.
+
+**Arbitrator (N = 1):** Must be blinded to which rater produced which output during arbitration. Should be a consultant surgeon or clinical academic with systematic review experience. The arbitrator resolves discrepancies between Phase 2a and 2b rater pairs and assigns overall quality and usability ratings. The arbitrator also resolves Phase 1a evaluative field disagreements (see Section 3.3). PI does not arbitrate.
+
+**Inter-rater disagreement on evaluative fields (Phase 1a):** When the two Phase 1a raters disagree on `rob_overall` or `grade_certainty`, the arbitrator reviews the paper and produces a consensus assessment. This consensus becomes the Phase 1a reference standard for those fields on that paper. The arbitrator is blinded to Phase 2 output when performing this arbitration.
+
+### 2.4 Time measurements
 
 **Phase 1a per-paper time:** From first opening the source PDF to final field recorded. Recorded by rater per paper.
 
 **Phase 2a per-paper time:** From receiving pipeline output to final corrected MA field recorded. Recorded by rater per paper.
 
-**Reported metric:** Median time per paper (Phase 1a) vs median time per paper (Phase 2a), with IQR. Reported as time saving and percentage reduction. Additional calculation: time to first extraction-ready output (pipeline run time + Phase 2a time) vs Phase 1a time alone.
+**Pipeline run time:** V4 pipeline run time per paper is recorded automatically as `_runtime_seconds` in the V4 output JSON. This is a measured variable, not a fixed estimate.
+
+**Reported metric:** Median within-rater time (Phase 1a papers) vs median within-rater time (Phase 2a papers), with IQR. Reported as absolute minutes saved and percentage reduction. Additional metric: total time to first extraction-ready output (pipeline run time + Phase 2a time) vs Phase 1a manual extraction time.
+
+**Crossover assignment:** See Section 2.2. Time analyses use paired within-rater comparisons, not unpaired between-rater comparisons.
 
 ---
 
@@ -220,11 +233,21 @@ These fields are structural inputs for meta-analysis and systematic review (GRAD
 
 4. **Validated paper library:** 30 fully arbitrated, structured pipeline outputs for landmark general surgery RCTs. Each paper has a locked extraction with provenance (V4 output + Phase 2 corrections + Phase 3 arbitration decision).
 
-5. **Pilot meta-analysis accuracy:** For the 5-paper focused subset — pooled estimate from V4-extracted fields vs pooled estimate from the benchmark Cochrane review. Reported as ratio of point estimates and overlap of confidence intervals.
+5. **Pilot meta-analysis accuracy:** For the 5-paper focused subset — pooled estimate from arbitrated V4-extracted fields (i.e., post-Phase 3 consensus values, not raw V4 output) vs pooled estimate from the benchmark Cochrane review. Reported as ratio of point estimates and overlap of confidence intervals.
 
-6. **Error taxonomy distribution:** Frequency of each of the 7 error classes (Section 7) across all non-exact-match grades. Used to identify which pipeline stages are responsible for residual errors.
+6. **Error taxonomy distribution:** Frequency of each of the 8 error classes (Section 7) across all non-exact-match grades. Used to identify which pipeline stages are responsible for residual errors. Reported as a descriptive breakdown — not tested statistically (cell counts too small for per-class inference at N=30).
 
 7. **Critic utility:** Among fields where V4 output differs from V1 output, the proportion where V4 is correct and V1 is wrong (determined by Phase 1a ground truth). This directly quantifies the critic's net accuracy contribution without requiring an ablation study — the `_critic.patches` audit trail provides the mechanism evidence.
+
+8. **Model agnosticism (pre-specified secondary analysis):** All 30 papers will be run through an alternative LLM configuration (same schema, same deterministic post-processing, different extractor — GPT-4o or Claude Sonnet in place of Gemini flash-lite) and compared against Phase 1a ground truth. No additional raters required. This tests the claim that accuracy is schema-driven, not model-specific. If the alternative model produces similar accuracy (within ±5pp overall), this supports the schema-as-product framing and model-agnosticism as a durable claim.
+
+### Descriptive breakdowns (not hypothesis-tested)
+
+- By outcome type (binary / time-to-event / continuous): MA field accuracy per type
+- By trial size (< 500, 500–2000, > 2000 randomised): MA field accuracy
+- By error class: frequency of each taxonomy class
+
+These are descriptive. The study is not powered for per-subgroup inference.
 
 ### Inter-rater reliability
 
@@ -456,8 +479,8 @@ To validate the end-to-end workflow: pipeline extraction → meta-analysis input
 
 1. V4 extracts MA fields from the 5 focused papers.
 2. Phase 2a raters check and correct the extracted fields (as per normal Phase 2a process).
-3. Arbitrated V4 output (post-Phase 3) is used as the meta-analysis input dataset.
-4. A standard random-effects meta-analysis is run on the arbitrated data using the extracted effect estimates, CIs, and sample sizes.
+3. **Phase 3 arbitrated V4 output** is used as the meta-analysis input dataset — not raw V4 output, not Phase 2a corrected output without arbitration.
+4. A **DerSimonian–Laird random-effects meta-analysis** is run on the arbitrated data using the extracted effect estimates, CIs, and sample sizes. This method is pre-specified to match the Cochrane review benchmark (see Section 4 pilot meta-analysis), so that method differences do not confound the comparison.
 5. The pooled estimate is compared against the benchmark Cochrane review pooled estimate on the same question.
 
 ### Reported metrics
@@ -475,30 +498,33 @@ The published Cochrane review must be specified and locked before Phase 1a begin
 
 ## 10. Reporting Framework
 
-### Framework: TRIPOD-AI
+### Framework: STARD-informed
 
-This study is reported under the **TRIPOD-AI** extension (Collins et al., *BMJ* 2021, updated guidance for AI prediction/extraction models). TRIPOD-AI is appropriate for a prospective accuracy validation of a clinical AI extraction system.
+No single reporting framework precisely covers a prospective accuracy validation of a clinical AI extraction system. This study is reported using **STARD 2015** (Standards for Reporting Diagnostic Accuracy Studies) as a structural reference, because the study design — test output vs reference standard with temporal blinding — maps most directly onto the diagnostic accuracy paradigm. Where STARD items do not apply, **TRIPOD-AI** (Collins et al., *BMJ* 2021) and **DECIDE-AI** (Vasey et al., *Nature Medicine* 2022) inform additional AI-specific reporting items. The adopted framework is described explicitly in the manuscript methods.
 
-Key TRIPOD-AI items:
+Key reporting items addressed:
 
-| Item | Requirement | Status |
-|---|---|---|
-| AI system | Version, model(s), architecture | V4 pipeline: Gemini 2.5 Flash Lite (extractor) + GPT-4o-mini (critic) + deterministic JS post-processing. Version tag to be recorded at paper selection lock. |
-| Intended use | Clinical context, decision supported | Automated extraction of RCT data for meta-analysis input. Target users: clinical academics, systematic reviewers. |
-| Reference standard | How ground truth was established | Phase 1a: pre-pipeline manual extraction by 2 blinded independent raters. Phase 3 arbitration for full-field output. |
-| Sample size justification | Basis for N=30 | See Section 10.1 |
-| Statistical analysis | Methods for accuracy and reliability | Exact-match rate with Wilson 95% CI; weighted kappa for evaluative fields; Wilcoxon signed-rank for time comparison |
-| Subgroup analysis | Pre-specified subgroups | By outcome type (binary / time-to-event / continuous), by error class, by trial size |
-| Limitations | Known limitations | Single-specialty (general surgery); single pipeline version; PI constructed pipeline and also performs some ground truth extraction (temporal blinding mitigates but does not eliminate). |
+| Item | Source | Requirement | Status |
+|---|---|---|---|
+| AI system | TRIPOD-AI | Version, model(s), architecture | V4 pipeline: Gemini 2.5 Flash Lite (extractor) + GPT-4o-mini (critic) + deterministic JS post-processing. Version tag to be recorded at paper selection lock. |
+| Intended use | TRIPOD-AI | Clinical context, decision supported | Automated extraction of RCT data for meta-analysis input. Target users: clinical academics, systematic reviewers. |
+| Reference standard | STARD | How ground truth was established | Phase 1a: pre-pipeline manual extraction by 2 independent raters (not the PI), blinded to pipeline output. Phase 3 arbitration for evaluative fields and full-field output. |
+| Sample size justification | STARD | Basis for N=30 | See Section 10.1 |
+| Statistical analysis | STARD | Methods for accuracy and reliability | Exact-match rate with Wilson 95% CI; weighted kappa for evaluative fields; Wilcoxon signed-rank for time comparison (within-rater paired, crossover) |
+| Descriptive breakdowns | TRIPOD-AI | Pre-specified analyses | By outcome type, by error class, by trial size — all descriptive, not hypothesis-tested |
+| Limitations | DECIDE-AI | Known limitations | Single-specialty (general surgery); single pipeline version; PI excluded from ground truth extraction. |
 
 ### 10.1 Sample size justification
 
-N = 30 is chosen on pragmatic grounds for a first validation study of this type. It provides:
-- Sufficient papers to report per-field exact-match rates with CIs that are interpretable (~12 papers per outcome type on average)
-- Adequate rater burden for the Phase 1a task (~15–22 hrs per rater at 30–45 min/paper) without requiring compensation
-- A library of sufficient size to be a credible demonstration asset
+**N = 30 papers** is chosen for this first validation study.
 
-This is not powered for a pre-specified minimum detectable difference in a comparative study. No comparator arm exists — this is a single-arm accuracy validation. Power calculations are applicable to comparative designs; they are not the appropriate justification framework for a single-arm accuracy study of this type.
+**Overall accuracy:** At N = 30 papers and ~17 MA fields graded per paper, the field-level observation count is ~510. A Wilson 95% CI around an observed overall exact-match rate of 85% is approximately ±3 percentage points — sufficient to distinguish accurate (>80%) from unacceptably inaccurate (<70%) extraction with meaningful precision.
+
+**Per-field accuracy:** Each field has N = 30 observations (one per paper, adjusted for conditional fields). A Wilson 95% CI at 85% accuracy on N=30 is approximately ±13 percentage points. Per-field results are therefore **descriptive only** — they identify fields warranting further attention, not statistically powered conclusions about individual field accuracy. This is appropriate: the primary claim is overall pipeline accuracy, not per-field accuracy.
+
+**Practical constraints:** ~15–22 hrs per Phase 1a rater at 30–45 min/paper is feasible without compensation for clinical academic raters. N < 25 would produce CIs too wide to be meaningful; N > 40 would impose an unreasonable burden.
+
+**No comparative arm:** This is a single-arm accuracy validation. There is no control pipeline and no minimum detectable difference. Power calculations are the appropriate framework for comparative designs; they are not applied here.
 
 ---
 

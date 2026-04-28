@@ -7,7 +7,7 @@ owner: "saqib"
 
 # OutcomeLogic — Project Summary
 
-**As of 27 April 2026 (v5.4.0 · commit 9feed53)**
+**As of 27 April 2026 (v5.5.0 · Session 19)**
 
 ---
 
@@ -145,15 +145,19 @@ The old Phase 0 / Phase 1 pilot → ablation study design has been superseded. N
 **N = 30 general surgery RCTs.** 25 diverse landmark papers + 5 focused on a single gen surg question with a published Cochrane review.
 
 **3-phase design:**
-- **Phase 1a:** 2 independent raters extract the 19 MA fields manually from source PDFs, timed. Pre-pipeline. Establishes temporally blinded ground truth for primary accuracy endpoints.
-- **Phase 2a/2b:** 2 different independent raters check and correct V4 pipeline output, timed. Phase 2a = MA fields only. Phase 2b = all fields.
+- **Phase 1a:** 2 independent raters (not the PI) extract the 19 MA fields manually from source PDFs, timed, before pipeline is run. Establishes temporally blinded ground truth for primary accuracy endpoints. Evaluative field disagreements (RoB, GRADE) resolved by arbitrator before lock.
+- **Phase 2a/2b:** 2 different independent raters check and correct V4 pipeline output, timed. V4 field values visible; `_critic` audit trail not shown. Phase 2a = MA fields only. Phase 2b = all fields.
 - **Phase 3:** Blinded arbitrator resolves all rater-pair discrepancies, rates quality and usability. Produces final validated paper library.
 
-**Primary endpoints:** MA field exact-match rate (V4 vs Phase 1a ground truth) + time saving (Phase 1a time vs Phase 2a time per paper).
+**Crossover design (time comparison):** Papers 1–15: Pair A does Phase 1a, Pair B does Phase 2a. Papers 16–30: swap. Within-rater paired comparison — eliminates rater speed confound.
 
-**Secondary endpoints:** Overall error rate, validated 30-paper library, pilot meta-analysis (V4-extracted fields → pooled estimate vs Cochrane benchmark).
+**Primary endpoints:** MA field exact-match rate (V4 vs Phase 1a ground truth, Wilson CI) + time saving (within-rater Wilcoxon signed-rank test).
 
-**Preliminary test run:** 5 HFrEF beta-blocker trials (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST) will be used to rehearse the full workflow and calibrate timing estimates before formal data collection. Not part of the formal study dataset.
+**Secondary endpoints:** Overall error rate, validated 30-paper library, pilot meta-analysis (arbitrated V4 output → DerSimonian–Laird pooled estimate vs Cochrane benchmark), error taxonomy distribution (descriptive), critic utility (net accuracy contribution), model agnosticism study (alternative extractor, same schema, same post-processing).
+
+**Exclusions:** The 10 Phase 0 papers (ORBITA, HIP ATTACK, SPORT ×2, UK FASHIoN, PROFHER, SCOT-HEART, OPTIMAS, SYNTAX, TKR) are excluded from the formal 30 — pipeline was iteratively tuned on them.
+
+**Preliminary test run:** 5 HFrEF beta-blocker trials (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST) will rehearse the full workflow and calibrate timing estimates. Not part of the formal study dataset.
 
 **UI needed (all new):** Phase 1a blind extraction form, Phase 2a/2b timed review interface, Phase 3 arbitration UI, study management dashboard. See FEATURES.md.
 
@@ -170,7 +174,10 @@ The old Phase 0 / Phase 1 pilot → ablation study design has been superseded. N
 4. **Critic audit analysis**: `_critic.patches` audit trail cross-referenced with Phase 1a ground truth → critic net accuracy on quality fields without an ablation study.
 5. **Pilot meta-analysis** (5-paper gen surg subset): pooled estimate vs Cochrane benchmark.
 
-**Target journals:** JAMIA, JBI, npj Digital Medicine, BMJ Open.
+**Publication strategy (3 outputs):**
+1. **Paper 1 — Methodology** (JAMIA or JCE): V4 architecture, schema-as-product framing, critic mechanism, audit trail
+2. **Paper 2 — Surgical validation** (BJS or Annals of Surgery): 30-paper prospective validation, accuracy + time saving, crossover design
+3. **Data paper** (Scientific Data or BMJ Open): 30-paper validated extraction library
 
 ---
 
