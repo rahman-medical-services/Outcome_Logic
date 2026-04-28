@@ -148,13 +148,17 @@ Each rater pair appears in both Phase 1a and Phase 2a conditions, on different p
 
 **Phase 1a per-paper time:** From first opening the source PDF to final field recorded. Recorded by rater per paper.
 
-**Phase 2a per-paper time:** From receiving pipeline output to final corrected MA field recorded. Recorded by rater per paper.
+**Phase 2a per-paper time (`phase2a_seconds`):** From first interaction with the pipeline output to Phase 2a submission (MA fields only). Recorded separately from Phase 2b. A rater cannot begin Phase 2b until Phase 2a is submitted and locked — the sessions are sequentially gated, not combined.
 
-**Pipeline run time:** V4 pipeline run time per paper is recorded automatically as `_runtime_seconds` in the V4 output JSON. This is a measured variable, not a fixed estimate.
+**Phase 2b per-paper time (`phase2b_seconds`):** From first interaction with the Phase 2b interface (non-MA fields) to Phase 2b submission. Timer starts fresh after Phase 2a is locked. Stored separately. Reports additional burden of full-field review — not used in the primary time comparison.
 
-**Reported metric:** Median within-rater time (Phase 1a papers) vs median within-rater time (Phase 2a papers), with IQR. Reported as absolute minutes saved and percentage reduction. Additional metric: total time to first extraction-ready output (pipeline run time + Phase 2a time) vs Phase 1a manual extraction time.
+**Pipeline run time:** V4 pipeline run time per paper is recorded automatically as `_runtime_seconds` in the V4 output JSON. Measured variable, not a fixed estimate.
 
-**Crossover assignment:** See Section 2.2. Time analyses use paired within-rater comparisons, not unpaired between-rater comparisons.
+**Primary time comparison:** `phase1a_seconds` vs `phase2a_seconds` — MA fields only, within-rater paired Wilcoxon signed-rank test. This is the clean apples-to-apples comparison: manual extraction of 19 MA fields vs pipeline-assisted verification of those same 19 fields.
+
+**Secondary time metric:** `phase2a_seconds + phase2b_seconds` = total Phase 2 burden per paper. `_runtime_seconds + phase2a_seconds` = total time to MA-ready output (pipeline run + human verification).
+
+**Crossover assignment:** See Section 2.2. All time analyses use paired within-rater comparisons.
 
 ---
 

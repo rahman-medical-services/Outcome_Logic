@@ -147,18 +147,20 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 **Effort:** ~3–4 hrs. New page (`public/phase1a.html` or equivalent).
 **Schema change needed:** `study_grades` table needs `rater_id`, `phase` ('1a'/'2a'/'2b'/'3'), `time_seconds` columns. Or new table `study_phase1a_extractions`.
 
-### ⬜ Phase 2a/2b UI — Pipeline output review form (timed)
-**Status:** ~50% — `pilot.html` covers much of this but lacks timing, rater identity, and phase mode.
-**What it is:** Shows V4 pipeline output alongside source paper link. Rater checks each field, marks match_status, adds correction if needed. Timed per paper.
-**Required additions to `pilot.html`:**
+### ⬜ Phase 2a/2b UI — Pipeline output review form (separately timed)
+**Status:** ~50% — `pilot.html` covers much of this but lacks timing, rater identity, and phase separation.
+**What it is:** Shows V4 pipeline output alongside source paper link. Rater checks each field, marks match_status, adds correction if needed. **Phase 2a and Phase 2b are separately timed and separately submitted — they are not one combined session.**
+**Critical timing requirement:**
+- **Phase 2a** (MA fields only): rater sees only the 19 MA fields. Timer runs from first interaction to Phase 2a submit. Time stored as `phase2a_seconds`. This is the primary time comparison endpoint (vs `phase1a_seconds`).
+- **Phase 2b** (remaining fields): unlocks only after Phase 2a is submitted and locked for that rater. Rater now sees all non-MA fields. Separate timer starts fresh. Time stored as `phase2b_seconds`. Reports additional burden of full-field review.
+- A rater cannot access Phase 2b until Phase 2a is submitted. There is no combined mode.
+**Other required features:**
 - Rater login / rater_id
-- Phase selector: 2a (MA fields only) vs 2b (all fields)
-- Per-paper timer: visible countdown and total time recorded on submit
-- In Phase 2a mode: show only 19 MA fields, hide all others
-- In Phase 2b mode: show all fields
-- Save per-rater (two separate rater sessions per paper, each stored independently)
+- V4 field values shown; `_critic` audit trail NOT shown (key blinding requirement)
+- Two separate rater records stored independently per paper
 - Cannot view the other rater's grades until both have submitted (blinding within Phase 2)
-**Effort:** ~2 hrs of additions to existing `pilot.html`.
+- Auto-save per field within each phase session
+**Effort:** ~2–3 hrs of additions to existing `pilot.html`.
 
 ### ⬜ Phase 3 arbitration UI
 **Status:** Not started.
@@ -178,7 +180,7 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 - Paper table: phase 1a (rater A done? rater B done?), phase 2a (rater A done? rater B done?), phase 2b (same), phase 3 (arbitrated?)
 - Click-through to open any paper in the relevant UI for the current phase
 - **Crossover assignment display:** Papers 1–15 show Pair A→Phase 1a / Pair B→Phase 2a; papers 16–30 show swap. Rater identity enforced in Phase 1a and Phase 2a UIs (rater only sees their assigned papers).
-- **Export button:** Downloads all Phase 3 arbitrated outputs as structured JSON. Must include per paper: all 19 MA field arbitrated values, match_status per field, Phase 1a ground truth values (both raters), Phase 2a rater corrections (both raters), Phase 3 arbitrator decision, Phase 1a time per rater, Phase 2a time per rater, pipeline `_runtime_seconds`. This export is the meta-analysis input dataset and the validated library asset.
+- **Export button:** Downloads all Phase 3 arbitrated outputs as structured JSON. Must include per paper per rater: all 19 MA field arbitrated values, match_status per field, Phase 1a ground truth values (both raters), Phase 2a rater corrections (both raters), Phase 2b rater corrections (both raters), Phase 3 arbitrator decision, `phase1a_seconds` (per rater), `phase2a_seconds` (per rater — separately timed, MA fields only), `phase2b_seconds` (per rater — separately timed, non-MA fields only), pipeline `_runtime_seconds`. Primary time comparison uses `phase1a_seconds` vs `phase2a_seconds` only; `phase2b_seconds` is reported separately as additional burden for full-field review. This export is the meta-analysis input dataset and the validated library asset.
 **Effort:** ~2–3 hrs. Extension of existing `study.html`.
 
 ### ⬜ Supabase schema update for multi-phase, multi-rater study
@@ -186,7 +188,8 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 **New tables needed:**
 - `validation_papers` — the 30 formal papers (separate from `study_papers` which has Phase 0 data). Fields: id, title, pmid, doi, pdf_sha256, crossover_assignment ('a_phase1a' | 'a_phase2a'), phase1a_locked (bool), phase2a_locked (bool), phase3_locked (bool).
 - `phase1a_extractions` — manual extraction records. Fields: id, paper_id, rater_id, field_name, extracted_value, cannot_determine (bool), time_seconds (per-paper, recorded on submit), submitted_at. UNIQUE (paper_id, rater_id, field_name).
-- `phase2_grades` — pipeline correction records. Fields: id, paper_id, extraction_id (FK to study_extractions), rater_id, phase ('2a'|'2b'), field_name, match_status, correction_value, harm_severity, error_taxonomy, time_seconds (per-paper on submit), submitted_at. UNIQUE (paper_id, rater_id, phase, field_name).
+- `phase2_grades` — pipeline correction records. Fields: id, paper_id, extraction_id (FK to study_extractions), rater_id, phase ('2a'|'2b'), field_name, match_status, correction_value, harm_severity, error_taxonomy, submitted_at. UNIQUE (paper_id, rater_id, phase, field_name). Note: time is stored at the session level (per paper per phase), not per field.
+- `phase2_sessions` — one row per rater per paper per phase. Fields: id, paper_id, rater_id, phase ('2a'|'2b'), phase2a_seconds (null for 2b rows), phase2b_seconds (null for 2a rows), submitted_at. Phase 2b session cannot be created until Phase 2a session exists and is submitted. Stores the primary time data for the time endpoint.
 - `phase3_arbitrations` — final arbitrated decisions. Fields: id, paper_id, field_name, arbitrated_value, arbitrator_decision ('adopt_a'|'adopt_b'|'new_value'|'exact_match'), arbitrator_notes, quality_rating (1-5), usability_rating (1-5), arbitrated_at.
 **Effort:** ~1–2 hrs (schema design + SQL + Supabase deploy).
 **Do this first** — all UIs depend on it.
