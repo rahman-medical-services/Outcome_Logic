@@ -133,8 +133,9 @@ These must be complete before any Phase 0 paper runs.
 
 The validation study design is finalised (PROTOCOL.md v2.0). Four UI components are required. The existing `pilot.html` covers Phase 2 style (pipeline output shown to rater) but not Phase 1a (blind manual extraction) or Phase 3 (arbitration). The Supabase schema also needs updating to support multi-rater, timed, multi-phase grading.
 
-### ⬜ Phase 1a UI — Blind manual extraction form
-**Status:** Not started.
+### ✅ Phase 1a UI — Blind manual extraction form
+**Status:** Shipped Session 20 (2026-04-29). `public/phase1a.html`. Split-pane (PDF left, form right) with draggable divider and pop-out. Live timer (server-side started_at on first field write). Debounced 350ms autosave per field. Cannot determine / Uncertain flags. ⓘ reference link on rob_overall (Cochrane RoB 2.0) and grade_certainty (GRADE handbook). Completeness gate before submit. Read-only after lock. Blinding enforced at API layer (other_rater action sealed until both sessions locked).
+**Original spec retained for reference:**
 **What it is:** A per-rater, per-paper form for the 19 MA fields (Section 3.1 of PROTOCOL.md). No pipeline output is shown. Rater works from source PDF only.
 **Required features:**
 - Rater login / identity (rater_id passed to DB)
@@ -147,8 +148,9 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 **Effort:** ~3–4 hrs. New page (`public/phase1a.html` or equivalent).
 **Schema change needed:** `study_grades` table needs `rater_id`, `phase` ('1a'/'2a'/'2b'/'3'), `time_seconds` columns. Or new table `study_phase1a_extractions`.
 
-### ⬜ Phase 2a/2b UI — Pipeline output review form (separately timed)
-**Status:** ~50% — `pilot.html` covers much of this but lacks timing, rater identity, and phase separation.
+### ✅ Phase 2a/2b UI — Pipeline output review form (separately timed)
+**Status:** Shipped Session 20 (2026-04-29). `public/phase2.html`. Single-page handles both 2a and 2b sequentially; submitting 2a unlocks 2b for the same paper. Same split-pane shell as phase1a. Per field: pipeline value displayed (JSON pretty-print for arrays/objects), match_status pill row (5 pills), severity buttons 1-5, taxonomy/pipeline_section/root_cause_stage selects, correction textarea, optional notes. Detail block hidden for exact_match/cannot_determine. `_critic` audit trail and all `_<field>_source` provenance stripped server-side via stripInternalFields() before V4 output reaches the rater. Crossover-inverse visibility (Pair B does Phase 2 on a_phase1a papers). Phase 2b creation and submission gated server-side on Phase 2a being locked.
+**Original spec retained for reference:**
 **What it is:** Shows V4 pipeline output alongside source paper link. Rater checks each field, marks match_status, adds correction if needed. **Phase 2a and Phase 2b are separately timed and separately submitted — they are not one combined session.**
 **Critical timing requirement:**
 - **Phase 2a** (MA fields only): rater sees only the 19 MA fields. Timer runs from first interaction to Phase 2a submit. Time stored as `phase2a_seconds`. This is the primary time comparison endpoint (vs `phase1a_seconds`).
@@ -161,6 +163,13 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 - Cannot view the other rater's grades until both have submitted (blinding within Phase 2)
 - Auto-save per field within each phase session
 **Effort:** ~2–3 hrs of additions to existing `pilot.html`.
+
+### ✅ Validation admin UI — paper management + PDF upload
+**Status:** Shipped Session 20 (2026-04-29). `public/validation-admin.html`. Login (admin role required). List, add, edit, delete papers; toggle is_active/is_preliminary; set crossover_assignment; upload PDFs to Supabase Storage (≤9 MB raw via base64) or paste an external URL. Delete cascades all phase data + clears the paper's PDF folder from Storage.
+**Gaps to close next session:**
+- `v4_extraction_id` field is not surfaced in the edit form. Currently requires SQL UPDATE to attach a V4 pipeline run to a validation paper before Phase 2 grading is testable. Adding a free-text field plus a "pick from study_extractions" dropdown is the planned fix.
+- "Run V4 on this paper" button — would let admin trigger a V4 pipeline run against the uploaded PDF directly, instead of running V4 via study.html and copying the extraction id. Quality-of-life; not blocking.
+- No rater management UI yet. Add/edit raters via SQL. Suitable while the rater set is closed and small.
 
 ### ⬜ Phase 3 arbitration UI
 **Status:** Not started.
@@ -183,8 +192,9 @@ The validation study design is finalised (PROTOCOL.md v2.0). Four UI components 
 - **Export button:** Downloads all Phase 3 arbitrated outputs as structured JSON. Must include per paper per rater: all 19 MA field arbitrated values, match_status per field, Phase 1a ground truth values (both raters), Phase 2a rater corrections (both raters), Phase 2b rater corrections (both raters), Phase 3 arbitrator decision, `phase1a_seconds` (per rater), `phase2a_seconds` (per rater — separately timed, MA fields only), `phase2b_seconds` (per rater — separately timed, non-MA fields only), pipeline `_runtime_seconds`. Primary time comparison uses `phase1a_seconds` vs `phase2a_seconds` only; `phase2b_seconds` is reported separately as additional burden for full-field review. This export is the meta-analysis input dataset and the validated library asset.
 **Effort:** ~2–3 hrs. Extension of existing `study.html`.
 
-### ⬜ Supabase schema update for multi-phase, multi-rater study
-**Status:** Not started. Existing schema supports Phase 0 (single-rater grading). Needs full rewrite for 3-phase design.
+### ✅ Supabase schema update for multi-phase, multi-rater study
+**Status:** Shipped Session 20 (2026-04-29). `supabase/schema-validation.sql` — 8 tables + view + trigger function. Coexists with schema-study.sql (separate tables; only link is application-level `validation_papers.v4_extraction_id`). Flexibility-first design: TEXT for all categoricals, no CHECK constraints, ON DELETE CASCADE on FKs, soft-delete via `is_active`. **Lock down before formal study** — switch FKs to RESTRICT, add CHECK on enums. Companion files: `supabase/setup-storage-bucket.sql` (creates `validation-pdfs` public bucket, 20 MB cap, PDF only) and `supabase/seed-pi-rater.sql` (idempotent PI tester seed). NOT YET DEPLOYED to live Supabase — PI must run all three via SQL Editor.
+**Original spec retained for reference:**
 **New tables needed:**
 - `validation_papers` — the 30 formal papers (separate from `study_papers` which has Phase 0 data). Fields: id, title, pmid, doi, pdf_sha256, crossover_assignment ('a_phase1a' | 'a_phase2a'), phase1a_locked (bool), phase2a_locked (bool), phase3_locked (bool).
 - `phase1a_extractions` — manual extraction records. Fields: id, paper_id, rater_id, field_name, extracted_value, cannot_determine (bool), time_seconds (per-paper, recorded on submit), submitted_at. UNIQUE (paper_id, rater_id, field_name).
@@ -399,7 +409,8 @@ Currently only Node 4 has a timeout (`NODE4_TIMEOUT_MS = 45000`). Per-call timeo
 
 ## Notes
 
-- **Priority for next session (Session 17):** Re-run all 20 papers with V4 on the post-Session-16 build. Verify (a) `arm_a_n` / `arm_b_n` populated on canonical key (no more legacy `n_arm_a` keys anywhere); (b) no fabricated MD/SMD per-arm values; (c) `_critic.patches_applied` reflects substantive patches only with `verifications_count` separate; (d) provenance tags present on critic-corrected fields. Re-run 5×5 stability — type oscillation should be gone. Then deploy schema and begin Phase 0 grading. See HANDOVER.md Priority Order.
+- **Priority for next session (Session 21):** (1) PI smoke-tests the validation stack end-to-end on one preliminary paper — schema deploy → admin upload PDF → SQL-set v4_extraction_id → Phase 1a grade + submit → Phase 2a grade + submit → Phase 2b grade + submit. Report wiring issues. (2) Add `v4_extraction_id` setter to validation-admin form (~15 min, removes the SQL step). (3) Build Phase 3 arbitration UI + study management dashboard with JSON export. (4) Lock-down before formal study: CHECK constraints on enums, FKs to RESTRICT, strip phase1a role from PI, verify preliminary-paper PMIDs. See HANDOVER.md "Priority Order".
+- **Priority for previous session (Session 17):** Re-run all 20 papers with V4 on the post-Session-16 build. Verify (a) `arm_a_n` / `arm_b_n` populated on canonical key (no more legacy `n_arm_a` keys anywhere); (b) no fabricated MD/SMD per-arm values; (c) `_critic.patches_applied` reflects substantive patches only with `verifications_count` separate; (d) provenance tags present on critic-corrected fields. Re-run 5×5 stability — type oscillation should be gone. Then deploy schema and begin Phase 0 grading.
 - **Session 16 (2026-04-27 — meta-analysis hardening):** External Opus critique addressed. 5 fixes shipped on `claude/meta-analysis-hardening`: canonicaliseLegacyKeys (resolved the false "PDF-to-text limitation" diagnosis — 40 candidates were stranded in legacy keys, now migrated to canonical and legacy keys deleted); coerceNumericFields scope extended to include arm_*_value, arm_*_sd, value, point_estimate, ci_lower, ci_upper (kills type oscillation across runs); guardMDFabrication + Rule 7 prompt update (blocks Rule 7 from manufacturing per-arm change scores from between-arm MD); applyPatches now returns `{applied, verifications, skipped}` distinguishing substantive vs no-op patches; critic-corrected candidate fields tagged with `_<field>_source = "critic_patched:<rule>"`. Fix 5 (silent run failures, ~20%) deferred — Vercel timeout, not resolvable on current Vercel plan.
 - **Session 14/15 (2026-04-24):** 3 commits on main. 7 V4 post-processing functions (coerceNumericFields, backCalculateEvents priority, backCalculateSD Cochrane §6.5.2, restoreDroppedCandidateFields, normaliseOutcomeTypes, GRADE guard, flagAmbiguousSelection). V1 prompt: canonical effect_measure labels, p_value verbatim format, primary_result_synthesis field. Full 20-paper run: V1=94%, V4=96%, arm_events 100%, SD 67%. Stability analysis complete. Commits: ca658f7, c4c1aee, f0180e1.
 - **Do not begin Phase 2 meta-analysis until Phase 0 go/no-go** (≥85% exact match on primary numeric fields)

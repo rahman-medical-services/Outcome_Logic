@@ -473,6 +473,32 @@ Format: what was tried → what happened → what the correct approach is → da
 **Rule:** LLMs may annotate numeric values with units (`%`, `mg`, `days`) as context markers. Pre-stripping known unit suffixes at the canonicalisation boundary is cleaner than extending the coercion gate. Add unit-strip logic to `canonicaliseLegacyKeys()` alongside `'null'`-strip and legacy-key migration.
 **Date:** 2026-04-27
 
+## Session 20 (2026-04-29) — Validation UI build
+
+### Browser env.js convention is `window.ENV.X`, not `window.X`
+**Tried:** Wrote new validation-study front-ends (`phase1a.html`, `validation-admin.html`) reading the API token as `window.OUTCOMELOGIC_INTERNAL_API_TOKEN`.
+**What happened:** Existing pages (`pilot.html`, `index.html`) read it as `window.ENV.INTERNAL_API_TOKEN`, set by `public/env.js` which exports a single `ENV = { INTERNAL_API_TOKEN: '...' }` object. Login worked locally for a moment because the variable was undefined (and the API token gate was silently bypassed in dev), then failed in production with "Internal API token missing." Required a follow-up commit (857b541) before phase1a.html was usable.
+**Fix:** Always check `public/env.js` for the actual exported names before referencing them in new pages. The convention is one global `window.ENV` object, not individual top-level globals. New pages: `(window.ENV && window.ENV.INTERNAL_API_TOKEN) || ''`.
+**Rule:** When adding a new front-end page that needs project secrets, grep an existing page for the env access pattern before writing a new one. Don't invent new variable names.
+**Date:** 2026-04-29
+
+### Server-side stripping of internal fields needs to be recursive and prefix-based
+**Decision:** When sending V4 pipeline output to a Phase 2 rater, the `_critic` audit trail and all `_<field>_source` provenance tags must be hidden (PROTOCOL §2.3 blinding requirement). Considered: (a) explicit allow-list of keys to remove, (b) deny-list of known internal keys.
+**Chose:** Recursive walk that drops any key starting with `_`. Captures `_critic`, `_<field>_source`, `_md_fabrication_blocked`, `_outcome_type_source` etc. without an enumerated list.
+**Why:** New internal fields will be added to V4 over time. An allow-list rots — every new internal field is a potential leak until someone updates the strip function. The `_`-prefix convention in V4 schema is consistent (no user-facing field uses underscore prefix), so prefix-based stripping is forward-compatible.
+**Cost:** Removes any future user-facing field that accidentally starts with `_`. Acceptable trade-off — discipline on naming is easy to maintain; auditing every new internal field for blinding is not.
+**Rule:** Naming conventions are cheaper to enforce than schema audits. When you need to hide a class of fields from external consumers, prefer a structural rule (prefix, suffix, attribute) over an enumerated list. Update LEARNINGS the moment the rule is established so future sessions don't break it accidentally.
+**Date:** 2026-04-29
+
+### Inline RoB / GRADE definitions in a rater UI compress the kappa signal
+**Tried:** Considered rendering brief paraphrases of "Low / Some concerns / High" and "Very low / Low / Moderate / High" inline next to the evaluative-field selects in `phase1a.html`, to reduce inter-rater noise.
+**Pushed back:** The validation study reports weighted kappa on these fields *because* expert pairs disagree by 1 level ~30-40% of the time. That variability is part of the signal — it tells you how much agreement the pipeline can plausibly hit. Anchoring two raters to the same UI paraphrase would compress that variability artificially and inflate apparent pipeline accuracy on RoB/GRADE.
+**Did instead:** Added external links only — `reference_url` + `reference_label` on the field metadata, rendered as a small ⓘ button next to the field label opening the canonical Cochrane RoB 2.0 page or the GRADE handbook in a new tab. Pre-study calibration document (separate, not in UI) is the right place for shared interpretation; the PI must write it before recruiting external raters.
+**Rule:** UI design choices that suppress study-level variability can compromise the validity of the comparison. When in doubt, surface authoritative sources rather than your own paraphrase, and keep calibration in a pre-study document, not the live grading UI.
+**Date:** 2026-04-29
+
+---
+
 ### Subgroup interactions p-value meaning is counterintuitive and must be explained explicitly
 **What happened:** HIP ATTACK Phase 0 run produced subgroup output where the interaction p-value was visible (p=0.0198) but its clinical meaning was not. The p-value does NOT test individual subgroup significance — it tests whether the treatment effect *varies* across subgroups. All individual subgroup CIs crossed 1 (i.e., no individual subgroup was statistically significant), yet the interaction was significant. This is a legitimate and important finding but was not communicated clearly.
 **Fix:** Added `cis_all_cross_one` flag to subgroup schema + UI warning box. Added `interaction_note` free-text field for the adjudicator to explain what the interaction means in plain language. Added `direction_vs_hypothesis` to surface directional consistency. Added `pre_specified` / `post_hoc` flags with colour-coded UI badges. Post-hoc subgroups (like the troponin subgroup in HIP ATTACK) are substantially less credible and must be flagged.

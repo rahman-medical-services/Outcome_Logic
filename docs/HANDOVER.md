@@ -1,8 +1,8 @@
 ---
 id: "handover"
 type: "session-handover"
-version: 13
-session: "Session 19 — 2026-04-27"
+version: 14
+session: "Session 20 — 2026-04-29"
 owner: "saqib"
 next_session_start: "Read this file first, then LEARNINGS.md, then FEATURES.md"
 ---
@@ -15,11 +15,11 @@ Read at the start of every new session before touching any code.
 
 ## Project in One Sentence
 
-OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users supply a PDF or DOI/PMID and receive a structured extraction dashboard (PICO, outcomes, risk of bias, GRADE, subgroups, adverse events, expert context). A 3-node V3 pipeline and a V4 pipeline (V1 extractor + gpt-4o-mini critic) both run; V4 is now the primary pipeline with built-in audit trail. Phase 0 validation study is in progress.
+OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users supply a PDF or DOI/PMID and receive a structured extraction dashboard (PICO, outcomes, risk of bias, GRADE, subgroups, adverse events, expert context). A 3-node V3 pipeline and a V4 pipeline (V1 extractor + gpt-4o-mini critic) both run; V4 is the primary pipeline with built-in audit trail. The validation study (PROTOCOL.md v2.0, 30 general surgery RCTs) is now in build phase: Phase 1a, Phase 2a/2b, and admin UI shipped Session 20; Phase 3 + study management dashboard pending.
 
 ---
 
-## Current State (as of 27 April 2026 — v5.4.0)
+## Current State (as of 29 April 2026 — v5.6.0)
 
 **Branch:** All work committed directly to `main`. No active feature branches.
 
@@ -37,8 +37,67 @@ OutcomeLogic is a full-stack AI-powered clinical trial analysis engine: users su
 - **api/study.js**: `dry_run: true` flag — runs pipeline without DB writes, returns full output_json (used by stability testing).
 - Node 4 (Expert Context), Supabase save/load, Phase 0 pilot UI — all functional.
 
-**⚠️ SCHEMA NOT YET DEPLOYED — must run `supabase/schema-study.sql` before grading any paper.**
-The schema was rewritten in Session 8 and updated in Session 11 (`cannot_determine` CHECK constraint). Run via Supabase Dashboard → SQL Editor.
+**⚠️ SCHEMAS NOT YET DEPLOYED:**
+1. `supabase/schema-study.sql` — the original Phase 0 schema. Must run before any V4 grading via pilot.html.
+2. `supabase/schema-validation.sql` — the new validation study schema (Session 20). Must run before any Phase 1a / Phase 2 work.
+3. `supabase/setup-storage-bucket.sql` — creates the `validation-pdfs` Supabase Storage bucket (one-time).
+4. `supabase/seed-pi-rater.sql` — inserts the PI as an all-roles testing rater (`saqib` / `test`).
+Run all four via Supabase Dashboard → SQL Editor before smoke-testing the validation UIs.
+
+---
+
+## Completed in Session 20 (2026-04-29) — Validation study foundation: schema, Phase 1a UI, admin UI, Phase 2a/2b UI
+
+The full validation study build began this session. Eight files added; no existing pipeline code touched.
+
+**Database (`supabase/`):**
+- `schema-validation.sql` — 8 tables + 1 view + 1 trigger function for the multi-rater, multi-phase, timed validation study. Coexists with `schema-study.sql`; the only link is `validation_papers.v4_extraction_id` → `study_extractions.id` at the application layer (no DB FK).
+  - Tables: `validation_raters`, `validation_papers`, `phase1a_sessions`, `phase1a_extractions`, `phase2_sessions`, `phase2_grades`, `phase3_arbitrations`, `phase3_paper_ratings`.
+  - Flexibility-first: TEXT for all categoricals (no CHECK), `ON DELETE CASCADE` on `paper_id` and `rater_id` FKs, soft-delete via `is_active`. **Lock down before formal study begins** — switch FKs to RESTRICT, add CHECK constraints on enums.
+  - Seeds the 5 HFrEF beta-blocker preliminary papers (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST). PMIDs deliberately NULL — verify against live PubMed before use (LEARNINGS.md Session 8).
+- `setup-storage-bucket.sql` — creates `validation-pdfs` public bucket (20 MB cap, application/pdf only). Idempotent.
+- `seed-pi-rater.sql` — idempotent INSERT of `saqib` as all-roles tester (`phase1a,phase2,arbitrator,admin`). PI must not hold `phase1a` role during formal study (PROTOCOL §2.3); strip before formal data collection.
+
+**Field definitions (`lib/validation-fields.js`):**
+- `MA_FIELDS` — 20 entries (PROTOCOL §3.1 with `primary_ci` split into `ci_lower`/`ci_upper`). Each carries `v4_path` for resolution from V4 JSON. `$primary.X` syntax means "look up the `selected:true` candidate in `primary_endpoint_candidates[]`, then `.X`".
+- `NON_MA_FIELDS` — 12 sectional entries (Phase 2b). Bibliographic, study design, secondary outcomes, baseline characteristics, subgroups, AE table, primary_result_synthesis, lay summary, SDM, expert context, extraction flags, source citations.
+- Shared enums: `MATCH_STATUSES` (5), `TAXONOMY` (8 classes including Class 8 Critic Regression; Class 2 deprecated in V4), `PIPELINE_SECTIONS` (3), `ROOT_CAUSE_STAGES` (5).
+- `resolveV4Path()`, `stripInternalFields()`, `extractPipelineValues()` exported. `stripInternalFields` recursively drops any key starting with `_` — captures `_critic`, `_<field>_source`, `_md_fabrication_blocked` etc. without an allow-list. Forward-compatible (any future internal `_` key is hidden automatically).
+- `rob_overall` and `grade_certainty` carry `reference_url` + `reference_label` pointing to canonical Cochrane RoB 2.0 and GRADE handbook URLs. Rendered as ⓘ links beside the field. **Deliberately no inline definitions** — anchoring two raters to a paraphrase would compress the inter-rater variability the kappa analysis is meant to capture (PROTOCOL §3.3). Pre-study calibration document is the right place for shared interpretation; not yet written.
+
+**API (`api/validation.js`):**
+- Auth model: `x-api-token` (matches existing `INTERNAL_API_TOKEN`) + `x-rater-id` + `x-rater-passphrase` headers. Stateless, no JWT, validated against `validation_raters` per request. Closed 6-rater study; sufficient.
+- `bodyParser.sizeLimit: 12mb` to allow base64 PDF upload via `admin_pdf_upload` (~9 MB raw cap).
+- Phase 1a actions: `papers`, `session`, `field_save`, `session_submit`, `other_rater`. `field_save` sets `started_at` server-side on first write. `other_rater` returns 403 unless both raters' sessions are locked (or caller has `arbitrator`/`admin` role).
+- Phase 2 actions: `phase2_papers`, `phase2_session`, `phase2_field_save`, `phase2_session_submit`. Crossover visibility is the inverse of Phase 1a (`a_phase1a` → Pair B does Phase 2; `a_phase2a` → Pair A). Phase 2b creation and submission gated server-side on Phase 2a being locked. `phase2_session` loads `study_extractions.output_json` by `paper.v4_extraction_id`, strips internals, then resolves field values.
+- Admin actions: `admin_papers_list/upsert/delete`, `admin_pdf_upload`, `admin_raters_list`. `admin_papers_delete` also clears the paper's PDF folder from Storage.
+- `fields` action returns MA + non-MA + all enums; `phase1a.html` ignores extras (consumes only `fields`).
+
+**UI (`public/`):**
+- `phase1a.html` — login → assigned papers list → split-pane grading view. PDF iframe left, blank form right, draggable divider (clamped 20-80%, persists in `sessionStorage`), pop-out PDF for second-screen users. Live timer, debounced 350ms autosave, "Cannot determine" / "Uncertain" flags per field, optional notes, completeness gate before submit (every MA field needs a value or `cannot_determine`), read-only after lock. ⓘ reference link on `rob_overall` and `grade_certainty`.
+- `phase2.html` — login → paper list (per-paper Start/Resume buttons for 2a + 2b, with 2b locked until 2a submitted) → split-pane grading view (same shell as phase1a). Pipeline value rendered per field (JSON pretty-print for arrays/objects), match_status pill row (5 pills), severity buttons 1-5, taxonomy + pipeline section + root_cause_stage dropdowns, correction textarea, optional notes. Detail block hidden for `exact_match`/`cannot_determine`. Single-page handles both 2a and 2b; submitting 2a transitions the UI state and unlocks 2b for the same paper.
+- `validation-admin.html` — paper management UI. List, add, edit, delete papers; toggle `is_active`/`is_preliminary`; set `crossover_assignment`; upload PDFs to Supabase Storage (≤9 MB raw via base64) or paste an external URL.
+
+**Decisions made this session (worth not re-litigating):**
+- **Single page handles both 2a and 2b** (not two separate pages). State-driven phase switch.
+- **Sectional non-MA fields, not granular** — 12 fields covering whole pipeline sections (subgroups as one field, AE table as one field, etc.). Avoids per-row grading bloat.
+- **JSON pretty-print for array/object pipeline values** in Phase 2. Tractable for testing; if it slows raters too much in smoke-test, we'll add structured renders per field type later.
+- **Side-by-side PDF + form is the default**; pop-out for second-screen users. Mandating multi-monitor would exclude rater pool (laptop-only clinicians).
+- **Storage bucket is public** — PDFs are published RCTs, not sensitive. Switch to private + signed URLs only if requirements change.
+- **No inline RoB/GRADE definitions** — kappa analysis depends on inter-rater variability; paraphrased anchors would compress it.
+
+**Not yet built (for next session):**
+- **Phase 3 arbitration UI** (`public/phase3.html`) — side-by-side Rater A / Rater B / pipeline display with discrepancy highlighting, arbitrator decision per field, paper-level quality + usability ratings.
+- **Study management dashboard** — extension of `validation-admin.html`. Paper progress matrix across all phases, click-through to relevant UI per phase, **JSON export** (the meta-analysis input dataset and validated library asset).
+- **`v4_extraction_id` setter in admin form** — currently the admin UI does not surface this field. Smoke-testing requires SQL update or a quick form addition. **Will add as the first thing in next session.**
+- **"Run V4 from validation-admin" button** — would let the PI trigger a V4 pipeline run on a validation paper directly, instead of running V4 via study.html and copying the extraction id. Quality-of-life; not blocking.
+
+**Smoke-test status (PI to do before further build):**
+1. Run all four SQL files in Supabase SQL Editor.
+2. Visit `/validation-admin.html`, log in as `saqib` / `test`, upload a PDF to one of the 5 preliminary papers, set `v4_extraction_id` (currently via SQL — see above).
+3. Visit `/phase1a.html`, grade and submit one paper end-to-end.
+4. Visit `/phase2.html`, grade Phase 2a → submit → grade Phase 2b → submit.
+5. Report any wiring issues before next session.
 
 ---
 
@@ -332,46 +391,44 @@ Returns: { v4: v1Result, v1: v1Snapshot }
 
 ## Priority Order — Next Sessions
 
-### Exclusive focus: Validation study UI (all 4 components, fully tested)
+### Smoke-test gate (PI action required before further build)
 
-All four UI components must be **built, working, and tested by the PI** before the formal study begins. Nothing else should be started until all four are done and the preliminary test run (5 beta-blocker papers) has been completed by the PI end-to-end.
+The validation study foundation is built but **not yet smoke-tested**. The PI must run the schema files, upload a PDF, and complete one paper end-to-end through Phase 1a + Phase 2a + Phase 2b before Phase 3 lands on top. See "Smoke-test status" in Session 20 block above.
 
-**Build order:**
+### Build order — remaining UI
 
-**1. Supabase schema update** (do this first — everything else depends on it)
-- New tables for multi-rater, multi-phase, timed grading
-- See FEATURES.md "Supabase schema update" for full spec
-- Old `schema-study.sql` is Phase 0 design — full rewrite needed
+**1. `v4_extraction_id` setter in `validation-admin.html`** — first thing next session. Without this, PI must SQL-update to attach a V4 run to a validation paper before Phase 2 grading is testable. Trivial form addition.
 
-**2. Phase 1a UI** (`public/phase1a.html`) — HIGHEST PRIORITY
-- Blank per-rater form for 19 MA fields (Section 3.1 of PROTOCOL.md)
-- No pipeline output visible at any point — not even after submission
-- Built-in per-paper timer (starts on first field input, stops on submit)
-- Rater login (rater_id stored with every record)
-- Rater cannot see the other rater's submission for the same paper until both have submitted
-- Auto-save per field; explicit submit to lock
-- See FEATURES.md for full field list and spec
-
-**3. Phase 2a/2b UI** (additions to `public/pilot.html`)
-- Rater login, phase selector (2a = MA fields only, 2b = all fields)
-- Per-paper timer
-- V4 field values shown; `_critic` audit trail NOT shown (key blinding requirement)
-- Two separate rater records stored independently per paper
-- See FEATURES.md spec
-
-**4. Phase 3 arbitration UI** (`public/phase3.html`)
-- Side-by-side: V4 output / Rater A / Rater B per field
+**2. Phase 3 arbitration UI** (`public/phase3.html`) — last grading UI.
+- Side-by-side per field: V4 pipeline value / Rater A correction / Rater B correction (with match_status from each)
 - Discrepancy highlighting (amber = raters disagree, green = same correction, grey = both exact_match)
-- Arbitrator selects: adopt A / adopt B / new value / confirm exact_match
-- Overall quality and usability rating per paper (1–5)
-- Submit locks paper as final validated output
-- See FEATURES.md spec
+- Arbitrator decision per field: adopt A / adopt B / new value / exact_match_confirmed / both_correct
+- Paper-level quality + usability ratings (1–5)
+- Submit locks paper. arbitrated_value becomes the validated ground truth for the library + pilot meta-analysis.
+- New API actions on `api/validation.js`: `phase3_paper_progress` (which papers are ready for arbitration), `phase3_session` (load discrepancy view), `phase3_decision_save`, `phase3_paper_lock`.
 
-**5. Study management dashboard** (additions to `public/study.html`)
-- Paper table with phase completion status per rater
-- Click-through to open paper in relevant phase UI
-- **Export button**: downloads all Phase 3 arbitrated outputs as structured JSON (this is the meta-analysis input dataset and the validated library asset)
-- Export must include: all 19 MA fields (arbitrated values), match_status per field, Phase 1a ground truth values, Phase 2 rater corrections, Phase 3 arbitrator decision, per-paper Phase 1a and Phase 2a times, pipeline `_runtime_seconds`
+**3. Study management dashboard** — extension of `validation-admin.html` (or new tab on it).
+- Paper progress matrix across all phases (Phase 1a A/B done, Phase 2a A/B done, Phase 2b A/B done, Phase 3 done)
+- Click-through to open the paper in the appropriate UI for the next phase
+- Crossover assignment display (Pair A→1a / Pair B→1a)
+- **Export button** — JSON download of all arbitrated paper data. This export is the meta-analysis input dataset and the validated-library product. Must include: per paper per rater all 19 MA values + match_status from each phase, Phase 3 arbitrated values, all phase timings, pipeline `_runtime_seconds`.
+
+**4. Lock-down before formal study** (after smoke-test passes):
+- Add CHECK constraints on `match_status`, `error_taxonomy`, `pipeline_section`, `crossover_assignment` etc. in `schema-validation.sql`
+- Switch FK `ON DELETE CASCADE` to `ON DELETE RESTRICT`
+- Strip `phase1a` role from PI's rater (PROTOCOL §2.3)
+- Verify and populate PMIDs for the 5 preliminary papers
+
+### Acceptance gate — preliminary test run
+
+Before recruiting formal study raters, the PI must complete the full workflow on the 5 beta-blocker papers (CIBIS-II, MERIT-HF, COPERNICUS, SENIORS, BEST) using the built UIs:
+1. PI runs Phase 1a extraction on all 5 papers (manually, using Phase 1a UI, timed)
+2. V4 pipeline run on all 5 papers
+3. Phase 2a + 2b review of pipeline output (PI or colleague, using Phase 2 UI, timed)
+4. Phase 3 arbitration (any disagreements)
+5. Export arbitrated output and run pilot meta-analysis vs Shibata Cochrane review
+
+If any UI component fails, breaks, or produces unusable export data during this test, fix before proceeding. The test run is the acceptance test.
 
 **Crossover assignment (implement in study management view):**
 - Papers 1–15: Rater Pair A assigned to Phase 1a; Rater Pair B assigned to Phase 2a
@@ -457,3 +514,4 @@ The two products reinforce each other: the tool generates library entries at sca
 - Session 19 (2026-04-27): PROTOCOL.md v2.0 finalised + product/publication strategy set. Protocol: (1) PI excluded from Phase 1a entirely; (2) Phase 0 papers excluded from formal 30 — selection bias; (3) Crossover design formalised (papers 1–15 Pair A does Phase 1a, papers 16–30 Pair A does Phase 2a) — within-rater paired time comparison; (4) Evaluative field arbitration procedure for Phase 1a; (5) Phase 2 blinding explicit (_critic trail not shown); (6) N=30 justification: ±3% Wilson CI overall, per-field descriptive only; (7) Secondary endpoints: descriptive breakdowns, model agnosticism pre-specified; (8) Pilot MA: arbitrated output, DerSimonian–Laird pre-specified; (9) Pipeline runtime → _runtime_seconds in V4 JSON; (10) Reporting: STARD-informed. Strategy: two products (OutcomeLogic the tool + the validated library as a growing database), one outcomes paper (methods + validation results, target BJS/Annals/JAMIA). No methodology-only paper; no data paper.
 - Session 17 (2026-04-27): Pre-Phase 0 fixes. 3 deterministic fixes + uncertain_fields feature: (1) CI null-guard in applyPatches() — blocks critic overwriting non-null ci_lower/ci_upper (fixes SYNTAX ci_upper regression); (2) enforceOutcomeTypeForRatioMeasures() — HR always time_to_event post-patch, no LLM override (fixes ISCHEMIA critic regression); (3) uncertain_fields three-state signal — null=not reported, null+uncertain_fields=irresolvable conflict, value=confident. Critic now emits uncertain_candidate_fields; V1 prompt includes UNCERTAINTY RULE. (4) % strip in canonicaliseLegacyKeys for arm value/SD fields. Verified against 20-paper export: CI guard correct, HR enforcement correct, 0 false-positive uncertain_fields. EXCEL RD CI scale instability remains at V1 level — Phase 0 grading annotation. Meta-analysis completeness: effect_measure/value/outcome_type 100%; CI ~90%; arm N ~85%; SD ~65% (largest gap). Pipeline ready for Phase 0.
 - Session 14/15 (2026-04-24): Full 20-paper V4 re-run. Analysed SPORT arm_n (structural gap, correct null). Identified arm_events coverage artefact (V1 uses events_arm_a, V4 uses arm_a_events — both present = 100% coverage). Verified external LLM claims against primary data (ChatGPT EXCEL ci_lower claim wrong). 7 fixes: coerceNumericFields, backCalculateEvents priority (direct > back-calc), backCalculateSD (Cochrane §6.5.2), provenance tags, primary_result_synthesis in V1, canonical effect_measure labels, p_value format. SCOT-HEART regression fixed (restoreDroppedCandidateFields + Rule 9 prompt guard). Stability analysis: 4 fixes (normaliseOutcomeTypes, SD plausibility guard 1.75×, GRADE guard, flagAmbiguousSelection). Final scores V1=94%, V4=96%. Commits: ca658f7, c4c1aee, f0180e1.
+- Session 20 (2026-04-29): Validation study foundation built. (1) supabase/schema-validation.sql: 8 tables + view + trigger fn for multi-rater, multi-phase, timed validation study; coexists with schema-study.sql via app-level v4_extraction_id link. Flexibility-first (TEXT, no CHECK, CASCADE FKs); lock down before formal study. Seeds 5 HFrEF beta-blocker preliminary papers. (2) supabase/setup-storage-bucket.sql + seed-pi-rater.sql for one-time setup. (3) lib/validation-fields.js: 20 MA fields with v4_path, 12 sectional non-MA fields, taxonomy/match_status/section enums, resolveV4Path + stripInternalFields + extractPipelineValues helpers. (4) api/validation.js: passphrase auth via headers; Phase 1a actions (papers/session/field_save/session_submit/other_rater); Phase 2 actions (phase2_papers/session/field_save/session_submit) with crossover-inverse visibility and 2b-gated-on-2a server-side; admin actions (papers CRUD + pdf_upload + raters list); fields action returns all enums. (5) public/phase1a.html: split-pane PDF + form, draggable divider, pop-out, autosave, ⓘ refs on RoB+GRADE. (6) public/phase2.html: same shell, with pipeline value display + match_status pill row + severity buttons + taxonomy/section/root_cause selects + correction textarea, single page handles 2a + 2b sequentially. (7) public/validation-admin.html: paper management with Storage upload. Decisions: single page for 2a+2b; sectional non-MA; JSON pretty-print for arrays; no inline RoB/GRADE definitions (kappa preservation); side-by-side default not multi-screen mandate; public Storage bucket. Smoke-test pending. Phase 3 + study management dashboard + v4_extraction_id setter + lock-down still to do. Commits: 2441210, 857b541, 9530212, eb35f62.
