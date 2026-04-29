@@ -30,6 +30,23 @@
     .pill-mute  { background: #1e293b; color: #94a3b8; }
 
     .section-header { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 0.4rem; margin-bottom: 0.6rem; }
+
+    /* split layout for the grading view */
+    .split-container { display: flex; height: calc(100vh - 3.25rem); }
+    .split-pdf       { flex-shrink: 0; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #1f2937; background: #0f172a; }
+    .split-divider   { width: 4px; background: #334155; cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+    .split-divider:hover, .split-divider.dragging { background: #64748b; }
+    .split-form      { flex: 1; min-width: 0; overflow-y: auto; }
+    .split-pdf-toolbar { padding: 0.4rem 0.6rem; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: #94a3b8; }
+    .split-pdf-frame   { flex: 1; border: 0; background: #1e293b; width: 100%; }
+    .split-pdf-fallback { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; color: #64748b; font-size: 0.875rem; text-align: center; }
+    .form-toolbar    { padding: 0.6rem 1rem; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; background: #0f172a; position: sticky; top: 0; z-index: 10; }
+    .form-content    { padding: 1rem 1.5rem 4rem; max-width: 56rem; }
+    .icon-btn        { font-size: 0.7rem; padding: 0.2rem 0.55rem; border-radius: 0.25rem; background: #1e293b; border: 1px solid #334155; color: #cbd5e1; cursor: pointer; }
+    .icon-btn:hover  { background: #334155; }
+    .ref-link        { font-size: 0.7rem; color: #60a5fa; text-decoration: none; padding: 0.05rem 0.4rem; border: 1px solid #334155; border-radius: 0.25rem; margin-left: 0.4rem; white-space: nowrap; }
+    .ref-link:hover  { background: #1e3a5f; color: #93c5fd; }
+    body.is-dragging { user-select: none; cursor: col-resize; }
   </style>
 </head>
 <body class="min-h-screen">
@@ -48,10 +65,10 @@
     </div>
   </header>
 
-  <main class="max-w-6xl mx-auto px-6 py-6">
+  <main>
 
     <!-- ── LOGIN VIEW ─────────────────────────────────────────────────── -->
-    <section id="view-login" class="max-w-sm mx-auto mt-16">
+    <section id="view-login" class="max-w-sm mx-auto mt-16 px-6">
       <h1 class="text-xl font-semibold text-white mb-1">Rater login</h1>
       <p class="text-sm text-slate-400 mb-6">Use the rater ID and passphrase you were given.</p>
       <form id="login-form" class="space-y-3">
@@ -69,7 +86,7 @@
     </section>
 
     <!-- ── PAPER LIST VIEW ────────────────────────────────────────────── -->
-    <section id="view-papers" class="hidden">
+    <section id="view-papers" class="hidden max-w-6xl mx-auto px-6 py-6">
       <div class="flex items-center justify-between mb-4">
         <h1 class="text-lg font-semibold text-white">Papers assigned to you for Phase 1a</h1>
         <span id="papers-count" class="text-xs text-slate-400"></span>
@@ -89,34 +106,66 @@
       <div id="papers-list" class="space-y-2"></div>
     </section>
 
-    <!-- ── EXTRACTION VIEW ────────────────────────────────────────────── -->
+    <!-- ── EXTRACTION VIEW (full-width split) ──────────────────────────── -->
     <section id="view-extract" class="hidden">
-      <div class="flex items-center justify-between mb-3">
-        <button onclick="goBackToPapers()" class="text-xs text-slate-400 hover:text-white">← Back to paper list</button>
-        <div class="flex items-center gap-2">
-          <span id="progress-pill" class="pill pill-mute">0 / 20</span>
-          <span id="locked-pill" class="hidden pill pill-good">Submitted — read-only</span>
+      <div class="split-container" id="split-container">
+
+        <!-- PDF pane -->
+        <div id="pdf-pane" class="split-pdf" style="width: 50%">
+          <div class="split-pdf-toolbar">
+            <span id="pdf-toolbar-label" class="truncate">PDF</span>
+            <div class="flex items-center gap-1">
+              <button class="icon-btn" onclick="popOutPdf()" title="Open PDF in a new window and hide this panel">↗ Pop out</button>
+            </div>
+          </div>
+          <iframe id="pdf-iframe" class="split-pdf-frame" referrerpolicy="no-referrer"></iframe>
+          <div id="pdf-fallback" class="hidden split-pdf-fallback">
+            No PDF attached to this paper. Ask the study admin to upload one, or use the source-of-record link if you have it.
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div id="split-divider" class="split-divider" title="Drag to resize"></div>
+
+        <!-- Form pane -->
+        <div id="form-pane" class="split-form">
+
+          <!-- Sticky form toolbar: back, breadcrumb, progress -->
+          <div class="form-toolbar">
+            <div class="flex items-center gap-3 min-w-0">
+              <button onclick="goBackToPapers()" class="text-xs text-slate-400 hover:text-white">← Papers</button>
+              <span id="form-paper-label" class="text-sm font-medium text-white truncate"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="show-pdf-btn" class="hidden icon-btn" onclick="showPdfPanel()" title="Show the embedded PDF panel again">Show PDF panel</button>
+              <span id="progress-pill" class="pill pill-mute">0 / 20</span>
+              <span id="locked-pill" class="hidden pill pill-good">Submitted — read-only</span>
+            </div>
+          </div>
+
+          <div class="form-content">
+            <div id="paper-meta" class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-5">
+              <h2 id="paper-title" class="text-base font-semibold text-white"></h2>
+              <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+                <span id="paper-pmid"></span>
+                <span id="paper-doi"></span>
+                <a id="paper-pdf-link" target="_blank" class="hidden text-blue-400 hover:text-blue-300 underline">Open PDF in new tab</a>
+              </div>
+            </div>
+
+            <div id="fields-container" class="space-y-6"></div>
+
+            <div id="submit-row" class="mt-8 flex items-center justify-between gap-4 border-t border-slate-700 pt-5">
+              <p id="submit-help" class="text-xs text-slate-400">Fill all 20 fields (use "Cannot determine" for fields the paper does not report) before submitting.</p>
+              <button id="submit-btn" disabled onclick="doSubmit()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded">
+                Submit & lock
+              </button>
+            </div>
+            <p id="submit-error" class="hidden mt-2 text-xs text-red-400"></p>
+          </div>
+
         </div>
       </div>
-
-      <div id="paper-meta" class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-5">
-        <h2 id="paper-title" class="text-base font-semibold text-white"></h2>
-        <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
-          <span id="paper-pmid"></span>
-          <span id="paper-doi"></span>
-          <a id="paper-pdf-link" target="_blank" class="hidden text-blue-400 hover:text-blue-300 underline">Open PDF</a>
-        </div>
-      </div>
-
-      <div id="fields-container" class="space-y-6"></div>
-
-      <div id="submit-row" class="mt-8 flex items-center justify-between gap-4 border-t border-slate-700 pt-5">
-        <p id="submit-help" class="text-xs text-slate-400">Fill all 20 fields (use "Cannot determine" for fields the paper does not report) before submitting.</p>
-        <button id="submit-btn" disabled onclick="doSubmit()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded">
-          Submit & lock
-        </button>
-      </div>
-      <p id="submit-error" class="hidden mt-2 text-xs text-red-400"></p>
     </section>
 
   </main>
@@ -277,6 +326,9 @@
 
     window.goBackToPapers = async function () {
       stopTimer();
+      // Stop the iframe from loading/holding the previous PDF
+      const iframe = document.getElementById('pdf-iframe');
+      if (iframe) iframe.removeAttribute('src');
       // Refresh the paper list so the latest session status (e.g. "Submitted") shows.
       try {
         const p = await api('papers');
@@ -333,6 +385,26 @@
       }
       $('#paper-breadcrumb').textContent = '— ' + (p.short_label || p.title?.slice(0, 60) || '');
       $('#paper-breadcrumb').classList.remove('hidden');
+      $('#form-paper-label').textContent = p.short_label || p.title?.slice(0, 80) || '';
+
+      // PDF pane: load iframe or show fallback
+      const iframe   = $('#pdf-iframe');
+      const fallback = $('#pdf-fallback');
+      const tlabel   = $('#pdf-toolbar-label');
+      if (p.pdf_url) {
+        iframe.src = p.pdf_url;
+        iframe.classList.remove('hidden');
+        fallback.classList.add('hidden');
+        tlabel.textContent = p.pdf_filename || 'PDF';
+      } else {
+        iframe.removeAttribute('src');
+        iframe.classList.add('hidden');
+        fallback.classList.remove('hidden');
+        tlabel.textContent = 'No PDF';
+      }
+
+      // Restore split state for this rater (popped-out vs panel, panel width)
+      applySplitState();
     }
 
     // ── Field rendering ───────────────────────────────────────────────
@@ -376,9 +448,15 @@
 
       const labelRow = document.createElement('div');
       labelRow.className = 'flex items-start justify-between gap-3 mb-1.5';
+      const refLink = f.reference_url
+        ? `<a href="${escapeAttr(f.reference_url)}" target="_blank" rel="noopener" class="ref-link" title="Open ${escapeAttr(f.reference_label || 'reference')} in a new tab">ⓘ ${escapeHtml(f.reference_label || 'reference')}</a>`
+        : '';
       labelRow.innerHTML = `
         <div>
-          <div class="text-sm font-medium text-slate-100">${escapeHtml(f.label)}</div>
+          <div class="text-sm font-medium text-slate-100 flex items-center flex-wrap gap-y-1">
+            <span>${escapeHtml(f.label)}</span>
+            ${refLink}
+          </div>
           ${f.help ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(f.help)}</div>` : ''}
           ${f.applies_to ? `<div class="text-xs text-amber-400 mt-0.5">Applies to: ${escapeHtml(f.applies_to)}</div>` : ''}
         </div>
@@ -612,6 +690,112 @@
       }
     };
 
+    // ── Split-pane: divider drag, pop-out, restore ───────────────────
+    const SPLIT_KEY = 'phase1a-split';
+    function getSplitState() {
+      try {
+        const raw = sessionStorage.getItem(SPLIT_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) { /* ignore */ }
+      return { pdfWidthPct: 50, popped: false };
+    }
+    function setSplitState(s) {
+      try { sessionStorage.setItem(SPLIT_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+    }
+    function applySplitState() {
+      const s = getSplitState();
+      const pdfPane = $('#pdf-pane');
+      const divider = $('#split-divider');
+      const showBtn = $('#show-pdf-btn');
+      const hasPdf  = !!state.currentPaper?.pdf_url;
+
+      // No PDF available: hide pane + divider regardless of saved state
+      if (!hasPdf) {
+        pdfPane.style.display = 'none';
+        divider.style.display = 'none';
+        showBtn.classList.add('hidden');
+        return;
+      }
+      // Popped out: hide embedded pane, show "Show PDF panel" button
+      if (s.popped) {
+        pdfPane.style.display = 'none';
+        divider.style.display = 'none';
+        showBtn.classList.remove('hidden');
+        return;
+      }
+      // Embedded: show pane at saved width
+      pdfPane.style.display = 'flex';
+      divider.style.display = 'block';
+      showBtn.classList.add('hidden');
+      const pct = clampPct(s.pdfWidthPct);
+      pdfPane.style.width = pct + '%';
+    }
+    function clampPct(p) {
+      const n = Number(p);
+      if (!Number.isFinite(n)) return 50;
+      return Math.max(20, Math.min(80, n));
+    }
+
+    window.popOutPdf = function () {
+      const url = state.currentPaper?.pdf_url;
+      if (!url) return;
+      // Open in a new window (or tab — browser decides). Don't block on success;
+      // if popup is blocked the user can use the "Open PDF in new tab" link.
+      window.open(url, '_blank', 'noopener,noreferrer');
+      const s = getSplitState();
+      s.popped = true;
+      setSplitState(s);
+      applySplitState();
+    };
+    window.showPdfPanel = function () {
+      const s = getSplitState();
+      s.popped = false;
+      setSplitState(s);
+      applySplitState();
+    };
+
+    // Divider drag — wired once at boot, operates on the elements when present.
+    function initDividerDrag() {
+      const divider = $('#split-divider');
+      const container = $('#split-container');
+      const pdfPane = $('#pdf-pane');
+      if (!divider || !container || !pdfPane) return;
+
+      let dragging = false;
+      const onDown = (e) => {
+        // Only start if pane is visible
+        if (pdfPane.style.display === 'none') return;
+        dragging = true;
+        divider.classList.add('dragging');
+        document.body.classList.add('is-dragging');
+        e.preventDefault();
+      };
+      const onMove = (e) => {
+        if (!dragging) return;
+        const rect = container.getBoundingClientRect();
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const pct = clampPct((x / rect.width) * 100);
+        pdfPane.style.width = pct + '%';
+      };
+      const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        divider.classList.remove('dragging');
+        document.body.classList.remove('is-dragging');
+        const widthPx = pdfPane.getBoundingClientRect().width;
+        const totalPx = container.getBoundingClientRect().width || 1;
+        const s = getSplitState();
+        s.pdfWidthPct = clampPct((widthPx / totalPx) * 100);
+        setSplitState(s);
+      };
+      divider.addEventListener('mousedown',  onDown);
+      divider.addEventListener('touchstart', onDown, { passive: false });
+      window.addEventListener('mousemove',   onMove);
+      window.addEventListener('touchmove',   onMove, { passive: false });
+      window.addEventListener('mouseup',     onUp);
+      window.addEventListener('touchend',    onUp);
+    }
+
     // ── Utils ─────────────────────────────────────────────────────────
     function escapeHtml(s) {
       return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -620,6 +804,7 @@
 
     // ── Boot ──────────────────────────────────────────────────────────
     (async () => {
+      initDividerDrag();
       if (!state.apiToken) {
         $('#login-error').textContent = 'Internal API token missing. Check public/env.js.';
         $('#login-error').classList.remove('hidden');
