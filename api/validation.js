@@ -29,7 +29,12 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { MA_FIELDS, MA_FIELD_IDS } from '../lib/validation-fields.js';
+import {
+  MA_FIELDS, MA_FIELD_IDS,
+  NON_MA_FIELDS, NON_MA_FIELD_IDS,
+  MATCH_STATUSES, TAXONOMY, PIPELINE_SECTIONS, ROOT_CAUSE_STAGES,
+  extractPipelineValues, stripInternalFields,
+} from '../lib/validation-fields.js';
 
 // 12 MB cap accommodates PDFs up to ~9 MB raw after base64 inflation.
 // For larger PDFs, paste an external URL into pdf_url instead.
@@ -108,6 +113,32 @@ function paperVisibleForPhase1a(paper, rater) {
   return false;
 }
 
+// Phase 2 visibility = inverse of Phase 1a for non-preliminary papers.
+//   crossover_assignment='a_phase1a' → Pair A did Phase 1a → Pair B does Phase 2
+//   crossover_assignment='a_phase2a' → Pair B did Phase 1a → Pair A does Phase 2
+//   is_preliminary=true              → both pairs see it (rehearsal)
+function paperVisibleForPhase2(paper, rater) {
+  if (!paper.is_active) return false;
+  if (paper.is_preliminary) return true;
+  if (!rater.pair) return false;
+  if (paper.crossover_assignment === 'a_phase1a' && rater.pair === 'B') return true;
+  if (paper.crossover_assignment === 'a_phase2a' && rater.pair === 'A') return true;
+  return false;
+}
+
+// Pull the V4 extraction record's output_json for a given paper.
+// Returns null if no V4 run is linked yet.
+async function loadV4Output(supabase, paper) {
+  if (!paper.v4_extraction_id) return null;
+  const { data, error } = await supabase
+    .from('study_extractions')
+    .select('id, output_json, generated_at, version')
+    .eq('id', paper.v4_extraction_id)
+    .maybeSingle();
+  if (error) throw new Error('study_extractions: ' + error.message);
+  return data || null;
+}
+
 // ─────────────────────────────────────────────
 // Handler
 // ─────────────────────────────────────────────
@@ -125,9 +156,17 @@ export default async function handler(req, res) {
 
   const supabase = getAdminClient();
 
-  // Public action: field list (still requires API token)
+  // Public action: field list + grading enums (still requires API token).
+  // phase1a.html consumes only `fields`; phase2.html consumes everything.
   if (action === 'fields' && req.method === 'GET') {
-    return res.status(200).json({ fields: MA_FIELDS });
+    return res.status(200).json({
+      fields:            MA_FIELDS,
+      non_ma_fields:     NON_MA_FIELDS,
+      match_statuses:    MATCH_STATUSES,
+      taxonomy:          TAXONOMY,
+      pipeline_sections: PIPELINE_SECTIONS,
+      root_cause_stages: ROOT_CAUSE_STAGES,
+    });
   }
 
   // Login: validate passphrase, return rater info (no session token — client
@@ -406,6 +445,296 @@ export default async function handler(req, res) {
       sessions: otherSessions,
       extractions: extractions || [],
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // PHASE 2 ACTIONS (phase2 role required)
+  // ─────────────────────────────────────────────────────────────────────
+
+  // ── phase2_papers: list of papers visible to this rater for Phase 2,
+  //                   plus their 2a/2b session status.
+  if (action === 'phase2_papers' && req.method === 'GET') {
+    if (!raterHasRole(rater, 'phase2')) {
+      return res.status(403).json({ error: 'Rater does not have Phase 2 role.' });
+    }
+    const { data: papers, error } = await supabase
+      .from('validation_papers')
+      .select('id, paper_number, short_label, title, pmid, doi, pdf_url, pdf_filename, is_preliminary, crossover_assignment, v4_extraction_id, is_active')
+      .order('is_preliminary', { ascending: false })
+      .order('paper_number',   { ascending: true, nullsFirst: false });
+    if (error) return res.status(500).json({ error: error.message });
+
+    const visible = (papers || []).filter(p => paperVisibleForPhase2(p, rater));
+    const ids = visible.map(p => p.id);
+    let sessions = [];
+    if (ids.length) {
+      const { data: sess, error: sErr } = await supabase
+        .from('phase2_sessions')
+        .select('paper_id, phase, started_at, submitted_at, time_seconds, locked')
+        .eq('rater_id', rater.rater_id)
+        .in('paper_id', ids);
+      if (sErr) return res.status(500).json({ error: sErr.message });
+      sessions = sess || [];
+    }
+    const byPaper = {};
+    for (const s of sessions) {
+      byPaper[s.paper_id] = byPaper[s.paper_id] || {};
+      byPaper[s.paper_id][s.phase] = s;
+    }
+    return res.status(200).json({
+      rater,
+      papers: visible.map(p => ({
+        ...p,
+        my_phase2a: byPaper[p.id]?.['2a'] || null,
+        my_phase2b: byPaper[p.id]?.['2b'] || null,
+        pipeline_run: !!p.v4_extraction_id,
+      })),
+    });
+  }
+
+  // ── phase2_session: fetch/create session for (paper, rater, phase),
+  //                    return paper, fields, pipeline_values, existing grades
+  if (action === 'phase2_session' && req.method === 'GET') {
+    if (!raterHasRole(rater, 'phase2')) {
+      return res.status(403).json({ error: 'Rater does not have Phase 2 role.' });
+    }
+    const paperId = req.query.paper_id;
+    const phase   = req.query.phase;
+    if (!paperId || !phase) return res.status(400).json({ error: 'paper_id and phase required.' });
+    if (phase !== '2a' && phase !== '2b') return res.status(400).json({ error: 'phase must be 2a or 2b.' });
+
+    const { data: paper, error: pErr } = await supabase
+      .from('validation_papers')
+      .select('id, paper_number, short_label, title, pmid, doi, pdf_url, pdf_filename, is_preliminary, crossover_assignment, v4_extraction_id, is_active')
+      .eq('id', paperId)
+      .maybeSingle();
+    if (pErr)   return res.status(500).json({ error: pErr.message });
+    if (!paper) return res.status(404).json({ error: 'Paper not found.' });
+    if (!paperVisibleForPhase2(paper, rater)) {
+      return res.status(403).json({ error: 'Paper not assigned to this rater for Phase 2.' });
+    }
+    if (!paper.v4_extraction_id) {
+      return res.status(409).json({ error: 'Pipeline has not run on this paper yet — cannot start Phase 2.' });
+    }
+
+    // Phase 2b gating: 2a must be locked first for this rater
+    if (phase === '2b') {
+      const { data: priorA, error: gErr } = await supabase
+        .from('phase2_sessions')
+        .select('locked')
+        .eq('paper_id', paperId)
+        .eq('rater_id', rater.rater_id)
+        .eq('phase', '2a')
+        .maybeSingle();
+      if (gErr) return res.status(500).json({ error: gErr.message });
+      if (!priorA || !priorA.locked) {
+        return res.status(409).json({ error: 'Phase 2b is locked until you submit Phase 2a for this paper.' });
+      }
+    }
+
+    // Get-or-create the session row
+    const { data: existing, error: getErr } = await supabase
+      .from('phase2_sessions')
+      .select('*')
+      .eq('paper_id', paperId)
+      .eq('rater_id', rater.rater_id)
+      .eq('phase', phase)
+      .maybeSingle();
+    if (getErr) return res.status(500).json({ error: getErr.message });
+
+    let session = existing;
+    if (!session) {
+      const { data: created, error: cErr } = await supabase
+        .from('phase2_sessions')
+        .insert({
+          paper_id:      paperId,
+          rater_id:      rater.rater_id,
+          phase,
+          extraction_id: paper.v4_extraction_id,
+        })
+        .select('*')
+        .single();
+      if (cErr) return res.status(500).json({ error: cErr.message });
+      session = created;
+    }
+
+    // Load V4 output, strip _critic / provenance
+    let v4Output = null;
+    try {
+      const v4 = await loadV4Output(supabase, paper);
+      if (v4 && v4.output_json) v4Output = stripInternalFields(v4.output_json);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+
+    // Build the field set for this phase + extracted pipeline values
+    const fields = phase === '2a' ? MA_FIELDS : NON_MA_FIELDS;
+    const pipelineValues = extractPipelineValues(v4Output, fields);
+
+    // Existing grades for this rater + phase
+    const { data: grades, error: grErr } = await supabase
+      .from('phase2_grades')
+      .select('field_name, v4_value, match_status, correction_value, harm_severity, error_taxonomy, pipeline_section, root_cause_stage, notes')
+      .eq('paper_id', paperId)
+      .eq('rater_id', rater.rater_id)
+      .eq('phase', phase);
+    if (grErr) return res.status(500).json({ error: grErr.message });
+
+    return res.status(200).json({
+      paper,
+      session,
+      phase,
+      fields,
+      pipeline_values: pipelineValues,
+      grades: grades || [],
+    });
+  }
+
+  // ── phase2_field_save: upsert one grade; sets started_at on first save
+  if (action === 'phase2_field_save' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'phase2')) {
+      return res.status(403).json({ error: 'Rater does not have Phase 2 role.' });
+    }
+    const {
+      paper_id, phase, field_name,
+      v4_value,
+      match_status, correction_value,
+      harm_severity, error_taxonomy,
+      pipeline_section, root_cause_stage,
+      notes,
+    } = req.body || {};
+    if (!paper_id || !phase || !field_name) {
+      return res.status(400).json({ error: 'paper_id, phase, field_name required.' });
+    }
+    if (phase !== '2a' && phase !== '2b') {
+      return res.status(400).json({ error: 'phase must be 2a or 2b.' });
+    }
+    const validFieldIds = phase === '2a' ? MA_FIELD_IDS : NON_MA_FIELD_IDS;
+    if (!validFieldIds.includes(field_name)) {
+      return res.status(400).json({ error: `Unknown field_name for ${phase}: ${field_name}` });
+    }
+
+    // Verify session exists, not locked
+    const { data: session, error: sErr } = await supabase
+      .from('phase2_sessions')
+      .select('id, started_at, locked')
+      .eq('paper_id', paper_id)
+      .eq('rater_id', rater.rater_id)
+      .eq('phase', phase)
+      .maybeSingle();
+    if (sErr)     return res.status(500).json({ error: sErr.message });
+    if (!session) return res.status(400).json({ error: 'No active session — open the paper first.' });
+    if (session.locked) return res.status(400).json({ error: 'Session already submitted.' });
+
+    if (!session.started_at) {
+      const { error: stErr } = await supabase
+        .from('phase2_sessions')
+        .update({ started_at: new Date().toISOString() })
+        .eq('id', session.id);
+      if (stErr) return res.status(500).json({ error: stErr.message });
+    }
+
+    const v4Snapshot = (v4_value === undefined || v4_value === null)
+      ? null
+      : (typeof v4_value === 'string' ? v4_value : JSON.stringify(v4_value));
+
+    const payload = {
+      paper_id,
+      rater_id:         rater.rater_id,
+      phase,
+      field_name,
+      v4_value:         v4Snapshot,
+      match_status:     match_status || null,
+      correction_value: correction_value ?? null,
+      harm_severity:    harm_severity == null ? null : Number(harm_severity),
+      error_taxonomy:   error_taxonomy || null,
+      pipeline_section: pipeline_section || null,
+      root_cause_stage: root_cause_stage || null,
+      notes:            notes ?? null,
+    };
+    const { error: upErr } = await supabase
+      .from('phase2_grades')
+      .upsert(payload, { onConflict: 'paper_id,rater_id,phase,field_name' });
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── phase2_session_submit: lock session, compute time_seconds.
+  //    For 2a: requires every MA field to have a match_status set.
+  //    For 2b: requires every NON_MA field to have a match_status set,
+  //    AND requires phase 2a to be locked already (re-checked here even
+  //    though session_session blocks 2b creation pre-2a).
+  if (action === 'phase2_session_submit' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'phase2')) {
+      return res.status(403).json({ error: 'Rater does not have Phase 2 role.' });
+    }
+    const { paper_id, phase } = req.body || {};
+    if (!paper_id || !phase) return res.status(400).json({ error: 'paper_id and phase required.' });
+    if (phase !== '2a' && phase !== '2b') return res.status(400).json({ error: 'phase must be 2a or 2b.' });
+
+    if (phase === '2b') {
+      const { data: prior, error: pErr } = await supabase
+        .from('phase2_sessions')
+        .select('locked')
+        .eq('paper_id', paper_id)
+        .eq('rater_id', rater.rater_id)
+        .eq('phase', '2a')
+        .maybeSingle();
+      if (pErr) return res.status(500).json({ error: pErr.message });
+      if (!prior || !prior.locked) {
+        return res.status(409).json({ error: 'Phase 2a must be submitted before Phase 2b can be locked.' });
+      }
+    }
+
+    const { data: session, error: sErr } = await supabase
+      .from('phase2_sessions')
+      .select('id, started_at, locked')
+      .eq('paper_id', paper_id)
+      .eq('rater_id', rater.rater_id)
+      .eq('phase', phase)
+      .maybeSingle();
+    if (sErr)     return res.status(500).json({ error: sErr.message });
+    if (!session) return res.status(400).json({ error: 'No session to submit.' });
+    if (session.locked) return res.status(400).json({ error: 'Session already locked.' });
+    if (!session.started_at) return res.status(400).json({ error: 'Session has not been started.' });
+
+    const fieldIds = phase === '2a' ? MA_FIELD_IDS : NON_MA_FIELD_IDS;
+    const { data: grades, error: gErr } = await supabase
+      .from('phase2_grades')
+      .select('field_name, match_status')
+      .eq('paper_id', paper_id)
+      .eq('rater_id', rater.rater_id)
+      .eq('phase', phase);
+    if (gErr) return res.status(500).json({ error: gErr.message });
+    const have = new Map((grades || []).map(g => [g.field_name, g]));
+    const missing = [];
+    for (const fid of fieldIds) {
+      const g = have.get(fid);
+      if (!g || !g.match_status) missing.push(fid);
+    }
+    if (missing.length) {
+      return res.status(400).json({
+        error: 'Cannot submit — incomplete fields.',
+        missing_fields: missing,
+      });
+    }
+
+    const submittedAt = new Date();
+    const startedAt   = new Date(session.started_at);
+    const timeSeconds = Math.max(0, Math.round((submittedAt - startedAt) / 1000));
+
+    const { error: lockErr } = await supabase
+      .from('phase2_sessions')
+      .update({
+        submitted_at: submittedAt.toISOString(),
+        time_seconds: timeSeconds,
+        locked:       true,
+      })
+      .eq('id', session.id);
+    if (lockErr) return res.status(500).json({ error: lockErr.message });
+
+    return res.status(200).json({ ok: true, time_seconds: timeSeconds });
   }
 
   // ─────────────────────────────────────────────────────────────────────

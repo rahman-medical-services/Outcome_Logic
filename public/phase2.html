@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Phase 2 (Pipeline output review)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+
+    .field-card { border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; border-left-width: 3px; padding: 0.875rem 1rem; }
+    .field-card.complete   { border-left-color: #16a34a; }
+    .field-card.incomplete { border-left-color: #d97706; }
+    .field-card.saved-flash { border-color: #16a34a; transition: border-color 0.4s; }
+
+    input[type=text], input[type=number], input[type=password], textarea, select {
+      background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+      border-radius: 0.375rem; padding: 0.4rem 0.6rem; font-size: 0.875rem; width: 100%;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #3b82f6; }
+    textarea { resize: vertical; min-height: 3.5rem; }
+    .pill { font-size: 0.7rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+    .pill-info { background: #1e3a5f; color: #93c5fd; }
+    .pill-warn { background: #713f12; color: #fde68a; }
+    .pill-good { background: #14532d; color: #86efac; }
+    .pill-mute { background: #1e293b; color: #94a3b8; }
+    .pill-bad  { background: #7f1d1d; color: #fca5a5; }
+
+    .section-header { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 0.4rem; margin-bottom: 0.6rem; }
+
+    /* match_status pill buttons (mirror pilot.html) */
+    .ms-btn { transition: all 0.15s; font-size: 0.75rem; padding: 0.2rem 0.65rem; border-radius: 9999px; border: 1px solid #334155; background: #1e293b; color: #64748b; cursor: pointer; }
+    .ms-btn.active-exact_match     { background: #166534; color: #86efac; border-color: #16a34a; }
+    .ms-btn.active-partial_match   { background: #713f12; color: #fde68a; border-color: #d97706; }
+    .ms-btn.active-fail            { background: #7f1d1d; color: #fca5a5; border-color: #dc2626; }
+    .ms-btn.active-hallucinated    { background: #4a1d96; color: #ddd6fe; border-color: #7c3aed; }
+    .ms-btn.active-cannot_determine { background: #134e4a; color: #5eead4; border-color: #0d9488; }
+
+    /* severity buttons */
+    .sev-btn { transition: all 0.15s; min-width: 2rem; font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 0.375rem; border: 1px solid #334155; background: #1e293b; color: #64748b; cursor: pointer; }
+    .sev-btn.active-1 { background: #1e293b; color: #94a3b8; border-color: #475569; }
+    .sev-btn.active-2 { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+    .sev-btn.active-3 { background: #713f12; color: #fde68a; border-color: #d97706; }
+    .sev-btn.active-4 { background: #7c2d12; color: #fdba74; border-color: #ea580c; }
+    .sev-btn.active-5 { background: #7f1d1d; color: #fca5a5; border-color: #dc2626; }
+
+    /* extracted value display */
+    .v4-val { background: #0f172a; border: 1px solid #334155; border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8125rem; color: #cbd5e1; white-space: pre-wrap; word-break: break-word; max-height: 18rem; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; }
+    .v4-val-empty { color: #64748b; font-style: italic; font-family: inherit; }
+
+    .ref-link { font-size: 0.7rem; color: #60a5fa; text-decoration: none; padding: 0.05rem 0.4rem; border: 1px solid #334155; border-radius: 0.25rem; margin-left: 0.4rem; white-space: nowrap; }
+    .ref-link:hover { background: #1e3a5f; color: #93c5fd; }
+
+    /* split layout */
+    .split-container { display: flex; height: calc(100vh - 3.25rem); }
+    .split-pdf       { flex-shrink: 0; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #1f2937; background: #0f172a; }
+    .split-divider   { width: 4px; background: #334155; cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+    .split-divider:hover, .split-divider.dragging { background: #64748b; }
+    .split-form      { flex: 1; min-width: 0; overflow-y: auto; }
+    .split-pdf-toolbar { padding: 0.4rem 0.6rem; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: #94a3b8; }
+    .split-pdf-frame   { flex: 1; border: 0; background: #1e293b; width: 100%; }
+    .split-pdf-fallback { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; color: #64748b; font-size: 0.875rem; text-align: center; }
+    .form-toolbar    { padding: 0.6rem 1rem; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; background: #0f172a; position: sticky; top: 0; z-index: 10; }
+    .form-content    { padding: 1rem 1.5rem 4rem; max-width: 56rem; }
+    .icon-btn        { font-size: 0.7rem; padding: 0.2rem 0.55rem; border-radius: 0.25rem; background: #1e293b; border: 1px solid #334155; color: #cbd5e1; cursor: pointer; }
+    .icon-btn:hover  { background: #334155; }
+    body.is-dragging { user-select: none; cursor: col-resize; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="font-semibold text-white">Phase 2</span>
+      <span class="text-slate-500 text-sm">— Pipeline output review</span>
+      <span id="paper-breadcrumb" class="hidden text-xs text-slate-400 ml-2"></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="timer-display" class="hidden text-xs font-mono px-2 py-1 rounded bg-slate-800 text-slate-200">00:00</span>
+      <span id="rater-info" class="text-xs text-slate-400"></span>
+      <button id="logout-btn" onclick="doLogout()" class="hidden text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-800">Logout</button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- LOGIN -->
+    <section id="view-login" class="max-w-sm mx-auto mt-16 px-6">
+      <h1 class="text-xl font-semibold text-white mb-1">Rater login</h1>
+      <p class="text-sm text-slate-400 mb-6">Use the rater ID and passphrase you were given.</p>
+      <form id="login-form" class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400">Rater ID</label>
+          <input type="text" id="login-rater-id" autocomplete="username" required />
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Passphrase</label>
+          <input type="password" id="login-passphrase" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded">Sign in</button>
+        <p id="login-error" class="hidden text-xs text-red-400"></p>
+      </form>
+    </section>
+
+    <!-- PAPER LIST -->
+    <section id="view-papers" class="hidden max-w-6xl mx-auto px-6 py-6">
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-lg font-semibold text-white">Papers assigned to you for Phase 2</h1>
+        <span id="papers-count" class="text-xs text-slate-400"></span>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700 rounded-lg p-3 mb-4 text-xs text-slate-300 leading-relaxed">
+        <p class="font-medium text-slate-200 mb-1">How this works</p>
+        <ul class="list-disc list-inside space-y-0.5 text-slate-400">
+          <li>For each paper, you will check the pipeline's extracted values against the source PDF and grade each field.</li>
+          <li><span class="text-amber-300">Phase 2a</span> (MA fields, ~20) is timed first. <span class="text-amber-300">Phase 2b</span> (non-MA fields) unlocks once you submit 2a.</li>
+          <li>Each field auto-saves. Mark match status, add a correction if non-exact, severity 1–5, and the error class.</li>
+          <li>You will not see the pipeline's internal critic notes — your judgement should be independent.</li>
+        </ul>
+      </div>
+
+      <div id="papers-list" class="space-y-2"></div>
+    </section>
+
+    <!-- EXTRACTION (split-pane grading) -->
+    <section id="view-extract" class="hidden">
+      <div class="split-container" id="split-container">
+
+        <div id="pdf-pane" class="split-pdf" style="width: 50%">
+          <div class="split-pdf-toolbar">
+            <span id="pdf-toolbar-label" class="truncate">PDF</span>
+            <div class="flex items-center gap-1">
+              <button class="icon-btn" onclick="popOutPdf()" title="Open PDF in a new window and hide this panel">↗ Pop out</button>
+            </div>
+          </div>
+          <iframe id="pdf-iframe" class="split-pdf-frame" referrerpolicy="no-referrer"></iframe>
+          <div id="pdf-fallback" class="hidden split-pdf-fallback">
+            No PDF attached to this paper. Ask the study admin to upload one.
+          </div>
+        </div>
+
+        <div id="split-divider" class="split-divider" title="Drag to resize"></div>
+
+        <div id="form-pane" class="split-form">
+
+          <div class="form-toolbar">
+            <div class="flex items-center gap-3 min-w-0">
+              <button onclick="goBackToPapers()" class="text-xs text-slate-400 hover:text-white">← Papers</button>
+              <span id="form-paper-label" class="text-sm font-medium text-white truncate"></span>
+              <span id="phase-pill" class="pill pill-info">Phase 2a</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="show-pdf-btn" class="hidden icon-btn" onclick="showPdfPanel()">Show PDF panel</button>
+              <span id="progress-pill" class="pill pill-mute">0 / 0</span>
+              <span id="locked-pill" class="hidden pill pill-good">Submitted</span>
+            </div>
+          </div>
+
+          <div class="form-content">
+            <div id="paper-meta" class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-5">
+              <h2 id="paper-title" class="text-base font-semibold text-white"></h2>
+              <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+                <span id="paper-pmid"></span>
+                <span id="paper-doi"></span>
+                <a id="paper-pdf-link" target="_blank" class="hidden text-blue-400 hover:text-blue-300 underline">Open PDF in new tab</a>
+              </div>
+            </div>
+
+            <div id="fields-container" class="space-y-6"></div>
+
+            <div id="submit-row" class="mt-8 flex items-center justify-between gap-4 border-t border-slate-700 pt-5">
+              <p id="submit-help" class="text-xs text-slate-400">Set match status on every field before submitting.</p>
+              <button id="submit-btn" disabled onclick="doSubmit()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded">
+                Submit & lock phase
+              </button>
+            </div>
+            <p id="submit-error" class="hidden mt-2 text-xs text-red-400"></p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    const state = {
+      apiToken:   (window.ENV && window.ENV.INTERNAL_API_TOKEN) || '',
+      rater:      null,
+      passphrase: null,
+      maFields:   [],
+      nonMaFields: [],
+      matchStatuses:   [],
+      taxonomy:        [],
+      pipelineSections: [],
+      rootCauseStages: [],
+      papers:     [],
+      currentPaper:   null,
+      currentSession: null,
+      currentPhase:   null,    // '2a' | '2b'
+      currentFields:  [],
+      pipelineValues: {},      // field_name → v4 value (any type)
+      currentGrades:  {},      // field_name → grade row
+      timerInterval:  null,
+      saveDebounces:  {},
+    };
+    const $ = sel => document.querySelector(sel);
+    const showView = id => {
+      ['view-login','view-papers','view-extract'].forEach(v => $('#'+v).classList.add('hidden'));
+      $('#'+id).classList.remove('hidden');
+    };
+
+    async function api(action, opts = {}) {
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-api-token':  state.apiToken,
+      };
+      if (state.rater) {
+        headers['x-rater-id']         = state.rater.rater_id;
+        headers['x-rater-passphrase'] = state.passphrase;
+      }
+      const url = `/api/validation?action=${encodeURIComponent(action)}` +
+                  (opts.query ? '&' + new URLSearchParams(opts.query).toString() : '');
+      const r = await fetch(url, {
+        method:  opts.method || 'GET',
+        headers,
+        body:    opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      return data;
+    }
+
+    // ── Login ──────────────────────────────────────────────────────
+    async function tryRestore() {
+      const saved = sessionStorage.getItem('phase2-rater');
+      if (!saved) return false;
+      try {
+        const { rater, passphrase } = JSON.parse(saved);
+        if (!rater.roles?.includes('phase2')) return false;
+        state.rater = rater; state.passphrase = passphrase;
+        await loadAll();
+        return true;
+      } catch (e) {
+        sessionStorage.removeItem('phase2-rater');
+        return false;
+      }
+    }
+
+    $('#login-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      $('#login-error').classList.add('hidden');
+      const rater_id   = $('#login-rater-id').value.trim();
+      const passphrase = $('#login-passphrase').value;
+      try {
+        const r = await fetch('/api/validation?action=login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-token': state.apiToken },
+          body: JSON.stringify({ rater_id, passphrase }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        if (!d.roles?.includes('phase2')) throw new Error('This rater does not have the Phase 2 role.');
+        state.rater = d; state.passphrase = passphrase;
+        sessionStorage.setItem('phase2-rater', JSON.stringify({ rater: d, passphrase }));
+        await loadAll();
+      } catch (err) {
+        $('#login-error').textContent = err.message;
+        $('#login-error').classList.remove('hidden');
+      }
+    });
+
+    window.doLogout = function () {
+      sessionStorage.removeItem('phase2-rater');
+      state.rater = null; state.passphrase = null;
+      stopTimer();
+      $('#logout-btn').classList.add('hidden');
+      $('#rater-info').textContent = '';
+      $('#paper-breadcrumb').classList.add('hidden');
+      showView('view-login');
+    };
+
+    async function loadAll() {
+      const f = await api('fields');
+      state.maFields         = f.fields           || [];
+      state.nonMaFields      = f.non_ma_fields    || [];
+      state.matchStatuses    = f.match_statuses   || [];
+      state.taxonomy         = f.taxonomy         || [];
+      state.pipelineSections = f.pipeline_sections || [];
+      state.rootCauseStages  = f.root_cause_stages || [];
+
+      const p = await api('phase2_papers');
+      state.papers = p.papers || [];
+      $('#rater-info').textContent = `${state.rater.display_name} (${state.rater.rater_id}, pair ${state.rater.pair || '—'})`;
+      $('#logout-btn').classList.remove('hidden');
+      renderPapers();
+      showView('view-papers');
+    }
+
+    function renderPapers() {
+      const list = $('#papers-list');
+      list.innerHTML = '';
+      $('#papers-count').textContent = `${state.papers.length} paper${state.papers.length === 1 ? '' : 's'}`;
+      if (!state.papers.length) {
+        list.innerHTML = '<p class="text-sm text-slate-400 px-1">No papers assigned yet.</p>';
+        return;
+      }
+      for (const p of state.papers) {
+        const tag = p.is_preliminary
+          ? '<span class="pill pill-info">Preliminary</span>'
+          : (p.paper_number ? `<span class="pill pill-mute">#${p.paper_number}</span>` : '');
+
+        const phase2aPill = sessionPill('2a', p.my_phase2a, p.pipeline_run);
+        const phase2bPill = sessionPill('2b', p.my_phase2b, !!p.my_phase2a?.locked);
+
+        const div = document.createElement('div');
+        div.className = 'bg-slate-800/60 border border-slate-700 rounded-lg p-3 hover:border-slate-500 flex items-center justify-between';
+        div.innerHTML = `
+          <div class="min-w-0 mr-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              ${tag}
+              <span class="text-sm font-medium text-white">${escapeHtml(p.short_label || '(unlabelled)')}</span>
+              ${p.pipeline_run ? '' : '<span class="pill pill-warn">No pipeline run yet</span>'}
+            </div>
+            <div class="text-xs text-slate-400 mt-1 line-clamp-2">${escapeHtml(p.title || '')}</div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            ${phase2aPill}
+            ${phase2bPill}
+          </div>
+        `;
+        list.appendChild(div);
+      }
+    }
+
+    function sessionPill(phase, sess, available) {
+      const phaseLabel = `Phase ${phase}`;
+      if (!available) {
+        return `<button class="btn-disabled px-3 py-1.5 text-xs rounded border border-slate-700 bg-slate-800 text-slate-600 cursor-not-allowed" disabled title="${phase === '2a' ? 'Pipeline must run first' : 'Submit Phase 2a first'}">${phaseLabel} 🔒</button>`;
+      }
+      if (sess && sess.locked) {
+        const m = Math.floor((sess.time_seconds || 0) / 60);
+        const s = (sess.time_seconds || 0) % 60;
+        return `<button class="px-3 py-1.5 text-xs rounded border border-emerald-700 bg-emerald-900/40 text-emerald-300" onclick="event.stopPropagation()" disabled>${phaseLabel} ✓ ${m}m ${s}s</button>`;
+      }
+      const label = sess && sess.started_at ? `Resume ${phaseLabel}` : `Start ${phaseLabel}`;
+      const cls = sess && sess.started_at
+        ? 'border-amber-700 bg-amber-900/40 text-amber-300 hover:bg-amber-800/40'
+        : 'border-blue-700 bg-blue-900/40 text-blue-300 hover:bg-blue-800/40';
+      // We need to find paper id from outer scope at click — embed it
+      // via data attribute on a button.
+      return `<button class="px-3 py-1.5 text-xs rounded border ${cls}" data-action="open" data-phase="${phase}">${label}</button>`;
+    }
+
+    // Delegate clicks on paper-list buttons (start/resume) to openPaper(...)
+    $('#papers-list').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-action="open"]');
+      if (!btn) return;
+      const card = btn.closest('div.bg-slate-800\\/60');
+      // Find which paper this card represents — match by short_label text
+      // (not robust). Better: store paper id on the button.
+    });
+
+    // Re-render papers list with paper id stored on the button so the
+    // delegate handler can find it. Simpler: rebuild renderPapers with
+    // a data-paper-id on the button.
+    function rerenderPapersWithIds() {
+      const list = $('#papers-list');
+      list.innerHTML = '';
+      for (const p of state.papers) {
+        const tag = p.is_preliminary
+          ? '<span class="pill pill-info">Preliminary</span>'
+          : (p.paper_number ? `<span class="pill pill-mute">#${p.paper_number}</span>` : '');
+        const a = sessionButton(p, '2a', p.my_phase2a, p.pipeline_run);
+        const b = sessionButton(p, '2b', p.my_phase2b, !!p.my_phase2a?.locked);
+        const div = document.createElement('div');
+        div.className = 'bg-slate-800/60 border border-slate-700 rounded-lg p-3 flex items-center justify-between';
+        div.innerHTML = `
+          <div class="min-w-0 mr-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              ${tag}
+              <span class="text-sm font-medium text-white">${escapeHtml(p.short_label || '(unlabelled)')}</span>
+              ${p.pipeline_run ? '' : '<span class="pill pill-warn">No pipeline run yet</span>'}
+            </div>
+            <div class="text-xs text-slate-400 mt-1 line-clamp-2">${escapeHtml(p.title || '')}</div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0" id="actions-${p.id}"></div>
+        `;
+        list.appendChild(div);
+        const actions = div.querySelector(`#actions-${CSS.escape(p.id)}`);
+        actions.appendChild(a);
+        actions.appendChild(b);
+      }
+    }
+
+    function sessionButton(paper, phase, sess, available) {
+      const phaseLabel = `Phase ${phase}`;
+      const btn = document.createElement('button');
+      btn.className = 'px-3 py-1.5 text-xs rounded border';
+      if (!available) {
+        btn.disabled = true;
+        btn.title = phase === '2a' ? 'Pipeline must run first' : 'Submit Phase 2a first';
+        btn.classList.add('border-slate-700','bg-slate-800','text-slate-600','cursor-not-allowed');
+        btn.textContent = `${phaseLabel} 🔒`;
+        return btn;
+      }
+      if (sess && sess.locked) {
+        const m = Math.floor((sess.time_seconds || 0) / 60);
+        const s = (sess.time_seconds || 0) % 60;
+        btn.disabled = true;
+        btn.classList.add('border-emerald-700','bg-emerald-900/40','text-emerald-300');
+        btn.textContent = `${phaseLabel} ✓ ${m}m ${s}s`;
+        return btn;
+      }
+      const inProgress = sess && sess.started_at;
+      btn.classList.add(...(inProgress
+        ? ['border-amber-700','bg-amber-900/40','text-amber-300','hover:bg-amber-800/40']
+        : ['border-blue-700','bg-blue-900/40','text-blue-300','hover:bg-blue-800/40']));
+      btn.textContent = inProgress ? `Resume ${phaseLabel}` : `Start ${phaseLabel}`;
+      btn.onclick = () => openPaper(paper.id, phase);
+      return btn;
+    }
+
+    // Replace the simpler renderPapers with the id-aware version
+    window.renderPapers = rerenderPapersWithIds;
+
+    window.goBackToPapers = async function () {
+      stopTimer();
+      const iframe = document.getElementById('pdf-iframe');
+      if (iframe) iframe.removeAttribute('src');
+      try {
+        const p = await api('phase2_papers');
+        state.papers = p.papers || [];
+      } catch (e) { /* keep stale */ }
+      $('#paper-breadcrumb').classList.add('hidden');
+      rerenderPapersWithIds();
+      showView('view-papers');
+    };
+
+    // ── Open paper at a given phase ────────────────────────────────
+    async function openPaper(paperId, phase) {
+      try {
+        const data = await api('phase2_session', { query: { paper_id: paperId, phase } });
+        state.currentPaper   = data.paper;
+        state.currentSession = data.session;
+        state.currentPhase   = data.phase;
+        state.currentFields  = data.fields || [];
+        state.pipelineValues = data.pipeline_values || {};
+        state.currentGrades  = {};
+        for (const g of (data.grades || [])) state.currentGrades[g.field_name] = g;
+
+        renderPaperMeta();
+        renderFields();
+        updateProgress();
+        const phasePill = $('#phase-pill');
+        phasePill.textContent = phase === '2a' ? 'Phase 2a — MA fields' : 'Phase 2b — non-MA fields';
+        phasePill.className = 'pill ' + (phase === '2a' ? 'pill-info' : 'pill-warn');
+
+        if (state.currentSession.locked) {
+          $('#locked-pill').classList.remove('hidden');
+          $('#submit-row').classList.add('hidden');
+        } else {
+          $('#locked-pill').classList.add('hidden');
+          $('#submit-row').classList.remove('hidden');
+          startTimerFromSession();
+        }
+        showView('view-extract');
+      } catch (err) {
+        alert('Could not open paper: ' + err.message);
+      }
+    }
+
+    function renderPaperMeta() {
+      const p = state.currentPaper;
+      $('#paper-title').textContent = `${p.short_label ? p.short_label + ' — ' : ''}${p.title || ''}`;
+      $('#paper-pmid').textContent = p.pmid ? `PMID ${p.pmid}` : '';
+      $('#paper-doi').textContent  = p.doi  ? `DOI ${p.doi}`  : '';
+      const link = $('#paper-pdf-link');
+      if (p.pdf_url) { link.href = p.pdf_url; link.classList.remove('hidden'); }
+      else            { link.classList.add('hidden'); }
+      $('#paper-breadcrumb').textContent = '— ' + (p.short_label || p.title?.slice(0, 60) || '');
+      $('#paper-breadcrumb').classList.remove('hidden');
+      $('#form-paper-label').textContent = p.short_label || p.title?.slice(0, 80) || '';
+
+      const iframe = $('#pdf-iframe');
+      const fallback = $('#pdf-fallback');
+      const tlabel = $('#pdf-toolbar-label');
+      if (p.pdf_url) {
+        iframe.src = p.pdf_url;
+        iframe.classList.remove('hidden');
+        fallback.classList.add('hidden');
+        tlabel.textContent = p.pdf_filename || 'PDF';
+      } else {
+        iframe.removeAttribute('src');
+        iframe.classList.add('hidden');
+        fallback.classList.remove('hidden');
+        tlabel.textContent = 'No PDF';
+      }
+      applySplitState();
+    }
+
+    // ── Field rendering ────────────────────────────────────────────
+    function renderFields() {
+      const container = $('#fields-container');
+      container.innerHTML = '';
+      const grouped = groupBySection(state.currentFields);
+      for (const sec of grouped) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = `<div class="section-header">${escapeHtml(sec.label)}</div>`;
+        const grid = document.createElement('div');
+        grid.className = 'space-y-2.5';
+        for (const f of sec.fields) grid.appendChild(renderFieldCard(f));
+        wrap.appendChild(grid);
+        container.appendChild(wrap);
+      }
+    }
+
+    function groupBySection(fields) {
+      const labels = {
+        pico:'PICO', outcome:'Primary outcome', result:'Primary result',
+        arms:'Arm-level data', methods:'Methods (RoB inputs)', judgement:'Methodological judgement',
+        metadata:'Bibliographic + design', outcomes:'Outcomes & subgroups', narrative:'Narrative outputs',
+        context:'Expert context', flags:'Flags & citations',
+      };
+      const order = ['pico','outcome','result','arms','methods','judgement','metadata','outcomes','narrative','context','flags'];
+      const groups = {};
+      for (const f of fields) {
+        const s = f.section || 'other';
+        if (!groups[s]) groups[s] = { id: s, label: labels[s] || s, fields: [] };
+        groups[s].fields.push(f);
+      }
+      return order.map(o => groups[o]).filter(Boolean);
+    }
+
+    function renderFieldCard(f) {
+      const grade = state.currentGrades[f.id] || {};
+      const v4    = state.pipelineValues[f.id];
+      const isLocked = state.currentSession?.locked;
+
+      const card = document.createElement('div');
+      card.className = 'field-card';
+      card.id = `card-${f.id}`;
+
+      // Label row
+      const refLink = f.reference_url
+        ? `<a href="${escapeAttr(f.reference_url)}" target="_blank" rel="noopener" class="ref-link">ⓘ ${escapeHtml(f.reference_label || 'reference')}</a>`
+        : '';
+      const label = document.createElement('div');
+      label.className = 'mb-2';
+      label.innerHTML = `
+        <div class="text-sm font-medium text-slate-100 flex items-center flex-wrap gap-y-1">
+          <span>${escapeHtml(f.label)}</span>${refLink}
+        </div>
+        ${f.help ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(f.help)}</div>` : ''}
+        ${f.applies_to ? `<div class="text-xs text-amber-400 mt-0.5">Applies to: ${escapeHtml(f.applies_to)}</div>` : ''}
+      `;
+      card.appendChild(label);
+
+      // Pipeline value display
+      const v4Wrap = document.createElement('div');
+      v4Wrap.className = 'mb-2';
+      v4Wrap.innerHTML = `<div class="text-xs uppercase tracking-wider text-slate-500 mb-1">Pipeline extracted</div>`;
+      const valDiv = document.createElement('div');
+      valDiv.className = 'v4-val';
+      valDiv.innerHTML = renderV4Value(v4);
+      v4Wrap.appendChild(valDiv);
+      card.appendChild(v4Wrap);
+
+      // Match status pills
+      const msRow = document.createElement('div');
+      msRow.className = 'flex flex-wrap gap-1.5 mb-2';
+      const msLabels = {
+        exact_match: 'Exact', partial_match: 'Partial', fail: 'Fail',
+        hallucinated: 'Hallucinated', cannot_determine: 'Cannot determine',
+      };
+      for (const ms of state.matchStatuses) {
+        const b = document.createElement('button');
+        b.className = 'ms-btn' + (grade.match_status === ms ? ' active-' + ms : '');
+        b.textContent = msLabels[ms] || ms;
+        b.dataset.ms = ms;
+        b.disabled = isLocked;
+        b.onclick = () => onMatchStatusClick(f, ms);
+        msRow.appendChild(b);
+      }
+      card.appendChild(msRow);
+
+      // Detail row (correction + severity + taxonomy + section + root cause + notes)
+      const detail = document.createElement('div');
+      detail.id = `detail-${f.id}`;
+      detail.className = 'space-y-2';
+      const requiresDetail = grade.match_status && grade.match_status !== 'exact_match' && grade.match_status !== 'cannot_determine';
+      detail.style.display = requiresDetail ? '' : 'none';
+
+      // correction
+      const correctionWrap = document.createElement('div');
+      correctionWrap.innerHTML = `<label class="text-xs text-slate-400">Corrected value</label>`;
+      const corrEl = document.createElement('textarea');
+      corrEl.id = `corr-${f.id}`;
+      corrEl.value = grade.correction_value || '';
+      corrEl.disabled = isLocked;
+      corrEl.placeholder = 'Enter the value the source paper actually reports.';
+      corrEl.addEventListener('input', () => scheduleSave(f));
+      correctionWrap.appendChild(corrEl);
+      detail.appendChild(correctionWrap);
+
+      // severity buttons
+      const sevWrap = document.createElement('div');
+      sevWrap.innerHTML = `<label class="text-xs text-slate-400 block mb-1">Harm severity</label>`;
+      const sevRow = document.createElement('div');
+      sevRow.className = 'flex gap-1.5';
+      const sevLabels = ['Cosmetic','Minor','Moderate','Serious','Dangerous'];
+      for (let i = 1; i <= 5; i++) {
+        const b = document.createElement('button');
+        b.className = 'sev-btn' + (Number(grade.harm_severity) === i ? ' active-' + i : '');
+        b.textContent = `${i} — ${sevLabels[i-1]}`;
+        b.dataset.sev = String(i);
+        b.disabled = isLocked;
+        b.onclick = () => onSeverityClick(f, i);
+        sevRow.appendChild(b);
+      }
+      sevWrap.appendChild(sevRow);
+      detail.appendChild(sevWrap);
+
+      // taxonomy + pipeline section + root cause stage
+      const dropdownRow = document.createElement('div');
+      dropdownRow.className = 'grid grid-cols-1 md:grid-cols-3 gap-2';
+      dropdownRow.innerHTML = `
+        <div>
+          <label class="text-xs text-slate-400">Error class</label>
+          <select id="tax-${f.id}" ${isLocked ? 'disabled' : ''}>
+            <option value="">— pick —</option>
+            ${state.taxonomy.map(t => `<option value="${escapeAttr(t.id)}" ${grade.error_taxonomy === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Pipeline section</label>
+          <select id="ps-${f.id}" ${isLocked ? 'disabled' : ''}>
+            <option value="">— pick —</option>
+            ${state.pipelineSections.map(s => `<option value="${escapeAttr(s.id)}" ${grade.pipeline_section === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Root cause (optional)</label>
+          <select id="rcs-${f.id}" ${isLocked ? 'disabled' : ''}>
+            <option value="">— optional —</option>
+            ${state.rootCauseStages.map(s => `<option value="${escapeAttr(s.id)}" ${grade.root_cause_stage === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
+          </select>
+        </div>
+      `;
+      detail.appendChild(dropdownRow);
+      detail.querySelectorAll('select').forEach(sel => sel.addEventListener('change', () => scheduleSave(f)));
+
+      // notes (always visible)
+      const notesWrap = document.createElement('div');
+      notesWrap.innerHTML = `<label class="text-xs text-slate-400">Notes (optional)</label>`;
+      const notesEl = document.createElement('input');
+      notesEl.type = 'text';
+      notesEl.id = `notes-${f.id}`;
+      notesEl.value = grade.notes || '';
+      notesEl.disabled = isLocked;
+      notesEl.addEventListener('input', () => scheduleSave(f));
+      notesWrap.appendChild(notesEl);
+      detail.appendChild(notesWrap);
+
+      card.appendChild(detail);
+
+      // Always-visible notes field (even on exact_match) sits below; dup. avoidance:
+      // we handle via the detail block above. For exact_match we hide the detail block,
+      // so move notes outside detail.
+      detail.removeChild(notesWrap);
+      const notesAlwaysWrap = document.createElement('div');
+      notesAlwaysWrap.className = 'mt-2';
+      notesAlwaysWrap.appendChild(notesWrap.firstChild); // label
+      notesAlwaysWrap.appendChild(notesEl);              // input
+      card.appendChild(notesAlwaysWrap);
+
+      updateCardClass(f.id);
+      return card;
+    }
+
+    function renderV4Value(v) {
+      if (v === null || v === undefined || v === '') {
+        return '<span class="v4-val-empty">— not extracted —</span>';
+      }
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        return escapeHtml(String(v));
+      }
+      // arrays / objects → pretty JSON
+      try { return escapeHtml(JSON.stringify(v, null, 2)); }
+      catch (e) { return '<span class="v4-val-empty">— unrenderable —</span>'; }
+    }
+
+    function onMatchStatusClick(f, ms) {
+      // Toggle off if already active
+      const existing = state.currentGrades[f.id] || {};
+      const newMs = existing.match_status === ms ? null : ms;
+      state.currentGrades[f.id] = { ...existing, match_status: newMs };
+
+      // Update pill UI
+      const card = document.getElementById(`card-${f.id}`);
+      card.querySelectorAll('.ms-btn').forEach(b => {
+        b.classList.remove('active-exact_match','active-partial_match','active-fail','active-hallucinated','active-cannot_determine');
+        if (b.dataset.ms === newMs) b.classList.add('active-' + newMs);
+      });
+
+      // Show detail block only for non-exact, non-cannot_determine
+      const requiresDetail = newMs && newMs !== 'exact_match' && newMs !== 'cannot_determine';
+      const detail = document.getElementById(`detail-${f.id}`);
+      if (detail) detail.style.display = requiresDetail ? '' : 'none';
+
+      scheduleSave(f);
+      updateCardClass(f.id);
+      updateProgress();
+    }
+
+    function onSeverityClick(f, sev) {
+      const existing = state.currentGrades[f.id] || {};
+      const newSev = Number(existing.harm_severity) === sev ? null : sev;
+      state.currentGrades[f.id] = { ...existing, harm_severity: newSev };
+
+      const card = document.getElementById(`card-${f.id}`);
+      card.querySelectorAll('.sev-btn').forEach(b => {
+        b.className = 'sev-btn' + (Number(b.dataset.sev) === newSev ? ' active-' + newSev : '');
+      });
+      scheduleSave(f);
+    }
+
+    function scheduleSave(f) {
+      clearTimeout(state.saveDebounces[f.id]);
+      state.saveDebounces[f.id] = setTimeout(() => doSave(f), 350);
+      updateCardClass(f.id);
+      updateProgress();
+    }
+
+    async function doSave(f) {
+      if (state.currentSession?.locked) return;
+      const grade = state.currentGrades[f.id] || {};
+      const taxEl   = document.getElementById(`tax-${f.id}`);
+      const psEl    = document.getElementById(`ps-${f.id}`);
+      const rcsEl   = document.getElementById(`rcs-${f.id}`);
+      const corrEl  = document.getElementById(`corr-${f.id}`);
+      const notesEl = document.getElementById(`notes-${f.id}`);
+
+      const payload = {
+        paper_id:         state.currentPaper.id,
+        phase:            state.currentPhase,
+        field_name:       f.id,
+        v4_value:         state.pipelineValues[f.id],
+        match_status:     grade.match_status || null,
+        correction_value: corrEl ? (corrEl.value || null) : null,
+        harm_severity:    grade.harm_severity ?? null,
+        error_taxonomy:   taxEl ? (taxEl.value || null) : null,
+        pipeline_section: psEl  ? (psEl.value  || null) : null,
+        root_cause_stage: rcsEl ? (rcsEl.value || null) : null,
+        notes:            notesEl ? (notesEl.value.trim() || null) : null,
+      };
+      try {
+        await api('phase2_field_save', { method: 'POST', body: payload });
+        state.currentGrades[f.id] = {
+          ...payload,
+          match_status:    payload.match_status,
+          correction_value: payload.correction_value,
+          harm_severity:    payload.harm_severity,
+          error_taxonomy:   payload.error_taxonomy,
+          pipeline_section: payload.pipeline_section,
+          root_cause_stage: payload.root_cause_stage,
+          notes:            payload.notes,
+        };
+        if (!state.timerInterval) startTimerFromNow();
+        flashCard(f.id);
+      } catch (err) {
+        console.error('save failed', err);
+      }
+    }
+
+    function flashCard(id) {
+      const el = document.getElementById(`card-${id}`);
+      if (!el) return;
+      el.classList.add('saved-flash');
+      setTimeout(() => el.classList.remove('saved-flash'), 500);
+    }
+
+    function updateCardClass(id) {
+      const el = document.getElementById(`card-${id}`);
+      if (!el) return;
+      const grade = state.currentGrades[id] || {};
+      el.classList.remove('complete','incomplete');
+      if (isFieldComplete(id, grade)) el.classList.add('complete');
+      else el.classList.add('incomplete');
+    }
+
+    function isFieldComplete(id, grade) {
+      if (!grade.match_status) return false;
+      if (grade.match_status === 'exact_match' || grade.match_status === 'cannot_determine') return true;
+      // For non-exact: require correction, severity, taxonomy, pipeline section
+      if (!grade.correction_value || !String(grade.correction_value).trim()) return false;
+      if (!grade.harm_severity)    return false;
+      if (!grade.error_taxonomy)   return false;
+      if (!grade.pipeline_section) return false;
+      return true;
+    }
+
+    function updateProgress() {
+      const total = state.currentFields.length;
+      let done = 0;
+      for (const f of state.currentFields) {
+        if (isFieldComplete(f.id, state.currentGrades[f.id] || {})) done++;
+      }
+      $('#progress-pill').textContent = `${done} / ${total}`;
+      $('#progress-pill').className = 'pill ' + (done === total && total > 0 ? 'pill-good' : 'pill-mute');
+      $('#submit-btn').disabled = (done !== total) || !!state.currentSession?.locked;
+    }
+
+    // ── Timer ──────────────────────────────────────────────────────
+    function startTimerFromSession() {
+      stopTimer();
+      if (state.currentSession?.started_at) runTimerLoop(new Date(state.currentSession.started_at).getTime());
+      else { $('#timer-display').textContent = '00:00'; $('#timer-display').classList.remove('hidden'); }
+    }
+    function startTimerFromNow() {
+      if (!state.currentSession.started_at) state.currentSession.started_at = new Date().toISOString();
+      runTimerLoop(new Date(state.currentSession.started_at).getTime());
+    }
+    function runTimerLoop(startMs) {
+      $('#timer-display').classList.remove('hidden');
+      const tick = () => {
+        const e = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+        $('#timer-display').textContent = `${String(Math.floor(e/60)).padStart(2,'0')}:${String(e%60).padStart(2,'0')}`;
+      };
+      tick();
+      state.timerInterval = setInterval(tick, 1000);
+    }
+    function stopTimer() {
+      if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
+      $('#timer-display').classList.add('hidden');
+    }
+
+    // ── Submit ─────────────────────────────────────────────────────
+    window.doSubmit = async function () {
+      $('#submit-error').classList.add('hidden');
+      const phase = state.currentPhase;
+      const next = phase === '2a' ? 'Phase 2b will then unlock for this paper.' : 'This paper is now complete.';
+      if (!confirm(`Submit ${phase === '2a' ? 'Phase 2a' : 'Phase 2b'}? This will lock all your entries for this phase. ${next}`)) return;
+      try {
+        const r = await api('phase2_session_submit', {
+          method: 'POST',
+          body: { paper_id: state.currentPaper.id, phase },
+        });
+        stopTimer();
+        const m = Math.floor((r.time_seconds || 0) / 60);
+        const s = (r.time_seconds || 0) % 60;
+        alert(`Phase ${phase} submitted. Time: ${m}m ${s}s.`);
+        await goBackToPapers();
+      } catch (err) {
+        $('#submit-error').textContent = err.message;
+        $('#submit-error').classList.remove('hidden');
+      }
+    };
+
+    // ── Split-pane (mirrors phase1a.html) ──────────────────────────
+    const SPLIT_KEY = 'phase2-split';
+    function getSplitState() {
+      try { const raw = sessionStorage.getItem(SPLIT_KEY); if (raw) return JSON.parse(raw); } catch(e){}
+      return { pdfWidthPct: 50, popped: false };
+    }
+    function setSplitState(s) { try { sessionStorage.setItem(SPLIT_KEY, JSON.stringify(s)); } catch(e){} }
+    function applySplitState() {
+      const s = getSplitState();
+      const pdfPane = $('#pdf-pane');
+      const divider = $('#split-divider');
+      const showBtn = $('#show-pdf-btn');
+      const hasPdf  = !!state.currentPaper?.pdf_url;
+      if (!hasPdf) {
+        pdfPane.style.display = 'none'; divider.style.display = 'none'; showBtn.classList.add('hidden'); return;
+      }
+      if (s.popped) {
+        pdfPane.style.display = 'none'; divider.style.display = 'none'; showBtn.classList.remove('hidden'); return;
+      }
+      pdfPane.style.display = 'flex'; divider.style.display = 'block'; showBtn.classList.add('hidden');
+      pdfPane.style.width = clampPct(s.pdfWidthPct) + '%';
+    }
+    function clampPct(p) { const n = Number(p); if (!Number.isFinite(n)) return 50; return Math.max(20, Math.min(80, n)); }
+
+    window.popOutPdf = function () {
+      const url = state.currentPaper?.pdf_url;
+      if (!url) return;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      const s = getSplitState(); s.popped = true; setSplitState(s); applySplitState();
+    };
+    window.showPdfPanel = function () {
+      const s = getSplitState(); s.popped = false; setSplitState(s); applySplitState();
+    };
+
+    function initDividerDrag() {
+      const divider = $('#split-divider');
+      const container = $('#split-container');
+      const pdfPane = $('#pdf-pane');
+      if (!divider || !container || !pdfPane) return;
+      let dragging = false;
+      const onDown = e => {
+        if (pdfPane.style.display === 'none') return;
+        dragging = true; divider.classList.add('dragging'); document.body.classList.add('is-dragging'); e.preventDefault();
+      };
+      const onMove = e => {
+        if (!dragging) return;
+        const rect = container.getBoundingClientRect();
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        pdfPane.style.width = clampPct((x / rect.width) * 100) + '%';
+      };
+      const onUp = () => {
+        if (!dragging) return;
+        dragging = false; divider.classList.remove('dragging'); document.body.classList.remove('is-dragging');
+        const widthPx = pdfPane.getBoundingClientRect().width;
+        const totalPx = container.getBoundingClientRect().width || 1;
+        const s = getSplitState(); s.pdfWidthPct = clampPct((widthPx / totalPx) * 100); setSplitState(s);
+      };
+      divider.addEventListener('mousedown', onDown);
+      divider.addEventListener('touchstart', onDown, { passive: false });
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchend', onUp);
+    }
+
+    // ── Utils ──────────────────────────────────────────────────────
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    (async () => {
+      initDividerDrag();
+      if (!state.apiToken) {
+        $('#login-error').textContent = 'Internal API token missing. Check public/env.js.';
+        $('#login-error').classList.remove('hidden');
+      }
+      const restored = await tryRestore();
+      if (!restored) showView('view-login');
+    })();
+  </script>
+</body>
+</html>
