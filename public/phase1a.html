@@ -127,7 +127,7 @@
   <script type="module">
     // ── State ─────────────────────────────────────────────────────────
     const state = {
-      apiToken:   window.OUTCOMELOGIC_INTERNAL_API_TOKEN || '',
+      apiToken:   (window.ENV && window.ENV.INTERNAL_API_TOKEN) || '',
       rater:      null,           // { rater_id, display_name, pair, roles[] }
       passphrase: null,
       fields:     [],             // MA_FIELDS from API

@@ -198,7 +198,7 @@
 
   <script type="module">
     const state = {
-      apiToken:   window.OUTCOMELOGIC_INTERNAL_API_TOKEN || '',
+      apiToken:   (window.ENV && window.ENV.INTERNAL_API_TOKEN) || '',
       rater:      null,
       passphrase: null,
       papers:     [],
