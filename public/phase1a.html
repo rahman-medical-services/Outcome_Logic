@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Phase 1a (Blinded MA Extraction)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .field-card { border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; border-left-width: 3px; padding: 0.875rem 1rem; }
+    .field-card.complete { border-left-color: #16a34a; }
+    .field-card.incomplete { border-left-color: #d97706; }
+    .field-card.uncertain { border-left-color: #7c3aed; }
+    .field-card.saved-flash { border-color: #16a34a; transition: border-color 0.4s; }
+
+    input[type=text], input[type=number], input[type=password], textarea, select {
+      background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+      border-radius: 0.375rem; padding: 0.4rem 0.6rem; font-size: 0.875rem; width: 100%;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #3b82f6; }
+    textarea { resize: vertical; min-height: 3.5rem; }
+    .pill { font-size: 0.7rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+    .pill-info  { background: #1e3a5f; color: #93c5fd; }
+    .pill-warn  { background: #713f12; color: #fde68a; }
+    .pill-good  { background: #14532d; color: #86efac; }
+    .pill-mute  { background: #1e293b; color: #94a3b8; }
+
+    .section-header { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 0.4rem; margin-bottom: 0.6rem; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="font-semibold text-white">Phase 1a</span>
+      <span class="text-slate-500 text-sm">— Blinded manual extraction</span>
+      <span id="paper-breadcrumb" class="hidden text-xs text-slate-400 ml-2"></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="timer-display" class="hidden text-xs font-mono px-2 py-1 rounded bg-slate-800 text-slate-200">00:00</span>
+      <span id="rater-info" class="text-xs text-slate-400"></span>
+      <button id="logout-btn" onclick="doLogout()" class="hidden text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-800">Logout</button>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-6">
+
+    <!-- ── LOGIN VIEW ─────────────────────────────────────────────────── -->
+    <section id="view-login" class="max-w-sm mx-auto mt-16">
+      <h1 class="text-xl font-semibold text-white mb-1">Rater login</h1>
+      <p class="text-sm text-slate-400 mb-6">Use the rater ID and passphrase you were given.</p>
+      <form id="login-form" class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400">Rater ID</label>
+          <input type="text" id="login-rater-id" autocomplete="username" required />
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Passphrase</label>
+          <input type="password" id="login-passphrase" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded">Sign in</button>
+        <p id="login-error" class="hidden text-xs text-red-400"></p>
+      </form>
+    </section>
+
+    <!-- ── PAPER LIST VIEW ────────────────────────────────────────────── -->
+    <section id="view-papers" class="hidden">
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-lg font-semibold text-white">Papers assigned to you for Phase 1a</h1>
+        <span id="papers-count" class="text-xs text-slate-400"></span>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700 rounded-lg p-3 mb-4 text-xs text-slate-300 leading-relaxed">
+        <p class="font-medium text-slate-200 mb-1">How this works</p>
+        <ul class="list-disc list-inside space-y-0.5 text-slate-400">
+          <li>You will extract 20 fields from each paper, working only from the source PDF.</li>
+          <li>Do not consult any other rater, the OutcomeLogic pipeline output, or external structured databases.</li>
+          <li>The timer starts when you enter your first value and stops when you submit.</li>
+          <li>Each field auto-saves as you type. You can leave and come back; your progress is preserved.</li>
+          <li>Submit only when you are finished. Submission locks the paper.</li>
+        </ul>
+      </div>
+
+      <div id="papers-list" class="space-y-2"></div>
+    </section>
+
+    <!-- ── EXTRACTION VIEW ────────────────────────────────────────────── -->
+    <section id="view-extract" class="hidden">
+      <div class="flex items-center justify-between mb-3">
+        <button onclick="goBackToPapers()" class="text-xs text-slate-400 hover:text-white">← Back to paper list</button>
+        <div class="flex items-center gap-2">
+          <span id="progress-pill" class="pill pill-mute">0 / 20</span>
+          <span id="locked-pill" class="hidden pill pill-good">Submitted — read-only</span>
+        </div>
+      </div>
+
+      <div id="paper-meta" class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-5">
+        <h2 id="paper-title" class="text-base font-semibold text-white"></h2>
+        <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+          <span id="paper-pmid"></span>
+          <span id="paper-doi"></span>
+          <a id="paper-pdf-link" target="_blank" class="hidden text-blue-400 hover:text-blue-300 underline">Open PDF</a>
+        </div>
+      </div>
+
+      <div id="fields-container" class="space-y-6"></div>
+
+      <div id="submit-row" class="mt-8 flex items-center justify-between gap-4 border-t border-slate-700 pt-5">
+        <p id="submit-help" class="text-xs text-slate-400">Fill all 20 fields (use "Cannot determine" for fields the paper does not report) before submitting.</p>
+        <button id="submit-btn" disabled onclick="doSubmit()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded">
+          Submit & lock
+        </button>
+      </div>
+      <p id="submit-error" class="hidden mt-2 text-xs text-red-400"></p>
+    </section>
+
+  </main>
+
+  <!-- ───────────────────────────────────────────────────────────────── -->
+  <!-- App                                                                -->
+  <!-- ───────────────────────────────────────────────────────────────── -->
+  <script type="module">
+    // ── State ─────────────────────────────────────────────────────────
+    const state = {
+      apiToken:   window.OUTCOMELOGIC_INTERNAL_API_TOKEN || '',
+      rater:      null,           // { rater_id, display_name, pair, roles[] }
+      passphrase: null,
+      fields:     [],             // MA_FIELDS from API
+      papers:     [],
+      currentPaper:   null,
+      currentSession: null,
+      currentExtractions: {},     // field_name → {extracted_value, cannot_determine, uncertain, notes}
+      timerInterval: null,
+      saveDebounces: {},          // field_name → timeoutId
+    };
+
+    const $ = (sel) => document.querySelector(sel);
+    const showView = (id) => {
+      ['view-login','view-papers','view-extract'].forEach(v => $('#'+v).classList.add('hidden'));
+      $('#'+id).classList.remove('hidden');
+    };
+
+    // ── API helpers ───────────────────────────────────────────────────
+    async function api(action, opts = {}) {
+      const headers = {
+        'Content-Type':       'application/json',
+        'x-api-token':        state.apiToken,
+      };
+      if (state.rater) {
+        headers['x-rater-id']         = state.rater.rater_id;
+        headers['x-rater-passphrase'] = state.passphrase;
+      }
+      const url = `/api/validation?action=${encodeURIComponent(action)}` +
+                  (opts.query ? '&' + new URLSearchParams(opts.query).toString() : '');
+      const r = await fetch(url, {
+        method:  opts.method || 'GET',
+        headers,
+        body:    opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      return data;
+    }
+
+    // ── Login ─────────────────────────────────────────────────────────
+    async function tryRestoreSession() {
+      const saved = sessionStorage.getItem('phase1a-rater');
+      if (!saved) return false;
+      try {
+        const { rater, passphrase } = JSON.parse(saved);
+        state.rater      = rater;
+        state.passphrase = passphrase;
+        await loadFieldsAndPapers();
+        return true;
+      } catch (e) {
+        sessionStorage.removeItem('phase1a-rater');
+        return false;
+      }
+    }
+
+    $('#login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#login-error').classList.add('hidden');
+      const rater_id   = $('#login-rater-id').value.trim();
+      const passphrase = $('#login-passphrase').value;
+      try {
+        const rater = await fetch('/api/validation?action=login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-token': state.apiToken },
+          body: JSON.stringify({ rater_id, passphrase }),
+        }).then(async r => {
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+          return d;
+        });
+        if (!rater.roles.includes('phase1a')) {
+          throw new Error('This rater does not have the Phase 1a role.');
+        }
+        state.rater      = rater;
+        state.passphrase = passphrase;
+        sessionStorage.setItem('phase1a-rater', JSON.stringify({ rater, passphrase }));
+        await loadFieldsAndPapers();
+      } catch (err) {
+        $('#login-error').textContent = err.message;
+        $('#login-error').classList.remove('hidden');
+      }
+    });
+
+    window.doLogout = function () {
+      sessionStorage.removeItem('phase1a-rater');
+      state.rater = null;
+      state.passphrase = null;
+      stopTimer();
+      $('#logout-btn').classList.add('hidden');
+      $('#rater-info').textContent = '';
+      $('#paper-breadcrumb').classList.add('hidden');
+      showView('view-login');
+    };
+
+    // ── Field list + paper list ───────────────────────────────────────
+    async function loadFieldsAndPapers() {
+      const f = await api('fields');
+      state.fields = f.fields || [];
+
+      const p = await api('papers');
+      state.papers = p.papers || [];
+
+      $('#rater-info').textContent = `${state.rater.display_name} (${state.rater.rater_id}, pair ${state.rater.pair || '—'})`;
+      $('#logout-btn').classList.remove('hidden');
+      renderPapers();
+      showView('view-papers');
+    }
+
+    function renderPapers() {
+      const list = $('#papers-list');
+      list.innerHTML = '';
+      $('#papers-count').textContent = `${state.papers.length} paper${state.papers.length === 1 ? '' : 's'}`;
+      if (!state.papers.length) {
+        list.innerHTML = '<p class="text-sm text-slate-400 px-1">No papers assigned yet. Check back later or contact the study admin.</p>';
+        return;
+      }
+      for (const p of state.papers) {
+        const sess = p.my_session;
+        let statusPill = '<span class="pill pill-mute">Not started</span>';
+        if (sess && sess.locked) {
+          const mins = Math.floor((sess.time_seconds || 0) / 60);
+          const secs = (sess.time_seconds || 0) % 60;
+          statusPill = `<span class="pill pill-good">Submitted — ${mins}m ${secs}s</span>`;
+        } else if (sess && sess.started_at) {
+          statusPill = '<span class="pill pill-warn">In progress</span>';
+        }
+        const tag = p.is_preliminary
+          ? '<span class="pill pill-info">Preliminary (rehearsal)</span>'
+          : (p.paper_number ? `<span class="pill pill-mute">#${p.paper_number}</span>` : '');
+        const div = document.createElement('div');
+        div.className = 'bg-slate-800/60 border border-slate-700 rounded-lg p-3 hover:border-slate-500 cursor-pointer flex items-center justify-between';
+        div.onclick = () => openPaper(p.id);
+        div.innerHTML = `
+          <div>
+            <div class="flex items-center gap-2">
+              ${tag}
+              <span class="text-sm font-medium text-white">${p.short_label || '(unlabelled)'}</span>
+              ${statusPill}
+            </div>
+            <div class="text-xs text-slate-400 mt-1 line-clamp-2">${escapeHtml(p.title || '')}</div>
+          </div>
+          <div class="text-slate-500 text-sm">→</div>
+        `;
+        list.appendChild(div);
+      }
+    }
+
+    window.goBackToPapers = async function () {
+      stopTimer();
+      // Refresh the paper list so the latest session status (e.g. "Submitted") shows.
+      try {
+        const p = await api('papers');
+        state.papers = p.papers || [];
+      } catch (e) { /* keep stale list */ }
+      $('#paper-breadcrumb').classList.add('hidden');
+      renderPapers();
+      showView('view-papers');
+    };
+
+    // ── Open a paper ──────────────────────────────────────────────────
+    async function openPaper(paperId) {
+      try {
+        const data = await api('session', { query: { paper_id: paperId } });
+        state.currentPaper      = data.paper;
+        state.currentSession    = data.session;
+        state.currentExtractions = {};
+        for (const e of (data.extractions || [])) {
+          state.currentExtractions[e.field_name] = {
+            extracted_value:  e.extracted_value,
+            cannot_determine: e.cannot_determine,
+            uncertain:        e.uncertain,
+            notes:            e.notes,
+          };
+        }
+        renderPaperMeta();
+        renderFields();
+        updateProgress();
+        if (state.currentSession.locked) {
+          $('#locked-pill').classList.remove('hidden');
+          $('#submit-row').classList.add('hidden');
+        } else {
+          $('#locked-pill').classList.add('hidden');
+          $('#submit-row').classList.remove('hidden');
+          startTimerFromSession();
+        }
+        showView('view-extract');
+      } catch (err) {
+        alert('Failed to open paper: ' + err.message);
+      }
+    }
+
+    function renderPaperMeta() {
+      const p = state.currentPaper;
+      $('#paper-title').textContent = `${p.short_label ? p.short_label + ' — ' : ''}${p.title || ''}`;
+      $('#paper-pmid').textContent = p.pmid ? `PMID ${p.pmid}` : '';
+      $('#paper-doi').textContent  = p.doi  ? `DOI ${p.doi}`  : '';
+      const link = $('#paper-pdf-link');
+      if (p.pdf_url) {
+        link.href = p.pdf_url;
+        link.classList.remove('hidden');
+      } else {
+        link.classList.add('hidden');
+      }
+      $('#paper-breadcrumb').textContent = '— ' + (p.short_label || p.title?.slice(0, 60) || '');
+      $('#paper-breadcrumb').classList.remove('hidden');
+    }
+
+    // ── Field rendering ───────────────────────────────────────────────
+    function renderFields() {
+      const container = $('#fields-container');
+      container.innerHTML = '';
+      const sections = groupBySection(state.fields);
+      for (const sec of sections) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = `<div class="section-header">${escapeHtml(sec.label)}</div>`;
+        const grid = document.createElement('div');
+        grid.className = 'space-y-2.5';
+        for (const f of sec.fields) {
+          grid.appendChild(renderFieldCard(f));
+        }
+        wrap.appendChild(grid);
+        container.appendChild(wrap);
+      }
+    }
+
+    function groupBySection(fields) {
+      const order = ['pico','outcome','result','arms','methods','judgement'];
+      const labels = {
+        pico:'PICO', outcome:'Primary outcome', result:'Primary result',
+        arms:'Arm-level data', methods:'Methods (RoB inputs)', judgement:'Methodological judgement',
+      };
+      const groups = {};
+      for (const f of fields) {
+        const s = f.section || 'other';
+        if (!groups[s]) groups[s] = { id: s, label: labels[s] || s, fields: [] };
+        groups[s].fields.push(f);
+      }
+      return order.map(o => groups[o]).filter(Boolean);
+    }
+
+    function renderFieldCard(f) {
+      const existing = state.currentExtractions[f.id] || {};
+      const card = document.createElement('div');
+      card.className = 'field-card';
+      card.id = `card-${f.id}`;
+
+      const labelRow = document.createElement('div');
+      labelRow.className = 'flex items-start justify-between gap-3 mb-1.5';
+      labelRow.innerHTML = `
+        <div>
+          <div class="text-sm font-medium text-slate-100">${escapeHtml(f.label)}</div>
+          ${f.help ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(f.help)}</div>` : ''}
+          ${f.applies_to ? `<div class="text-xs text-amber-400 mt-0.5">Applies to: ${escapeHtml(f.applies_to)}</div>` : ''}
+        </div>
+        <div class="flex items-center gap-3 shrink-0 text-xs">
+          <label class="flex items-center gap-1 text-slate-400 hover:text-slate-200 cursor-pointer">
+            <input type="checkbox" id="cd-${f.id}" ${existing.cannot_determine ? 'checked' : ''} class="accent-teal-500" />
+            Cannot determine
+          </label>
+          <label class="flex items-center gap-1 text-slate-400 hover:text-slate-200 cursor-pointer">
+            <input type="checkbox" id="un-${f.id}" ${existing.uncertain ? 'checked' : ''} class="accent-violet-500" />
+            Uncertain
+          </label>
+        </div>
+      `;
+      card.appendChild(labelRow);
+
+      const inputWrap = document.createElement('div');
+      inputWrap.id = `input-wrap-${f.id}`;
+      inputWrap.appendChild(buildInput(f, existing.extracted_value));
+      card.appendChild(inputWrap);
+
+      // Notes (collapsed; small input)
+      const notesWrap = document.createElement('div');
+      notesWrap.className = 'mt-1.5';
+      notesWrap.innerHTML = `
+        <input type="text" id="notes-${f.id}" placeholder="Optional note (e.g. table reference, ambiguity)"
+               value="${escapeAttr(existing.notes || '')}"
+               class="text-xs" />
+      `;
+      card.appendChild(notesWrap);
+
+      // Wire events
+      const cdEl = card.querySelector(`#cd-${f.id}`);
+      const unEl = card.querySelector(`#un-${f.id}`);
+      cdEl.addEventListener('change', () => {
+        const inputEl = card.querySelector(`#val-${f.id}`);
+        if (cdEl.checked && inputEl) inputEl.value = '';
+        if (inputEl) inputEl.disabled = cdEl.checked;
+        scheduleSave(f);
+      });
+      unEl.addEventListener('change', () => scheduleSave(f));
+      const notesEl = card.querySelector(`#notes-${f.id}`);
+      notesEl.addEventListener('input', () => scheduleSave(f));
+
+      const valEl = card.querySelector(`#val-${f.id}`);
+      if (valEl) {
+        valEl.addEventListener('input',  () => scheduleSave(f));
+        valEl.addEventListener('change', () => scheduleSave(f));
+        if (existing.cannot_determine) valEl.disabled = true;
+      }
+
+      // Lock card if session is locked
+      if (state.currentSession?.locked) {
+        card.querySelectorAll('input, select, textarea').forEach(el => el.disabled = true);
+      }
+
+      updateCardClass(f.id);
+      return card;
+    }
+
+    function buildInput(f, value) {
+      const v = value ?? '';
+      if (f.type === 'textarea') {
+        const el = document.createElement('textarea');
+        el.id = `val-${f.id}`;
+        el.placeholder = '';
+        el.value = v;
+        return el;
+      }
+      if (f.type === 'select') {
+        const el = document.createElement('select');
+        el.id = `val-${f.id}`;
+        el.innerHTML = `<option value=""></option>` +
+          (f.options || []).map(o => `<option value="${escapeAttr(o)}" ${o === v ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
+        return el;
+      }
+      if (f.type === 'datalist') {
+        const wrap = document.createElement('div');
+        const dlId = `dl-${f.id}`;
+        wrap.innerHTML = `
+          <input type="text" id="val-${f.id}" list="${dlId}" value="${escapeAttr(v)}" placeholder="HR, OR, RR, RD, MD, SMD, or type your own" />
+          <datalist id="${dlId}">
+            ${(f.options || []).map(o => `<option value="${escapeAttr(o)}"></option>`).join('')}
+          </datalist>
+        `;
+        return wrap;
+      }
+      // text or number
+      const el = document.createElement('input');
+      el.id   = `val-${f.id}`;
+      el.type = f.type === 'number' ? 'number' : 'text';
+      if (f.type === 'number') el.step = 'any';
+      el.value = v;
+      return el;
+    }
+
+    // ── Save (debounced per field) ────────────────────────────────────
+    function scheduleSave(f) {
+      clearTimeout(state.saveDebounces[f.id]);
+      state.saveDebounces[f.id] = setTimeout(() => doSave(f), 350);
+      updateCardClass(f.id);
+      updateProgress();
+    }
+
+    async function doSave(f) {
+      if (state.currentSession?.locked) return;
+      const valEl = document.querySelector(`#val-${f.id}`);
+      const cdEl  = document.querySelector(`#cd-${f.id}`);
+      const unEl  = document.querySelector(`#un-${f.id}`);
+      const notesEl = document.querySelector(`#notes-${f.id}`);
+
+      const cd = cdEl?.checked || false;
+      const payload = {
+        paper_id:        state.currentPaper.id,
+        field_name:      f.id,
+        extracted_value: cd ? null : (valEl?.value ?? '').trim() || null,
+        cannot_determine: cd,
+        uncertain:       unEl?.checked || false,
+        notes:           (notesEl?.value || '').trim() || null,
+      };
+      try {
+        await api('field_save', { method: 'POST', body: payload });
+        state.currentExtractions[f.id] = {
+          extracted_value:  payload.extracted_value,
+          cannot_determine: payload.cannot_determine,
+          uncertain:        payload.uncertain,
+          notes:            payload.notes,
+        };
+        // Started_at may have been set server-side; if our timer wasn't
+        // running, ensure it starts now.
+        if (!state.timerInterval) startTimerFromNow();
+        flashCard(f.id);
+      } catch (err) {
+        console.error('save failed', err);
+      }
+    }
+
+    function flashCard(id) {
+      const el = document.getElementById(`card-${id}`);
+      if (!el) return;
+      el.classList.add('saved-flash');
+      setTimeout(() => el.classList.remove('saved-flash'), 500);
+    }
+
+    function updateCardClass(id) {
+      const el = document.getElementById(`card-${id}`);
+      if (!el) return;
+      const valEl = document.querySelector(`#val-${id}`);
+      const cdEl  = document.querySelector(`#cd-${id}`);
+      const unEl  = document.querySelector(`#un-${id}`);
+      const hasValue = !!(valEl && valEl.value && valEl.value.trim());
+      const cd = cdEl?.checked;
+      const un = unEl?.checked;
+      el.classList.remove('complete', 'incomplete', 'uncertain');
+      if (un) el.classList.add('uncertain');
+      else if (hasValue || cd) el.classList.add('complete');
+      else el.classList.add('incomplete');
+    }
+
+    function updateProgress() {
+      let done = 0;
+      for (const f of state.fields) {
+        const valEl = document.querySelector(`#val-${f.id}`);
+        const cdEl  = document.querySelector(`#cd-${f.id}`);
+        const hasValue = !!(valEl && valEl.value && valEl.value.trim());
+        if (hasValue || cdEl?.checked) done++;
+      }
+      const total = state.fields.length;
+      $('#progress-pill').textContent = `${done} / ${total}`;
+      $('#progress-pill').className = 'pill ' + (done === total ? 'pill-good' : 'pill-mute');
+      const btn = $('#submit-btn');
+      btn.disabled = (done !== total) || state.currentSession?.locked;
+    }
+
+    // ── Timer ─────────────────────────────────────────────────────────
+    function startTimerFromSession() {
+      stopTimer();
+      if (state.currentSession?.started_at) {
+        const start = new Date(state.currentSession.started_at).getTime();
+        runTimerLoop(start);
+      } else {
+        // Not started yet; show 00:00 but don't run interval until first save.
+        $('#timer-display').textContent = '00:00';
+        $('#timer-display').classList.remove('hidden');
+      }
+    }
+    function startTimerFromNow() {
+      // First field input has triggered server-side started_at; mirror locally.
+      if (!state.currentSession.started_at) {
+        state.currentSession.started_at = new Date().toISOString();
+      }
+      runTimerLoop(new Date(state.currentSession.started_at).getTime());
+    }
+    function runTimerLoop(startMs) {
+      $('#timer-display').classList.remove('hidden');
+      const tick = () => {
+        const elapsed = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+        const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        const ss = String(elapsed % 60).padStart(2, '0');
+        $('#timer-display').textContent = `${mm}:${ss}`;
+      };
+      tick();
+      state.timerInterval = setInterval(tick, 1000);
+    }
+    function stopTimer() {
+      if (state.timerInterval) {
+        clearInterval(state.timerInterval);
+        state.timerInterval = null;
+      }
+      $('#timer-display').classList.add('hidden');
+    }
+
+    // ── Submit ────────────────────────────────────────────────────────
+    window.doSubmit = async function () {
+      $('#submit-error').classList.add('hidden');
+      const proceed = confirm('Submit this paper? This will lock all your entries — you cannot edit afterwards.');
+      if (!proceed) return;
+      try {
+        const r = await api('session_submit', {
+          method: 'POST',
+          body: { paper_id: state.currentPaper.id },
+        });
+        stopTimer();
+        const mins = Math.floor((r.time_seconds || 0) / 60);
+        const secs = (r.time_seconds || 0) % 60;
+        alert(`Submitted. Time recorded: ${mins}m ${secs}s.`);
+        await goBackToPapers();
+      } catch (err) {
+        $('#submit-error').textContent = err.message + (err.message.includes('incomplete') ? ' (Use "Cannot determine" for fields the paper does not report.)' : '');
+        $('#submit-error').classList.remove('hidden');
+      }
+    };
+
+    // ── Utils ─────────────────────────────────────────────────────────
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    // ── Boot ──────────────────────────────────────────────────────────
+    (async () => {
+      if (!state.apiToken) {
+        $('#login-error').textContent = 'Internal API token missing. Check public/env.js.';
+        $('#login-error').classList.remove('hidden');
+      }
+      const restored = await tryRestoreSession();
+      if (!restored) showView('view-login');
+    })();
+  </script>
+</body>
+</html>

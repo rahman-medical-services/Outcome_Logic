@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Validation Study Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+    input[type=text], input[type=number], input[type=password], textarea, select {
+      background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+      border-radius: 0.375rem; padding: 0.4rem 0.6rem; font-size: 0.875rem; width: 100%;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #3b82f6; }
+    textarea { resize: vertical; min-height: 3rem; }
+    .pill { font-size: 0.7rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+    .pill-info { background: #1e3a5f; color: #93c5fd; }
+    .pill-warn { background: #713f12; color: #fde68a; }
+    .pill-good { background: #14532d; color: #86efac; }
+    .pill-mute { background: #1e293b; color: #94a3b8; }
+    .pill-bad  { background: #7f1d1d; color: #fca5a5; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; font-size: 0.8125rem; border-bottom: 1px solid #1f2937; }
+    th { color: #94a3b8; font-weight: 500; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    tr.row-clickable { cursor: pointer; }
+    tr.row-clickable:hover { background: #1e293b; }
+    tr.row-selected { background: #1e293b; }
+    .btn { font-size: 0.8125rem; padding: 0.35rem 0.75rem; border-radius: 0.375rem; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #3b82f6; }
+    .btn-primary:disabled { background: #334155; color: #64748b; }
+    .btn-secondary { background: #334155; color: #e2e8f0; }
+    .btn-secondary:hover { background: #475569; }
+    .btn-danger { background: #7f1d1d; color: #fca5a5; }
+    .btn-danger:hover { background: #991b1b; color: white; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="font-semibold text-white">Validation Study</span>
+      <span class="text-slate-500 text-sm">— Admin</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="rater-info" class="text-xs text-slate-400"></span>
+      <button id="logout-btn" onclick="doLogout()" class="hidden text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-800">Logout</button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6">
+
+    <!-- LOGIN -->
+    <section id="view-login" class="max-w-sm mx-auto mt-16">
+      <h1 class="text-xl font-semibold text-white mb-1">Admin login</h1>
+      <p class="text-sm text-slate-400 mb-6">Requires the <code>admin</code> role.</p>
+      <form id="login-form" class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400">Rater ID</label>
+          <input type="text" id="login-rater-id" autocomplete="username" required />
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Passphrase</label>
+          <input type="password" id="login-passphrase" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="w-full mt-2 btn btn-primary">Sign in</button>
+        <p id="login-error" class="hidden text-xs text-red-400"></p>
+      </form>
+    </section>
+
+    <!-- MAIN -->
+    <section id="view-main" class="hidden grid grid-cols-12 gap-6">
+
+      <!-- Paper list (left) -->
+      <div class="col-span-12 lg:col-span-7">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-base font-semibold text-white">Papers</h2>
+          <div class="flex items-center gap-2">
+            <span id="papers-summary" class="text-xs text-slate-400"></span>
+            <button onclick="newPaper()" class="btn btn-primary">+ New paper</button>
+          </div>
+        </div>
+
+        <div class="bg-slate-800/40 border border-slate-700 rounded-lg overflow-hidden">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Label</th>
+                <th>Title</th>
+                <th>PDF</th>
+                <th>Crossover</th>
+                <th>Active</th>
+              </tr>
+            </thead>
+            <tbody id="papers-tbody"></tbody>
+          </table>
+          <div id="papers-empty" class="hidden p-6 text-center text-sm text-slate-400">
+            No papers yet. Click "New paper" to add the first one.
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit panel (right) -->
+      <div class="col-span-12 lg:col-span-5">
+        <div id="edit-panel" class="bg-slate-800/40 border border-slate-700 rounded-lg p-4 sticky top-20">
+          <div id="edit-empty" class="text-sm text-slate-400 py-8 text-center">
+            Select a paper from the list, or click "New paper" to add one.
+          </div>
+
+          <div id="edit-form" class="hidden space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 id="edit-title" class="text-sm font-semibold text-white">New paper</h3>
+              <button onclick="cancelEdit()" class="text-xs text-slate-500 hover:text-slate-200">Close</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-slate-400">Paper #</label>
+                <input type="number" id="f-paper_number" placeholder="(blank for preliminary)" />
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">Short label</label>
+                <input type="text" id="f-short_label" placeholder="e.g. CIBIS-II" />
+              </div>
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400">Title <span class="text-red-400">*</span></label>
+              <textarea id="f-title" rows="2" placeholder="Full title with citation"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-slate-400">PMID</label>
+                <input type="text" id="f-pmid" placeholder="e.g. 9929018" />
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">DOI</label>
+                <input type="text" id="f-doi" placeholder="10.1016/..." />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-slate-400">Crossover assignment</label>
+                <select id="f-crossover_assignment">
+                  <option value="">— not yet assigned —</option>
+                  <option value="a_phase1a">Pair A → Phase 1a (Pair B → 2a)</option>
+                  <option value="a_phase2a">Pair B → Phase 1a (Pair A → 2a)</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-2 pt-4">
+                <label class="text-xs flex items-center gap-2">
+                  <input type="checkbox" id="f-is_preliminary" /> Preliminary (rehearsal)
+                </label>
+                <label class="text-xs flex items-center gap-2">
+                  <input type="checkbox" id="f-is_active" checked /> Active (visible to raters)
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-400">Notes</label>
+              <textarea id="f-notes" rows="2" placeholder="Internal notes (not shown to raters)"></textarea>
+            </div>
+
+            <div class="border-t border-slate-700 pt-3">
+              <label class="text-xs text-slate-400">PDF URL (external link or uploaded)</label>
+              <input type="text" id="f-pdf_url" placeholder="Auto-filled when you upload below" />
+              <div id="pdf-meta" class="hidden text-xs text-slate-500 mt-1"></div>
+            </div>
+
+            <div id="upload-row" class="hidden border-t border-slate-700 pt-3">
+              <label class="text-xs text-slate-400">Upload PDF (≤ ~9 MB; for larger, paste an external URL above)</label>
+              <input type="file" id="f-pdf-file" accept="application/pdf" class="text-xs mt-1" />
+              <button onclick="uploadPdf()" id="upload-btn" class="btn btn-secondary mt-2" disabled>Upload</button>
+              <p id="upload-status" class="hidden text-xs mt-2"></p>
+            </div>
+
+            <div class="flex items-center justify-between border-t border-slate-700 pt-3">
+              <button id="delete-btn" onclick="deletePaper()" class="btn btn-danger hidden">Delete</button>
+              <div class="flex items-center gap-2 ml-auto">
+                <button onclick="cancelEdit()" class="btn btn-secondary">Cancel</button>
+                <button onclick="savePaper()" class="btn btn-primary">Save</button>
+              </div>
+            </div>
+            <p id="form-error" class="hidden text-xs text-red-400"></p>
+            <p id="form-saved" class="hidden text-xs text-emerald-400"></p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script type="module">
+    const state = {
+      apiToken:   window.OUTCOMELOGIC_INTERNAL_API_TOKEN || '',
+      rater:      null,
+      passphrase: null,
+      papers:     [],
+      editing:    null,    // currently selected paper object (null = none)
+    };
+    const $ = sel => document.querySelector(sel);
+    const showView = id => {
+      ['view-login','view-main'].forEach(v => $('#'+v).classList.add('hidden'));
+      $('#'+id).classList.remove('hidden');
+    };
+
+    async function api(action, opts = {}) {
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-api-token':  state.apiToken,
+      };
+      if (state.rater) {
+        headers['x-rater-id']         = state.rater.rater_id;
+        headers['x-rater-passphrase'] = state.passphrase;
+      }
+      const url = `/api/validation?action=${encodeURIComponent(action)}` +
+                  (opts.query ? '&' + new URLSearchParams(opts.query).toString() : '');
+      const r = await fetch(url, {
+        method: opts.method || 'GET',
+        headers,
+        body:   opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      return data;
+    }
+
+    // ── Login ─────────────────────────────────────────────────────
+    async function tryRestore() {
+      const saved = sessionStorage.getItem('validation-admin-rater');
+      if (!saved) return false;
+      try {
+        const { rater, passphrase } = JSON.parse(saved);
+        if (!rater.roles?.includes('admin')) return false;
+        state.rater = rater; state.passphrase = passphrase;
+        await loadAll();
+        return true;
+      } catch (e) {
+        sessionStorage.removeItem('validation-admin-rater');
+        return false;
+      }
+    }
+
+    $('#login-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      $('#login-error').classList.add('hidden');
+      const rater_id   = $('#login-rater-id').value.trim();
+      const passphrase = $('#login-passphrase').value;
+      try {
+        const r = await fetch('/api/validation?action=login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-token': state.apiToken },
+          body: JSON.stringify({ rater_id, passphrase }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        if (!d.roles?.includes('admin')) throw new Error('This rater does not have the admin role.');
+        state.rater = d; state.passphrase = passphrase;
+        sessionStorage.setItem('validation-admin-rater', JSON.stringify({ rater: d, passphrase }));
+        await loadAll();
+      } catch (err) {
+        $('#login-error').textContent = err.message;
+        $('#login-error').classList.remove('hidden');
+      }
+    });
+
+    window.doLogout = function () {
+      sessionStorage.removeItem('validation-admin-rater');
+      state.rater = null; state.passphrase = null;
+      $('#logout-btn').classList.add('hidden');
+      $('#rater-info').textContent = '';
+      showView('view-login');
+    };
+
+    // ── Load papers ────────────────────────────────────────────────
+    async function loadAll() {
+      $('#rater-info').textContent = `${state.rater.display_name} (${state.rater.rater_id})`;
+      $('#logout-btn').classList.remove('hidden');
+      const r = await api('admin_papers_list');
+      state.papers = r.papers || [];
+      renderPapers();
+      showView('view-main');
+    }
+
+    function renderPapers() {
+      const tbody = $('#papers-tbody');
+      tbody.innerHTML = '';
+      $('#papers-summary').textContent = `${state.papers.length} paper${state.papers.length === 1 ? '' : 's'}`;
+      $('#papers-empty').classList.toggle('hidden', state.papers.length > 0);
+
+      for (const p of state.papers) {
+        const tr = document.createElement('tr');
+        tr.className = 'row-clickable';
+        if (state.editing?.id === p.id) tr.classList.add('row-selected');
+        tr.onclick = () => editPaper(p);
+
+        const numCell = p.is_preliminary
+          ? '<span class="pill pill-info">prelim</span>'
+          : (p.paper_number ? `<span class="text-slate-300">${p.paper_number}</span>` : '<span class="text-slate-600">—</span>');
+        const pdfCell = p.pdf_url
+          ? `<a href="${escapeAttr(p.pdf_url)}" target="_blank" onclick="event.stopPropagation()" class="text-blue-400 hover:text-blue-300 underline">view</a>`
+          : '<span class="text-slate-600">—</span>';
+        const crossCell = p.crossover_assignment
+          ? `<span class="pill pill-mute">${p.crossover_assignment === 'a_phase1a' ? 'A→1a' : 'B→1a'}</span>`
+          : '<span class="text-slate-600">—</span>';
+        const activeCell = p.is_active
+          ? '<span class="pill pill-good">yes</span>'
+          : '<span class="pill pill-bad">no</span>';
+        tr.innerHTML = `
+          <td>${numCell}</td>
+          <td><span class="text-slate-200 font-medium">${escapeHtml(p.short_label || '')}</span></td>
+          <td><span class="text-slate-400 text-xs line-clamp-2">${escapeHtml((p.title || '').slice(0, 80))}${(p.title||'').length>80?'…':''}</span></td>
+          <td>${pdfCell}</td>
+          <td>${crossCell}</td>
+          <td>${activeCell}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    // ── Edit form ──────────────────────────────────────────────────
+    window.newPaper = function () {
+      state.editing = {
+        id: null, paper_number: null, short_label: '', title: '',
+        pmid: '', doi: '', pdf_url: '', pdf_filename: null, pdf_sha256: null,
+        is_preliminary: false, is_active: true, crossover_assignment: '',
+        notes: '',
+      };
+      populateForm(state.editing);
+      $('#edit-title').textContent  = 'New paper';
+      $('#delete-btn').classList.add('hidden');
+      $('#upload-row').classList.add('hidden');   // can only upload after first save
+      $('#edit-empty').classList.add('hidden');
+      $('#edit-form').classList.remove('hidden');
+      renderPapers();
+    };
+
+    function editPaper(p) {
+      state.editing = { ...p };
+      populateForm(state.editing);
+      $('#edit-title').textContent  = p.short_label || p.title?.slice(0, 60) || 'Paper';
+      $('#delete-btn').classList.remove('hidden');
+      $('#upload-row').classList.remove('hidden');
+      $('#edit-empty').classList.add('hidden');
+      $('#edit-form').classList.remove('hidden');
+      renderPapers();
+    }
+
+    function populateForm(p) {
+      $('#f-paper_number').value         = p.paper_number ?? '';
+      $('#f-short_label').value          = p.short_label  ?? '';
+      $('#f-title').value                = p.title        ?? '';
+      $('#f-pmid').value                 = p.pmid         ?? '';
+      $('#f-doi').value                  = p.doi          ?? '';
+      $('#f-crossover_assignment').value = p.crossover_assignment ?? '';
+      $('#f-is_preliminary').checked     = !!p.is_preliminary;
+      $('#f-is_active').checked          = p.is_active !== false;
+      $('#f-notes').value                = p.notes        ?? '';
+      $('#f-pdf_url').value              = p.pdf_url      ?? '';
+
+      const meta = $('#pdf-meta');
+      if (p.pdf_filename || p.pdf_sha256) {
+        meta.classList.remove('hidden');
+        meta.textContent = `${p.pdf_filename || '?'} • sha256 ${(p.pdf_sha256 || '').slice(0,12)}…`;
+      } else {
+        meta.classList.add('hidden');
+        meta.textContent = '';
+      }
+
+      $('#f-pdf-file').value = '';
+      $('#upload-btn').disabled = true;
+      $('#upload-status').classList.add('hidden');
+      $('#form-error').classList.add('hidden');
+      $('#form-saved').classList.add('hidden');
+    }
+
+    window.cancelEdit = function () {
+      state.editing = null;
+      $('#edit-form').classList.add('hidden');
+      $('#edit-empty').classList.remove('hidden');
+      renderPapers();
+    };
+
+    window.savePaper = async function () {
+      $('#form-error').classList.add('hidden');
+      $('#form-saved').classList.add('hidden');
+      const payload = {
+        id:                    state.editing?.id || undefined,
+        paper_number:          $('#f-paper_number').value === '' ? null : Number($('#f-paper_number').value),
+        short_label:           $('#f-short_label').value.trim() || null,
+        title:                 $('#f-title').value.trim(),
+        pmid:                  $('#f-pmid').value.trim() || null,
+        doi:                   $('#f-doi').value.trim() || null,
+        crossover_assignment:  $('#f-crossover_assignment').value || null,
+        is_preliminary:        $('#f-is_preliminary').checked,
+        is_active:             $('#f-is_active').checked,
+        notes:                 $('#f-notes').value.trim() || null,
+        pdf_url:               $('#f-pdf_url').value.trim() || null,
+      };
+      if (!payload.title) {
+        $('#form-error').textContent = 'Title is required.';
+        $('#form-error').classList.remove('hidden');
+        return;
+      }
+      try {
+        const r = await api('admin_papers_upsert', { method: 'POST', body: payload });
+        state.editing = r.paper;
+        // Refresh list
+        const lr = await api('admin_papers_list');
+        state.papers = lr.papers || [];
+        populateForm(state.editing);
+        $('#edit-title').textContent  = state.editing.short_label || 'Paper';
+        $('#delete-btn').classList.remove('hidden');
+        $('#upload-row').classList.remove('hidden');
+        $('#form-saved').textContent = 'Saved.';
+        $('#form-saved').classList.remove('hidden');
+        renderPapers();
+      } catch (err) {
+        $('#form-error').textContent = err.message;
+        $('#form-error').classList.remove('hidden');
+      }
+    };
+
+    window.deletePaper = async function () {
+      if (!state.editing?.id) return;
+      const sure = confirm(`Delete "${state.editing.short_label || state.editing.title}"? This wipes all Phase 1a/2/3 data for the paper.`);
+      if (!sure) return;
+      try {
+        await api('admin_papers_delete', { method: 'POST', body: { id: state.editing.id } });
+        const lr = await api('admin_papers_list');
+        state.papers = lr.papers || [];
+        cancelEdit();
+      } catch (err) {
+        $('#form-error').textContent = err.message;
+        $('#form-error').classList.remove('hidden');
+      }
+    };
+
+    // ── PDF upload ─────────────────────────────────────────────────
+    $('#f-pdf-file').addEventListener('change', () => {
+      const f = $('#f-pdf-file').files[0];
+      $('#upload-btn').disabled = !f;
+      const status = $('#upload-status');
+      if (f) {
+        status.textContent = `Selected: ${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+        status.className = 'text-xs mt-2 text-slate-400';
+        status.classList.remove('hidden');
+        if (f.size > 9 * 1024 * 1024) {
+          status.textContent += ' — over 9 MB; upload may fail. Use external URL instead.';
+          status.className = 'text-xs mt-2 text-amber-400';
+        }
+      } else {
+        status.classList.add('hidden');
+      }
+    });
+
+    window.uploadPdf = async function () {
+      if (!state.editing?.id) {
+        $('#upload-status').textContent = 'Save the paper first, then upload.';
+        $('#upload-status').className = 'text-xs mt-2 text-amber-400';
+        $('#upload-status').classList.remove('hidden');
+        return;
+      }
+      const file = $('#f-pdf-file').files[0];
+      if (!file) return;
+      const status = $('#upload-status');
+      status.textContent = 'Uploading…';
+      status.className = 'text-xs mt-2 text-slate-300';
+      status.classList.remove('hidden');
+      $('#upload-btn').disabled = true;
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = arrayBufferToBase64(buf);
+        const r = await api('admin_pdf_upload', {
+          method: 'POST',
+          body: { paper_id: state.editing.id, filename: file.name, content_base64: b64 },
+        });
+        // Update form + list
+        state.editing.pdf_url      = r.pdf_url;
+        state.editing.pdf_filename = r.pdf_filename;
+        state.editing.pdf_sha256   = r.pdf_sha256;
+        $('#f-pdf_url').value = r.pdf_url;
+        $('#pdf-meta').textContent = `${r.pdf_filename} • sha256 ${r.pdf_sha256.slice(0,12)}… • ${(r.bytes/1024/1024).toFixed(2)} MB`;
+        $('#pdf-meta').classList.remove('hidden');
+        const lr = await api('admin_papers_list');
+        state.papers = lr.papers || [];
+        renderPapers();
+        status.textContent = 'Uploaded.';
+        status.className = 'text-xs mt-2 text-emerald-400';
+      } catch (err) {
+        status.textContent = 'Upload failed: ' + err.message;
+        status.className = 'text-xs mt-2 text-red-400';
+      } finally {
+        $('#upload-btn').disabled = false;
+      }
+    };
+
+    function arrayBufferToBase64(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(bin);
+    }
+
+    // ── Utils ──────────────────────────────────────────────────────
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    (async () => {
+      if (!state.apiToken) {
+        $('#login-error').textContent = 'Internal API token missing. Check public/env.js.';
+        $('#login-error').classList.remove('hidden');
+      }
+      const restored = await tryRestore();
+      if (!restored) showView('view-login');
+    })();
+  </script>
+</body>
+</html>
