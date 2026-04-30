@@ -167,9 +167,15 @@
             </div>
 
             <div class="border-t border-slate-700 pt-3">
-              <label class="text-xs text-slate-400">V4 extraction ID (UUID from <code>study_extractions.id</code>)</label>
-              <input type="text" id="f-v4_extraction_id" placeholder="Paste the V4 run UUID (e.g. from study.html)" />
-              <p class="text-xs text-slate-500 mt-1">Run V4 in <a href="/study.html" class="text-blue-400 underline" target="_blank">study.html</a>, copy the resulting extraction id, paste here, save. Phase 2 needs this to load pipeline output.</p>
+              <label class="text-xs text-slate-400">V4 extraction ID</label>
+              <div class="flex gap-2 items-stretch">
+                <input type="text" id="f-v4_extraction_id" placeholder="(empty — use Run V4 below, or paste an existing UUID)" class="flex-1" />
+                <button type="button" id="run-v4-btn" onclick="runV4()" class="btn btn-secondary whitespace-nowrap">Run V4 on uploaded PDF</button>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">
+                Run V4 directly against the paper's PDF — takes ~30–60s. Or paste a UUID from an existing <code>study_extractions</code> row.
+              </p>
+              <p id="run-v4-status" class="hidden text-xs mt-2"></p>
               <div id="v4-meta" class="hidden text-xs text-slate-500 mt-1"></div>
             </div>
 
@@ -234,7 +240,11 @@
         body:   opts.body ? JSON.stringify(opts.body) : undefined,
       });
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (!r.ok) {
+        const err = new Error(data.error || `HTTP ${r.status}`);
+        err.payload = data;
+        throw err;
+      }
       return data;
     }
 
@@ -519,6 +529,63 @@
         $('#upload-btn').disabled = false;
       }
     };
+
+    window.runV4 = async function (force = false) {
+      if (!state.editing?.id) {
+        showRunStatus('Save the paper first.', 'amber');
+        return;
+      }
+      if (!state.editing.pdf_url) {
+        showRunStatus('Upload a PDF first (or paste a PDF URL and save).', 'amber');
+        return;
+      }
+      const btn = $('#run-v4-btn');
+      btn.disabled = true;
+      const tStart = Date.now();
+      let tick;
+      const updateTick = () => {
+        const s = Math.round((Date.now() - tStart) / 1000);
+        showRunStatus(`Running V4 pipeline… ${s}s elapsed (typically 30–60s).`, 'slate');
+      };
+      tick = setInterval(updateTick, 1000);
+      updateTick();
+      try {
+        const r = await api('admin_run_v4', {
+          method: 'POST',
+          body: { paper_id: state.editing.id, force },
+        });
+        clearInterval(tick);
+        state.editing.v4_extraction_id   = r.v4_extraction_id;
+        state.editing.v4_runtime_seconds = r.v4_runtime_seconds;
+        $('#f-v4_extraction_id').value = r.v4_extraction_id;
+        const v4meta = $('#v4-meta');
+        v4meta.classList.remove('hidden');
+        v4meta.textContent = `V4 linked · ${r.v4_runtime_seconds}s · ${new Date(r.generated_at).toLocaleString()}`;
+        showRunStatus(`✓ V4 extraction ${r.v4_extraction_id.slice(0, 8)}… saved in ${r.v4_runtime_seconds}s.`, 'emerald');
+        const lr = await api('admin_papers_list');
+        state.papers = lr.papers || [];
+        renderPapers();
+      } catch (err) {
+        clearInterval(tick);
+        if (err.payload?.error?.includes('already linked')) {
+          if (confirm('A V4 extraction is already linked. Re-run and overwrite?')) {
+            return runV4(true);
+          }
+          showRunStatus('Cancelled — existing extraction kept.', 'slate');
+        } else {
+          showRunStatus('Run failed: ' + err.message, 'red');
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    function showRunStatus(msg, tone) {
+      const el = $('#run-v4-status');
+      el.textContent = msg;
+      el.className = 'text-xs mt-2 text-' + ({ amber: 'amber-400', slate: 'slate-300', emerald: 'emerald-400', red: 'red-400' }[tone] || 'slate-300');
+      el.classList.remove('hidden');
+    }
 
     function arrayBufferToBase64(buf) {
       const bytes = new Uint8Array(buf);

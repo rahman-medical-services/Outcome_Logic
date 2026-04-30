@@ -10,6 +10,7 @@
     "api/commentary.js":                   { "maxDuration": 60  },
     "api/library-commentary-refresh.js":   { "maxDuration": 60  },
     "api/library-batch.js":                { "maxDuration": 300 },
-    "api/study.js":                         { "maxDuration": 60  }
+    "api/study.js":                         { "maxDuration": 60  },
+    "api/validation.js":                    { "maxDuration": 90  }
   }
 }

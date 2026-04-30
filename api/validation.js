@@ -36,6 +36,9 @@ import {
   extractPipelineValues, stripInternalFields,
 } from '../lib/validation-fields.js';
 import { buildMergedJson, buildPhase3FieldRows } from '../lib/validation-merge.js';
+import { runPipelineV4 } from '../lib/pipeline-v4.js';
+import { buildSourceContext } from '../lib/pipeline.js';
+import pdfParse from 'pdf-parse';
 
 // 12 MB cap accommodates PDFs up to ~9 MB raw after base64 inflation.
 // For larger PDFs, paste an external URL into pdf_url instead.
@@ -1293,6 +1296,162 @@ export default async function handler(req, res) {
       pdf_filename: safeName,
       pdf_sha256:   sha256,
       bytes:        buffer.length,
+    });
+  }
+
+  // ── admin_run_v4: download the paper's PDF, run the V4 pipeline,
+  //    save the extraction, and link it to the validation paper.
+  //    Replaces the manual study.html → copy-id → paste shuffle.
+  if (action === 'admin_run_v4' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Admin role required.' });
+    }
+    const { paper_id, force = false } = req.body || {};
+    if (!paper_id) return res.status(400).json({ error: 'paper_id required.' });
+
+    const { data: paper, error: pErr } = await supabase
+      .from('validation_papers')
+      .select('id, title, pmid, doi, pdf_url, pdf_filename, v4_extraction_id')
+      .eq('id', paper_id)
+      .maybeSingle();
+    if (pErr)   return res.status(500).json({ error: pErr.message });
+    if (!paper) return res.status(404).json({ error: 'Paper not found.' });
+    if (!paper.pdf_url) {
+      return res.status(400).json({ error: 'Paper has no pdf_url. Upload a PDF or paste an external URL first.' });
+    }
+    if (paper.v4_extraction_id && !force) {
+      return res.status(409).json({
+        error: 'V4 extraction already linked. Pass force:true to re-run and overwrite.',
+        v4_extraction_id: paper.v4_extraction_id,
+      });
+    }
+
+    // Fetch PDF bytes
+    let buffer;
+    try {
+      const r = await fetch(paper.pdf_url);
+      if (!r.ok) throw new Error(`PDF fetch failed: HTTP ${r.status}`);
+      buffer = Buffer.from(await r.arrayBuffer());
+    } catch (e) {
+      return res.status(502).json({ error: 'Could not fetch PDF: ' + e.message });
+    }
+
+    // Parse → text
+    let pdfText;
+    try {
+      const data = await pdfParse(buffer);
+      pdfText = data.text;
+      if (!pdfText || pdfText.length < 500) {
+        throw new Error('PDF text extraction returned <500 chars (likely image-only or empty).');
+      }
+    } catch (e) {
+      return res.status(422).json({ error: 'PDF parse failed: ' + e.message });
+    }
+
+    // Run V4
+    const sourceMeta = {
+      sourceType: 'full-text-pdf',
+      pmid:       paper.pmid || null,
+      pmcid:      null,
+      doi:        paper.doi  || null,
+      authors:    null,
+    };
+    let v4Output, v1Output, runtimeSeconds;
+    try {
+      const ctx = buildSourceContext(pdfText, sourceMeta);
+      const start = Date.now();
+      const result = await runPipelineV4(ctx, sourceMeta);
+      runtimeSeconds = Math.round((Date.now() - start) / 1000);
+      result.v4._runtime_seconds = runtimeSeconds;
+      v4Output = result.v4;
+      v1Output = result.v1;
+    } catch (e) {
+      console.error('[validation admin_run_v4] pipeline error:', e.message);
+      if ((e.message || '').startsWith('GEMINI_UNAVAILABLE')) {
+        return res.status(503).json({ error: e.message });
+      }
+      return res.status(500).json({ error: 'Pipeline failed: ' + e.message });
+    }
+
+    // Persist to study_extractions. study_papers requires a row, so we
+    // mirror api/study.js Mode B and synthesise one if none exists.
+    // We key the bridge paper by validation_paper_id stored in notes.
+    const reportMeta  = v4Output?.reportMeta   || {};
+    const libraryMeta = v4Output?.library_meta || {};
+
+    // Reuse existing bridge paper if we already created one for this validation_paper
+    let studyPaperId = null;
+    if (paper.v4_extraction_id) {
+      const { data: prior } = await supabase
+        .from('study_extractions')
+        .select('paper_id')
+        .eq('id', paper.v4_extraction_id)
+        .maybeSingle();
+      studyPaperId = prior?.paper_id || null;
+    }
+    if (!studyPaperId) {
+      const { data: newPaper, error: cpErr } = await supabase
+        .from('study_papers')
+        .insert({
+          pmid:      paper.pmid || reportMeta.pubmed_id    || null,
+          title:     libraryMeta.display_title || reportMeta.trial_identification || paper.title || 'Validation paper',
+          authors:   reportMeta.authors      || null,
+          journal:   reportMeta.journal      || null,
+          year:      reportMeta.year         || null,
+          specialty: libraryMeta.specialty   || null,
+          phase:     0,
+          is_pilot:  false,
+          notes:     `validation_paper_id=${paper.id}`,
+        })
+        .select()
+        .single();
+      if (cpErr) return res.status(500).json({ error: 'study_papers insert failed: ' + cpErr.message });
+      studyPaperId = newPaper.id;
+    }
+
+    const now = new Date().toISOString();
+    const { data: v4Saved, error: e1 } = await supabase
+      .from('study_extractions')
+      .upsert({
+        paper_id:     studyPaperId,
+        version:      'v4',
+        output_json:  v4Output,
+        source_type:  'full-text-pdf',
+        generated_at: now,
+      }, { onConflict: 'paper_id,version' })
+      .select('id, generated_at')
+      .single();
+    if (e1) return res.status(500).json({ error: 'V4 extraction save failed: ' + e1.message });
+
+    // Save V1 byproduct (non-fatal if it fails)
+    if (v1Output) {
+      await supabase
+        .from('study_extractions')
+        .upsert({
+          paper_id:     studyPaperId,
+          version:      'v1',
+          output_json:  v1Output,
+          source_type:  'full-text-pdf',
+          generated_at: now,
+        }, { onConflict: 'paper_id,version' });
+    }
+
+    // Link back onto the validation paper
+    const { error: linkErr } = await supabase
+      .from('validation_papers')
+      .update({
+        v4_extraction_id:   v4Saved.id,
+        v4_runtime_seconds: runtimeSeconds,
+      })
+      .eq('id', paper.id);
+    if (linkErr) return res.status(500).json({ error: 'Linking failed: ' + linkErr.message });
+
+    return res.status(200).json({
+      ok:                 true,
+      v4_extraction_id:   v4Saved.id,
+      v4_runtime_seconds: runtimeSeconds,
+      study_paper_id:     studyPaperId,
+      generated_at:       v4Saved.generated_at,
     });
   }
 
