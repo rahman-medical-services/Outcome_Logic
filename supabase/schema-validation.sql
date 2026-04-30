@@ -105,6 +105,9 @@ CREATE TABLE validation_papers (
   phase3_locked         BOOLEAN     NOT NULL DEFAULT false,
   v4_extraction_id      UUID,                                -- → study_extractions.id (app-level link)
   v4_runtime_seconds    NUMERIC,                             -- snapshot of _runtime_seconds at run time
+  merged_json           JSONB,                               -- final V4-shape JSON post-Phase 3 (V4 + 2b corrections + arbitrated MA)
+  merged_at             TIMESTAMPTZ,                         -- set when merged_json is written by phase3_paper_submit
+  library_trial_id      UUID,                                -- → trials.id if saved to validated library; NULL otherwise
   notes                 TEXT,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -360,6 +363,16 @@ INSERT INTO validation_papers (short_label, title, is_preliminary, notes) VALUES
 --   ('rater_b2', 'Rater B2',    'B',  'phase1a,phase2',  'CHANGEME'),
 --   ('arbiter',  'Arbitrator',  NULL, 'arbitrator',      'CHANGEME'),
 --   ('admin',    'Study Admin', NULL, 'admin',           'CHANGEME');
+
+
+-- ============================================================
+-- 13. Migration helpers (idempotent — safe to re-run on live DB)
+-- For deployments that ran the original Session 20 schema, this
+-- adds the Session 21 Phase 3 / library columns without DROPping.
+-- ============================================================
+ALTER TABLE validation_papers ADD COLUMN IF NOT EXISTS merged_json      JSONB;
+ALTER TABLE validation_papers ADD COLUMN IF NOT EXISTS merged_at        TIMESTAMPTZ;
+ALTER TABLE validation_papers ADD COLUMN IF NOT EXISTS library_trial_id UUID;
 
 
 -- ============================================================

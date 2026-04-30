@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OutcomeLogic — Phase 3 (Arbitration)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/env.js"></script>
+  <style>
+    body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+
+    .field-card { border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; border-left-width: 3px; padding: 0.875rem 1rem; }
+    .field-card.complete   { border-left-color: #16a34a; }
+    .field-card.incomplete { border-left-color: #d97706; }
+    .field-card.disagreement { border-left-color: #dc2626; }
+    .field-card.agreement    { border-left-color: #16a34a; }
+    .field-card.saved-flash { border-color: #16a34a; transition: border-color 0.4s; }
+
+    input[type=text], input[type=number], input[type=password], textarea, select {
+      background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+      border-radius: 0.375rem; padding: 0.4rem 0.6rem; font-size: 0.875rem; width: 100%;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #3b82f6; }
+    textarea { resize: vertical; min-height: 3rem; }
+
+    .pill { font-size: 0.7rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+    .pill-info { background: #1e3a5f; color: #93c5fd; }
+    .pill-warn { background: #713f12; color: #fde68a; }
+    .pill-good { background: #14532d; color: #86efac; }
+    .pill-mute { background: #1e293b; color: #94a3b8; }
+    .pill-bad  { background: #7f1d1d; color: #fca5a5; }
+
+    .section-header { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 0.4rem; margin-bottom: 0.6rem; }
+
+    .triple-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+    .triple-cell { background: #0f172a; border: 1px solid #334155; border-radius: 0.375rem; padding: 0.45rem 0.6rem; font-size: 0.8125rem; min-height: 3rem; word-break: break-word; }
+    .triple-cell.empty { color: #64748b; font-style: italic; }
+    .cell-header { font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; color: #94a3b8; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; }
+    .cell-mono { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; color: #cbd5e1; white-space: pre-wrap; }
+
+    .dec-btn { transition: all 0.15s; font-size: 0.72rem; padding: 0.25rem 0.6rem; border-radius: 9999px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; }
+    .dec-btn:hover { background: #334155; color: #e2e8f0; }
+    .dec-btn.active-adopt_a { background: #1e3a5f; color: #93c5fd; border-color: #3b82f6; }
+    .dec-btn.active-adopt_b { background: #4a1d96; color: #ddd6fe; border-color: #7c3aed; }
+    .dec-btn.active-new_value { background: #713f12; color: #fde68a; border-color: #d97706; }
+    .dec-btn.active-exact_match_confirmed { background: #166534; color: #86efac; border-color: #16a34a; }
+    .dec-btn.active-both_correct { background: #14532d; color: #86efac; border-color: #16a34a; }
+
+    .star-btn { background: none; border: none; color: #475569; cursor: pointer; font-size: 1.1rem; padding: 0 0.1rem; }
+    .star-btn.active { color: #fbbf24; }
+
+    /* split layout */
+    .split-container { display: flex; height: calc(100vh - 3.25rem); }
+    .split-pdf       { flex-shrink: 0; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #1f2937; background: #0f172a; }
+    .split-divider   { width: 4px; background: #334155; cursor: col-resize; flex-shrink: 0; }
+    .split-divider:hover, .split-divider.dragging { background: #64748b; }
+    .split-form      { flex: 1; min-width: 0; overflow-y: auto; }
+    .split-pdf-toolbar { padding: 0.4rem 0.6rem; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: #94a3b8; }
+    .split-pdf-frame   { flex: 1; border: 0; background: #1e293b; width: 100%; }
+    .form-toolbar    { padding: 0.6rem 1rem; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; background: #0f172a; position: sticky; top: 0; z-index: 10; }
+    .form-content    { padding: 1rem 1.5rem 4rem; max-width: 64rem; }
+    .icon-btn        { font-size: 0.7rem; padding: 0.2rem 0.55rem; border-radius: 0.25rem; background: #1e293b; border: 1px solid #334155; color: #cbd5e1; cursor: pointer; }
+    .icon-btn:hover  { background: #334155; }
+    body.is-dragging { user-select: none; cursor: col-resize; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <header class="border-b border-slate-700 bg-slate-900 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="font-semibold text-white">Phase 3</span>
+      <span class="text-slate-500 text-sm">— Arbitration</span>
+      <span id="paper-breadcrumb" class="hidden text-xs text-slate-400 ml-2"></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="rater-info" class="text-xs text-slate-400"></span>
+      <button id="logout-btn" onclick="doLogout()" class="hidden text-xs text-slate-500 hover:text-red-400 px-2 py-1 rounded hover:bg-slate-800">Logout</button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- LOGIN -->
+    <section id="view-login" class="max-w-sm mx-auto mt-16 px-6">
+      <h1 class="text-xl font-semibold text-white mb-1">Arbitrator login</h1>
+      <p class="text-sm text-slate-400 mb-6">Use the rater ID and passphrase you were given. Arbitrator or admin role required.</p>
+      <form id="login-form" class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400">Rater ID</label>
+          <input type="text" id="login-rater-id" autocomplete="username" required />
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">Passphrase</label>
+          <input type="password" id="login-passphrase" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded">Sign in</button>
+        <p id="login-error" class="hidden text-xs text-red-400"></p>
+      </form>
+    </section>
+
+    <!-- PAPER LIST -->
+    <section id="view-papers" class="hidden max-w-6xl mx-auto px-6 py-6">
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-lg font-semibold text-white">Papers ready for arbitration</h1>
+        <span id="papers-count" class="text-xs text-slate-400"></span>
+      </div>
+      <div class="bg-slate-800/60 border border-slate-700 rounded-lg p-3 mb-4 text-xs text-slate-300 leading-relaxed">
+        <p class="font-medium text-slate-200 mb-1">How this works</p>
+        <ul class="list-disc list-inside space-y-0.5 text-slate-400">
+          <li>For each MA field, you see the pipeline value and both raters' answers side-by-side. Pick a decision and (where needed) the final arbitrated value.</li>
+          <li>Phase 2b corrections from the Phase 2 pair flow into the non-MA section below — same pattern.</li>
+          <li>When all MA fields have a decision, you can submit. Submission optionally writes the merged JSON to the validated trials library.</li>
+        </ul>
+      </div>
+      <div id="papers-list" class="space-y-2"></div>
+    </section>
+
+    <!-- ARBITRATION (split-pane) -->
+    <section id="view-arbitrate" class="hidden">
+      <div class="split-container" id="split-container">
+
+        <div id="pdf-pane" class="split-pdf" style="width: 40%">
+          <div class="split-pdf-toolbar">
+            <span id="pdf-toolbar-label" class="truncate">PDF</span>
+            <button class="icon-btn" onclick="popOutPdf()">↗ Pop out</button>
+          </div>
+          <iframe id="pdf-iframe" class="split-pdf-frame" referrerpolicy="no-referrer"></iframe>
+          <div id="pdf-fallback" class="hidden flex-1 flex items-center justify-center p-8 text-slate-500 text-sm text-center">No PDF attached.</div>
+        </div>
+
+        <div id="split-divider" class="split-divider" title="Drag to resize"></div>
+
+        <div id="form-pane" class="split-form">
+          <div class="form-toolbar">
+            <div class="flex items-center gap-3 min-w-0">
+              <button onclick="goBackToPapers()" class="text-xs text-slate-400 hover:text-white">← Papers</button>
+              <span id="form-paper-label" class="text-sm font-medium text-white truncate"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="show-pdf-btn" class="hidden icon-btn" onclick="showPdfPanel()">Show PDF panel</button>
+              <span id="progress-pill" class="pill pill-mute">0 / 0</span>
+              <span id="locked-pill" class="hidden pill pill-good">Locked</span>
+            </div>
+          </div>
+
+          <div class="form-content">
+            <div id="paper-meta" class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-5">
+              <h2 id="paper-title" class="text-base font-semibold text-white"></h2>
+              <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+                <span id="paper-pmid"></span>
+                <span id="paper-doi"></span>
+                <a id="paper-pdf-link" target="_blank" class="hidden text-blue-400 hover:text-blue-300 underline">Open PDF in new tab</a>
+              </div>
+            </div>
+
+            <h3 class="section-header">Meta-analysis fields (Phase 1a discrepancies)</h3>
+            <div id="ma-fields" class="space-y-4 mb-8"></div>
+
+            <h3 class="section-header">Sectional fields (Phase 2b corrections)</h3>
+            <div id="non-ma-fields" class="space-y-4 mb-8"></div>
+
+            <h3 class="section-header">Paper-level ratings</h3>
+            <div class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-6 space-y-3">
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-slate-400 w-32">Quality (1–5)</span>
+                <div id="quality-stars" class="flex"></div>
+                <span id="quality-help" class="text-xs text-slate-500">Overall extraction quality.</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-slate-400 w-32">Usability (1–5)</span>
+                <div id="usability-stars" class="flex"></div>
+                <span id="usability-help" class="text-xs text-slate-500">Would you use this without re-reading the paper?</span>
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">Arbitrator notes (optional)</label>
+                <textarea id="rating-notes" rows="2" placeholder="Anything noteworthy for the export."></textarea>
+              </div>
+            </div>
+
+            <h3 class="section-header">Save to validated library</h3>
+            <div class="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-6 space-y-3" id="library-block">
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" id="lib-save" />
+                Save the merged extraction to the validated library on submit
+              </label>
+              <div id="lib-fields" class="space-y-3 hidden">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="text-xs text-slate-400">Domain *</label>
+                    <input type="text" id="lib-domain" placeholder="Surgery" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-slate-400">Specialty *</label>
+                    <input type="text" id="lib-specialty" placeholder="Cardiothoracic" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="text-xs text-slate-400">Subspecialty</label>
+                    <input type="text" id="lib-subspecialty" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-slate-400">Landmark year</label>
+                    <input type="number" id="lib-year" />
+                  </div>
+                </div>
+                <div>
+                  <label class="text-xs text-slate-400">Display title *</label>
+                  <input type="text" id="lib-display-title" placeholder="TRIAL — Author et al. (Year)" />
+                </div>
+                <div>
+                  <label class="text-xs text-slate-400">Tags (comma separated)</label>
+                  <input type="text" id="lib-tags" />
+                </div>
+                <p class="text-xs text-slate-500">Defaults are pre-filled from the V4 <code>library_meta</code>. Edit before submit.</p>
+              </div>
+            </div>
+
+            <div id="submit-row" class="mt-8 flex items-center justify-between gap-4 border-t border-slate-700 pt-5">
+              <p id="submit-help" class="text-xs text-slate-400">Decide every MA field before submit.</p>
+              <button id="submit-btn" disabled onclick="doSubmit()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded">
+                Finalise & lock arbitration
+              </button>
+            </div>
+            <p id="submit-error" class="hidden mt-2 text-xs text-red-400"></p>
+            <p id="submit-success" class="hidden mt-2 text-xs text-emerald-400"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    const state = {
+      apiToken:   (window.ENV && window.ENV.INTERNAL_API_TOKEN) || '',
+      rater:      null,
+      passphrase: null,
+      papers:     [],
+      currentPaper:   null,
+      currentSession: null,    // server response for phase3_session
+      decisions:      {},      // field_name → arbitration row (local mirror)
+      paperRating:    { quality_rating: null, usability_rating: null, notes: '' },
+      saveDebounces:  {},
+      ratingDebounce: null,
+    };
+    const $ = sel => document.querySelector(sel);
+    const showView = id => {
+      ['view-login','view-papers','view-arbitrate'].forEach(v => $('#'+v).classList.add('hidden'));
+      $('#'+id).classList.remove('hidden');
+    };
+
+    async function api(action, opts = {}) {
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-api-token':  state.apiToken,
+      };
+      if (state.rater) {
+        headers['x-rater-id']         = state.rater.rater_id;
+        headers['x-rater-passphrase'] = state.passphrase;
+      }
+      const url = `/api/validation?action=${encodeURIComponent(action)}` +
+                  (opts.query ? '&' + new URLSearchParams(opts.query).toString() : '');
+      const r = await fetch(url, {
+        method:  opts.method || 'GET',
+        headers,
+        body:    opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const err = new Error(data.error || `HTTP ${r.status}`);
+        err.payload = data;
+        throw err;
+      }
+      return data;
+    }
+
+    // ── Login ──────────────────────────────────────────────────────
+    async function tryRestore() {
+      const saved = sessionStorage.getItem('phase3-rater');
+      if (!saved) return false;
+      try {
+        const { rater, passphrase } = JSON.parse(saved);
+        if (!rater.roles?.includes('arbitrator') && !rater.roles?.includes('admin')) return false;
+        state.rater = rater; state.passphrase = passphrase;
+        await loadAll();
+        return true;
+      } catch (e) {
+        sessionStorage.removeItem('phase3-rater');
+        return false;
+      }
+    }
+
+    $('#login-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      $('#login-error').classList.add('hidden');
+      const rater_id   = $('#login-rater-id').value.trim();
+      const passphrase = $('#login-passphrase').value;
+      try {
+        const r = await fetch('/api/validation?action=login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-token': state.apiToken },
+          body: JSON.stringify({ rater_id, passphrase }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        if (!d.roles?.includes('arbitrator') && !d.roles?.includes('admin')) {
+          throw new Error('This rater is not authorised for Phase 3.');
+        }
+        state.rater = d; state.passphrase = passphrase;
+        sessionStorage.setItem('phase3-rater', JSON.stringify({ rater: d, passphrase }));
+        await loadAll();
+      } catch (err) {
+        $('#login-error').textContent = err.message;
+        $('#login-error').classList.remove('hidden');
+      }
+    });
+
+    window.doLogout = function () {
+      sessionStorage.removeItem('phase3-rater');
+      state.rater = null; state.passphrase = null;
+      $('#logout-btn').classList.add('hidden');
+      $('#rater-info').textContent = '';
+      $('#paper-breadcrumb').classList.add('hidden');
+      showView('view-login');
+    };
+
+    async function loadAll() {
+      const p = await api('phase3_papers');
+      state.papers = p.papers || [];
+      $('#rater-info').textContent = `${state.rater.display_name} (${state.rater.rater_id})`;
+      $('#logout-btn').classList.remove('hidden');
+      renderPapers();
+      showView('view-papers');
+    }
+
+    function renderPapers() {
+      const list = $('#papers-list');
+      list.innerHTML = '';
+      $('#papers-count').textContent = `${state.papers.length} paper${state.papers.length === 1 ? '' : 's'}`;
+      if (!state.papers.length) {
+        list.innerHTML = '<p class="text-sm text-slate-400 px-1">No papers yet.</p>';
+        return;
+      }
+      for (const p of state.papers) {
+        const tag = p.is_preliminary
+          ? '<span class="pill pill-info">Preliminary</span>'
+          : (p.paper_number ? `<span class="pill pill-mute">#${p.paper_number}</span>` : '');
+        const lockedPill = p.arbitration_complete
+          ? '<span class="pill pill-good">Arbitration locked</span>'
+          : (p.phase3_fields_arbitrated ? `<span class="pill pill-warn">${p.phase3_fields_arbitrated} field decisions saved</span>` : '<span class="pill pill-mute">Pending</span>');
+        const libPill = p.library_trial_id ? '<span class="pill pill-good">In library</span>' : '';
+        const pipelinePill = p.pipeline_run ? '' : '<span class="pill pill-bad">No V4 run</span>';
+        const counts = `1a&nbsp;${p.phase1a_raters_done}/2 · 2a&nbsp;${p.phase2a_raters_done}/2 · 2b&nbsp;${p.phase2b_raters_done}/2`;
+
+        const div = document.createElement('div');
+        div.className = 'bg-slate-800/60 border border-slate-700 rounded-lg p-3 hover:border-slate-500 flex items-center justify-between';
+        div.innerHTML = `
+          <div class="min-w-0 mr-4">
+            <div class="flex items-center gap-2 mb-1">${tag} ${lockedPill} ${libPill} ${pipelinePill}</div>
+            <div class="text-sm text-white truncate">${escapeHtml(p.short_label || p.title)}</div>
+            <div class="text-xs text-slate-500 mt-0.5">${counts}</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button class="icon-btn" data-id="${p.paper_id}" data-action="open">${p.arbitration_complete ? 'Review' : 'Arbitrate'}</button>
+            ${p.merged_at ? `<button class="icon-btn" data-id="${p.paper_id}" data-action="view">View merged</button>` : ''}
+          </div>
+        `;
+        div.querySelectorAll('button[data-action]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.id;
+            if (btn.dataset.action === 'open') openArbitration(id);
+            else if (btn.dataset.action === 'view') viewMerged(id);
+          });
+        });
+        list.appendChild(div);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function fmtVal(v) {
+      if (v === null || v === undefined || v === '') return '';
+      if (typeof v === 'object') return JSON.stringify(v, null, 2);
+      return String(v);
+    }
+
+    // ── Arbitration view ──────────────────────────────────────────────
+    async function openArbitration(paperId) {
+      try {
+        const r = await api('phase3_session', { query: { paper_id: paperId } });
+        state.currentPaper = r.paper;
+        state.currentSession = r;
+        // Seed decisions from server-stored arbitrations
+        state.decisions = {};
+        for (const a of (r.arbitrations || [])) state.decisions[a.field_name] = a;
+        // Seed paper rating
+        state.paperRating = r.paper_rating || { quality_rating: null, usability_rating: null, notes: '' };
+        // Pre-fill library fields from V4 library_meta
+        prefillLibraryMeta(r.v4_output, r.paper);
+        renderArbitration();
+        showView('view-arbitrate');
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function prefillLibraryMeta(v4, paper) {
+      const lm = (v4 && v4.library_meta) || {};
+      $('#lib-domain').value        = lm.domain        || '';
+      $('#lib-specialty').value     = lm.specialty     || '';
+      $('#lib-subspecialty').value  = lm.subspecialty  || '';
+      $('#lib-year').value          = lm.landmark_year || '';
+      $('#lib-display-title').value = lm.display_title || (paper.short_label ? `${paper.short_label} — ${paper.title?.slice(0, 60) || ''}` : (paper.title || ''));
+      $('#lib-tags').value          = (lm.tags && lm.tags.length) ? lm.tags.join(', ') : '';
+    }
+
+    function renderArbitration() {
+      const p = state.currentPaper;
+      const session = state.currentSession;
+      $('#paper-breadcrumb').classList.remove('hidden');
+      $('#paper-breadcrumb').textContent = p.short_label || p.title?.slice(0, 60) || 'Paper';
+      $('#form-paper-label').textContent = p.short_label || p.title?.slice(0, 60) || 'Paper';
+      $('#paper-title').textContent = p.title || '';
+      $('#paper-pmid').textContent = p.pmid ? `PMID ${p.pmid}` : '';
+      $('#paper-doi').textContent  = p.doi  ? `DOI ${p.doi}` : '';
+
+      // PDF
+      if (p.pdf_url) {
+        $('#pdf-iframe').src = p.pdf_url;
+        $('#pdf-iframe').classList.remove('hidden');
+        $('#pdf-fallback').classList.add('hidden');
+        $('#pdf-toolbar-label').textContent = p.pdf_filename || 'PDF';
+        $('#paper-pdf-link').href = p.pdf_url;
+        $('#paper-pdf-link').classList.remove('hidden');
+      } else {
+        $('#pdf-iframe').src = '';
+        $('#pdf-iframe').classList.add('hidden');
+        $('#pdf-fallback').classList.remove('hidden');
+        $('#paper-pdf-link').classList.add('hidden');
+      }
+
+      // Locked banner
+      if (p.phase3_locked) {
+        $('#locked-pill').classList.remove('hidden');
+        $('#submit-help').textContent = 'Arbitration is locked.';
+        $('#submit-btn').disabled = true;
+      } else {
+        $('#locked-pill').classList.add('hidden');
+      }
+
+      // MA + non-MA rows
+      $('#ma-fields').innerHTML = '';
+      for (const row of session.ma_rows) $('#ma-fields').appendChild(renderFieldCard(row, 'ma'));
+      $('#non-ma-fields').innerHTML = '';
+      for (const row of session.non_ma_rows) $('#non-ma-fields').appendChild(renderFieldCard(row, 'non_ma'));
+
+      // Paper rating
+      renderStars('quality',   state.paperRating.quality_rating);
+      renderStars('usability', state.paperRating.usability_rating);
+      $('#rating-notes').value = state.paperRating.notes || '';
+      $('#rating-notes').oninput = () => {
+        state.paperRating.notes = $('#rating-notes').value;
+        scheduleRatingSave();
+      };
+
+      // Library fields visibility
+      $('#lib-save').onchange = () => {
+        $('#lib-fields').classList.toggle('hidden', !$('#lib-save').checked);
+      };
+
+      updateProgress();
+    }
+
+    function renderStars(prefix, current) {
+      const container = $(`#${prefix}-stars`);
+      container.innerHTML = '';
+      for (let i = 1; i <= 5; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'star-btn' + ((current && i <= current) ? ' active' : '');
+        btn.textContent = '★';
+        btn.dataset.i = i;
+        btn.onclick = () => {
+          state.paperRating[prefix === 'quality' ? 'quality_rating' : 'usability_rating'] = i;
+          renderStars(prefix, i);
+          scheduleRatingSave();
+        };
+        container.appendChild(btn);
+      }
+    }
+
+    function scheduleRatingSave() {
+      clearTimeout(state.ratingDebounce);
+      state.ratingDebounce = setTimeout(async () => {
+        try {
+          await api('phase3_paper_rating_save', {
+            method: 'POST',
+            body: {
+              paper_id: state.currentPaper.id,
+              quality_rating:   state.paperRating.quality_rating,
+              usability_rating: state.paperRating.usability_rating,
+              notes: state.paperRating.notes,
+            },
+          });
+        } catch (e) { console.warn('rating save failed', e); }
+      }, 350);
+    }
+
+    function discrepancyClass(row) {
+      const a = valOf(row.rater_a, row.kind);
+      const b = valOf(row.rater_b, row.kind);
+      if (a == null && b == null) return ''; // nothing to flag
+      if (a === b) return 'agreement';
+      return 'disagreement';
+    }
+
+    function valOf(rater, kind) {
+      if (!rater) return null;
+      if (kind === 'ma') {
+        if (rater.cannot_determine) return '__CD__';
+        return rater.value == null || rater.value === '' ? null : rater.value;
+      }
+      // non_ma — use match_status as the comparable
+      return rater.match_status || null;
+    }
+
+    function renderFieldCard(row, kind) {
+      const card = document.createElement('div');
+      card.className = 'field-card';
+      const f = row.field;
+      const decision = state.decisions[f.id] || {};
+      const dec = decision.arbitrator_decision || null;
+      card.classList.add(dec ? 'complete' : 'incomplete');
+      card.classList.add(discrepancyClass(row));
+
+      const ridA = state.currentSession.rater_ids[kind === 'ma' ? 'phase1a_a' : 'phase2b_a'];
+      const ridB = state.currentSession.rater_ids[kind === 'ma' ? 'phase1a_b' : 'phase2b_b'];
+      const nameA = ridA ? (state.currentSession.rater_names[ridA] || ridA) : 'Rater A';
+      const nameB = ridB ? (state.currentSession.rater_names[ridB] || ridB) : 'Rater B';
+
+      let pipelineDisplay = row.pipeline_value === undefined ? '<span class="cell-mono empty">(not extracted)</span>' :
+        `<div class="cell-mono">${escapeHtml(fmtVal(row.pipeline_value))}</div>`;
+
+      let raterADisplay, raterBDisplay;
+      if (kind === 'ma') {
+        raterADisplay = row.rater_a
+          ? (row.rater_a.cannot_determine ? '<span class="pill pill-mute">Cannot determine</span>'
+             : `<div class="cell-mono">${escapeHtml(fmtVal(row.rater_a.value))}</div>`)
+          : '<span class="cell-mono empty">(no entry)</span>';
+        raterBDisplay = row.rater_b
+          ? (row.rater_b.cannot_determine ? '<span class="pill pill-mute">Cannot determine</span>'
+             : `<div class="cell-mono">${escapeHtml(fmtVal(row.rater_b.value))}</div>`)
+          : '<span class="cell-mono empty">(no entry)</span>';
+      } else {
+        raterADisplay = row.rater_a
+          ? (`<div class="cell-mono"><span class="pill pill-info">${row.rater_a.match_status || ''}</span> ${escapeHtml(row.rater_a.correction || '')}</div>`)
+          : '<span class="cell-mono empty">(no grade)</span>';
+        raterBDisplay = row.rater_b
+          ? (`<div class="cell-mono"><span class="pill pill-info">${row.rater_b.match_status || ''}</span> ${escapeHtml(row.rater_b.correction || '')}</div>`)
+          : '<span class="cell-mono empty">(no grade)</span>';
+      }
+
+      // Pre-existing arbitrated value control
+      const arbValue = decision.arbitrated_value ?? '';
+      const arbNotes = decision.arbitrator_notes ?? '';
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-white">${escapeHtml(f.label)}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(f.section || '')}${f.help ? ' · ' + escapeHtml(f.help) : ''}</div>
+          </div>
+          <span class="pill pill-mute flex-shrink-0">${kind === 'ma' ? f.id : (f.display_type || '')}</span>
+        </div>
+
+        <div class="triple-grid mb-3">
+          <div class="triple-cell">
+            <div class="cell-header"><span>Pipeline (V4)</span></div>
+            ${pipelineDisplay}
+          </div>
+          <div class="triple-cell">
+            <div class="cell-header"><span>${escapeHtml(nameA)} ${kind === 'ma' ? '(1a)' : '(2b)'}</span></div>
+            ${raterADisplay}
+          </div>
+          <div class="triple-cell">
+            <div class="cell-header"><span>${escapeHtml(nameB)} ${kind === 'ma' ? '(1a)' : '(2b)'}</span></div>
+            ${raterBDisplay}
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-1 mb-2" data-decisions>
+          <button class="dec-btn ${dec === 'adopt_a' ? 'active-adopt_a' : ''}" data-dec="adopt_a">Adopt A</button>
+          <button class="dec-btn ${dec === 'adopt_b' ? 'active-adopt_b' : ''}" data-dec="adopt_b">Adopt B</button>
+          <button class="dec-btn ${dec === 'new_value' ? 'active-new_value' : ''}" data-dec="new_value">New value</button>
+          <button class="dec-btn ${dec === 'exact_match_confirmed' ? 'active-exact_match_confirmed' : ''}" data-dec="exact_match_confirmed">Pipeline correct</button>
+          <button class="dec-btn ${dec === 'both_correct' ? 'active-both_correct' : ''}" data-dec="both_correct">Both correct</button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="text-xs text-slate-400">Final arbitrated value</label>
+            <input type="text" data-arb-value placeholder="${kind === 'ma' ? 'Numeric or text per field type' : 'Final correction text'}" value="${escapeHtml(arbValue)}" />
+          </div>
+          <div>
+            <label class="text-xs text-slate-400">Notes (optional)</label>
+            <input type="text" data-arb-notes value="${escapeHtml(arbNotes)}" />
+          </div>
+        </div>
+      `;
+
+      // Wiring
+      card.querySelectorAll('[data-dec]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const d = btn.dataset.dec;
+          const cur = state.decisions[f.id] || {};
+          cur.arbitrator_decision = d;
+          // Auto-fill arbitrated_value for adopt_a / adopt_b / exact_match_confirmed
+          const inp = card.querySelector('[data-arb-value]');
+          if (d === 'adopt_a') {
+            const v = kind === 'ma' ? (row.rater_a?.cannot_determine ? '' : (row.rater_a?.value ?? '')) : (row.rater_a?.correction ?? '');
+            inp.value = v;
+            cur.arbitrated_value = v;
+          } else if (d === 'adopt_b') {
+            const v = kind === 'ma' ? (row.rater_b?.cannot_determine ? '' : (row.rater_b?.value ?? '')) : (row.rater_b?.correction ?? '');
+            inp.value = v;
+            cur.arbitrated_value = v;
+          } else if (d === 'exact_match_confirmed' || d === 'both_correct') {
+            const v = kind === 'ma' ? fmtVal(row.pipeline_value) : '';
+            inp.value = v;
+            cur.arbitrated_value = v;
+          }
+          state.decisions[f.id] = cur;
+          renderArbitration();
+          scheduleFieldSave(f.id, kind, row, card);
+        });
+      });
+
+      const arbInp = card.querySelector('[data-arb-value]');
+      arbInp.oninput = () => {
+        const cur = state.decisions[f.id] || {};
+        cur.arbitrated_value = arbInp.value;
+        if (!cur.arbitrator_decision) cur.arbitrator_decision = 'new_value';
+        state.decisions[f.id] = cur;
+        scheduleFieldSave(f.id, kind, row, card);
+      };
+      const notesInp = card.querySelector('[data-arb-notes]');
+      notesInp.oninput = () => {
+        const cur = state.decisions[f.id] || {};
+        cur.arbitrator_notes = notesInp.value;
+        state.decisions[f.id] = cur;
+        scheduleFieldSave(f.id, kind, row, card);
+      };
+
+      return card;
+    }
+
+    function scheduleFieldSave(fieldId, kind, row, card) {
+      clearTimeout(state.saveDebounces[fieldId]);
+      state.saveDebounces[fieldId] = setTimeout(async () => {
+        const cur = state.decisions[fieldId] || {};
+        const ridA = state.currentSession.rater_ids[kind === 'ma' ? 'phase1a_a' : 'phase2b_a'];
+        const ridB = state.currentSession.rater_ids[kind === 'ma' ? 'phase1a_b' : 'phase2b_b'];
+        try {
+          await api('phase3_field_save', {
+            method: 'POST',
+            body: {
+              paper_id:    state.currentPaper.id,
+              field_name:  fieldId,
+              v4_value:    fmtVal(row.pipeline_value),
+              rater_a_id:  ridA,
+              rater_b_id:  ridB,
+              rater_a_correction:    kind === 'ma' ? (row.rater_a?.cannot_determine ? null : (row.rater_a?.value ?? null))
+                                                  : (row.rater_a?.correction ?? null),
+              rater_b_correction:    kind === 'ma' ? (row.rater_b?.cannot_determine ? null : (row.rater_b?.value ?? null))
+                                                  : (row.rater_b?.correction ?? null),
+              rater_a_match_status:  kind === 'ma' ? null : (row.rater_a?.match_status ?? null),
+              rater_b_match_status:  kind === 'ma' ? null : (row.rater_b?.match_status ?? null),
+              arbitrated_value:      cur.arbitrated_value ?? null,
+              arbitrator_decision:   cur.arbitrator_decision || null,
+              arbitrator_notes:      cur.arbitrator_notes ?? null,
+            },
+          });
+          card.classList.add('saved-flash');
+          setTimeout(() => card.classList.remove('saved-flash'), 400);
+          updateProgress();
+        } catch (e) {
+          console.warn('field save failed', fieldId, e);
+        }
+      }, 300);
+    }
+
+    function updateProgress() {
+      const session = state.currentSession;
+      if (!session) return;
+      const required = session.ma_rows.length;
+      let done = 0;
+      for (const row of session.ma_rows) {
+        const d = state.decisions[row.field.id];
+        if (d && d.arbitrator_decision) done++;
+      }
+      $('#progress-pill').textContent = `${done} / ${required} MA decided`;
+      $('#progress-pill').className = 'pill ' + (done === required ? 'pill-good' : 'pill-mute');
+      const locked = state.currentPaper.phase3_locked;
+      $('#submit-btn').disabled = locked || (done < required);
+      $('#submit-help').textContent = locked
+        ? 'Arbitration is locked.'
+        : (done < required ? `Decide ${required - done} more MA field${required - done === 1 ? '' : 's'} to enable submit.`
+                           : 'All MA fields decided. Ready to finalise.');
+    }
+
+    window.doSubmit = async function () {
+      $('#submit-error').classList.add('hidden');
+      $('#submit-success').classList.add('hidden');
+      const body = {
+        paper_id: state.currentPaper.id,
+        save_to_library: $('#lib-save').checked,
+      };
+      if (body.save_to_library) {
+        body.library_meta = {
+          domain:        $('#lib-domain').value.trim(),
+          specialty:     $('#lib-specialty').value.trim(),
+          subspecialty:  $('#lib-subspecialty').value.trim() || null,
+          landmark_year: $('#lib-year').value ? Number($('#lib-year').value) : null,
+          display_title: $('#lib-display-title').value.trim(),
+          tags:          $('#lib-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+        };
+      }
+      try {
+        const r = await api('phase3_paper_submit', { method: 'POST', body });
+        let msg = `Locked. merged_at ${r.merged_at}.`;
+        if (r.library) msg += ` Library trial ${r.library.trial_id} (v${r.library.version}).`;
+        $('#submit-success').textContent = msg;
+        $('#submit-success').classList.remove('hidden');
+        // Reload session to reflect lock state
+        await openArbitration(state.currentPaper.id);
+      } catch (e) {
+        if (e.payload?.error === 'duplicate') {
+          if (confirm('A trial with this PMID/DOI is already in the library. Supersede it?')) {
+            try {
+              const r = await api('phase3_paper_submit', { method: 'POST', body: { ...body, confirm_overwrite: true } });
+              $('#submit-success').textContent = `Locked. Library v${r.library.version} (superseded ${r.library.superseded}).`;
+              $('#submit-success').classList.remove('hidden');
+              await openArbitration(state.currentPaper.id);
+              return;
+            } catch (e2) {
+              $('#submit-error').textContent = e2.message;
+              $('#submit-error').classList.remove('hidden');
+              return;
+            }
+          }
+        }
+        $('#submit-error').textContent = e.message;
+        $('#submit-error').classList.remove('hidden');
+      }
+    };
+
+    window.goBackToPapers = async function () {
+      state.currentPaper = null;
+      state.currentSession = null;
+      state.decisions = {};
+      $('#paper-breadcrumb').classList.add('hidden');
+      await loadAll();
+    };
+
+    window.popOutPdf = function () {
+      if (!state.currentPaper?.pdf_url) return;
+      window.open(state.currentPaper.pdf_url, 'phase3-pdf', 'width=900,height=1100');
+      $('#pdf-pane').style.display = 'none';
+      $('#split-divider').style.display = 'none';
+      $('#show-pdf-btn').classList.remove('hidden');
+    };
+    window.showPdfPanel = function () {
+      $('#pdf-pane').style.display = 'flex';
+      $('#split-divider').style.display = 'block';
+      $('#show-pdf-btn').classList.add('hidden');
+    };
+
+    async function viewMerged(paperId) {
+      // Pull merged_json and stash it for the index.html renderer
+      try {
+        const r = await api('phase3_merged_json', { query: { paper_id: paperId } });
+        if (!r.merged_json) {
+          alert('No merged JSON yet — finalise arbitration first.');
+          return;
+        }
+        sessionStorage.setItem('outcomelogic-preview-json', JSON.stringify(r.merged_json));
+        sessionStorage.setItem('outcomelogic-preview-source', `Phase 3 merged — ${r.short_label || r.title || ''}`);
+        window.open('/index.html?preview=phase3', '_blank');
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    // ── Splitter drag ─────────────────────────────────────────────────
+    (function () {
+      const divider = $('#split-divider');
+      const container = $('#split-container');
+      const pdfPane = $('#pdf-pane');
+      let dragging = false;
+      divider?.addEventListener('mousedown', () => {
+        dragging = true; document.body.classList.add('is-dragging'); divider.classList.add('dragging');
+      });
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const rect = container.getBoundingClientRect();
+        const pct = Math.min(80, Math.max(20, ((e.clientX - rect.left) / rect.width) * 100));
+        pdfPane.style.width = pct + '%';
+        sessionStorage.setItem('phase3-split', pct.toFixed(2));
+      });
+      document.addEventListener('mouseup', () => {
+        dragging = false; document.body.classList.remove('is-dragging'); divider.classList.remove('dragging');
+      });
+      const pct = sessionStorage.getItem('phase3-split');
+      if (pct) pdfPane.style.width = pct + '%';
+    })();
+
+    tryRestore();
+  </script>
+</body>
+</html>

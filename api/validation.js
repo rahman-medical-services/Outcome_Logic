@@ -35,6 +35,7 @@ import {
   MATCH_STATUSES, TAXONOMY, PIPELINE_SECTIONS, ROOT_CAUSE_STAGES,
   extractPipelineValues, stripInternalFields,
 } from '../lib/validation-fields.js';
+import { buildMergedJson, buildPhase3FieldRows } from '../lib/validation-merge.js';
 
 // 12 MB cap accommodates PDFs up to ~9 MB raw after base64 inflation.
 // For larger PDFs, paste an external URL into pdf_url instead.
@@ -735,6 +736,430 @@ export default async function handler(req, res) {
     if (lockErr) return res.status(500).json({ error: lockErr.message });
 
     return res.status(200).json({ ok: true, time_seconds: timeSeconds });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // PHASE 3 ACTIONS (arbitrator or admin role required)
+  // ─────────────────────────────────────────────────────────────────────
+
+  // ── phase3_papers: list papers ready for arbitration. A paper is
+  //    "ready" when its V4 has been run AND at least the Phase 1a pair
+  //    OR the Phase 2a pair has both members locked. (We don't gate on
+  //    full 1a+2a completeness — preliminary papers and the PI's solo
+  //    smoke-test should still surface here.) For each paper, returns
+  //    progress counts so the UI can sort by readiness.
+  if (action === 'phase3_papers' && req.method === 'GET') {
+    if (!raterHasRole(rater, 'arbitrator') && !raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Arbitrator or admin role required.' });
+    }
+    const { data, error } = await supabase
+      .from('validation_paper_progress')
+      .select('*')
+      .order('is_preliminary', { ascending: false })
+      .order('paper_number',   { ascending: true,  nullsFirst: false });
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Pull the source paper rows for fields not in the view (pdf_url, etc.)
+    const ids = (data || []).map(r => r.paper_id);
+    let papers = [];
+    if (ids.length) {
+      const { data: pp, error: pErr } = await supabase
+        .from('validation_papers')
+        .select('id, pdf_url, pdf_filename, pmid, doi, v4_extraction_id, phase3_locked, library_trial_id, merged_at')
+        .in('id', ids);
+      if (pErr) return res.status(500).json({ error: pErr.message });
+      papers = pp || [];
+    }
+    const byId = Object.fromEntries(papers.map(p => [p.id, p]));
+    const rows = (data || []).map(r => ({ ...r, ...byId[r.paper_id] }));
+    return res.status(200).json({ papers: rows });
+  }
+
+  // ── phase3_session: load discrepancy view for one paper.
+  //    Returns: paper, V4 output (stripped), MA rows + non-MA rows
+  //    (each with pipeline value, rater A & B inputs, and any existing
+  //    arbitration), paper rating, completeness flags.
+  if (action === 'phase3_session' && req.method === 'GET') {
+    if (!raterHasRole(rater, 'arbitrator') && !raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Arbitrator or admin role required.' });
+    }
+    const paperId = req.query.paper_id;
+    if (!paperId) return res.status(400).json({ error: 'paper_id required.' });
+
+    const { data: paper, error: pErr } = await supabase
+      .from('validation_papers')
+      .select('*')
+      .eq('id', paperId)
+      .maybeSingle();
+    if (pErr)   return res.status(500).json({ error: pErr.message });
+    if (!paper) return res.status(404).json({ error: 'Paper not found.' });
+
+    // V4 output
+    let v4Output = null;
+    try {
+      const v4 = await loadV4Output(supabase, paper);
+      if (v4 && v4.output_json) v4Output = v4.output_json;
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+
+    // Phase 1a extractions, both raters (only if both submitted to
+    // preserve PROTOCOL §2.3 blinding — but arbitrators are exempt).
+    const { data: phase1a, error: e1 } = await supabase
+      .from('phase1a_extractions')
+      .select('rater_id, field_name, extracted_value, cannot_determine, uncertain, notes')
+      .eq('paper_id', paperId);
+    if (e1) return res.status(500).json({ error: e1.message });
+
+    const { data: phase2g, error: e2 } = await supabase
+      .from('phase2_grades')
+      .select('rater_id, phase, field_name, match_status, correction_value, harm_severity, error_taxonomy, pipeline_section, root_cause_stage, notes, v4_value')
+      .eq('paper_id', paperId);
+    if (e2) return res.status(500).json({ error: e2.message });
+
+    const { data: arbitrations, error: e3 } = await supabase
+      .from('phase3_arbitrations')
+      .select('*')
+      .eq('paper_id', paperId);
+    if (e3) return res.status(500).json({ error: e3.message });
+
+    const { data: rating, error: e4 } = await supabase
+      .from('phase3_paper_ratings')
+      .select('*')
+      .eq('paper_id', paperId)
+      .eq('arbitrator_id', rater.rater_id)
+      .maybeSingle();
+    if (e4) return res.status(500).json({ error: e4.message });
+
+    // Identify rater pair for each rater_id (best-effort — the pair is
+    // not stored on each row). Look up validation_raters once.
+    const allRaterIds = [...new Set((phase1a || []).concat(phase2g || []).map(r => r.rater_id))];
+    let raterMeta = [];
+    if (allRaterIds.length) {
+      const { data: rm } = await supabase
+        .from('validation_raters')
+        .select('rater_id, pair, display_name')
+        .in('rater_id', allRaterIds);
+      raterMeta = rm || [];
+    }
+    const pairOf = Object.fromEntries(raterMeta.map(r => [r.rater_id, r.pair]));
+    const nameOf = Object.fromEntries(raterMeta.map(r => [r.rater_id, r.display_name || r.rater_id]));
+
+    function splitByPair(rows, phaseFilter) {
+      const subset = phaseFilter ? rows.filter(r => r.phase === phaseFilter) : rows;
+      return {
+        a: subset.filter(r => pairOf[r.rater_id] === 'A'),
+        b: subset.filter(r => pairOf[r.rater_id] === 'B'),
+        unpaired: subset.filter(r => !pairOf[r.rater_id]),
+      };
+    }
+    const p1 = splitByPair(phase1a || []);
+    const p2a = splitByPair(phase2g || [], '2a');
+    const p2b = splitByPair(phase2g || [], '2b');
+
+    // For preliminary / smoke-test papers a single PI may grade as both
+    // pairs. If pair-A bucket is empty but pair-B has data, fall back to
+    // unpaired so the UI still has something to show.
+    function preferOrUnpaired(bucket) {
+      const a = bucket.a.length ? bucket.a : bucket.unpaired;
+      const b = bucket.b.length ? bucket.b : (a === bucket.unpaired ? [] : bucket.unpaired);
+      return { a, b };
+    }
+    const phase1aPair = preferOrUnpaired(p1);
+    const phase2aPair = preferOrUnpaired(p2a);
+    const phase2bPair = preferOrUnpaired(p2b);
+
+    const { maRows, nonMaRows } = buildPhase3FieldRows({
+      v4Json: v4Output,
+      phase1aA: phase1aPair.a, phase1aB: phase1aPair.b,
+      phase2aA: phase2aPair.a, phase2aB: phase2aPair.b,
+      phase2bA: phase2bPair.a, phase2bB: phase2bPair.b,
+      arbitrations,
+    });
+
+    function raterIdOf(rows) { return rows[0]?.rater_id || null; }
+    const raterIds = {
+      phase1a_a: raterIdOf(phase1aPair.a),
+      phase1a_b: raterIdOf(phase1aPair.b),
+      phase2a_a: raterIdOf(phase2aPair.a),
+      phase2a_b: raterIdOf(phase2aPair.b),
+      phase2b_a: raterIdOf(phase2bPair.a),
+      phase2b_b: raterIdOf(phase2bPair.b),
+    };
+
+    return res.status(200).json({
+      paper,
+      v4_output:        v4Output ? stripInternalFields(v4Output) : null,
+      ma_rows:          maRows,
+      non_ma_rows:      nonMaRows,
+      arbitrations:     arbitrations || [],
+      paper_rating:     rating || null,
+      rater_ids:        raterIds,
+      rater_names:      nameOf,
+    });
+  }
+
+  // ── phase3_field_save: upsert one phase3_arbitrations row ─────────────
+  if (action === 'phase3_field_save' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'arbitrator') && !raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Arbitrator or admin role required.' });
+    }
+    const {
+      paper_id, field_name,
+      v4_value, v1_value,
+      rater_a_id, rater_b_id,
+      rater_a_correction, rater_b_correction,
+      rater_a_match_status, rater_b_match_status,
+      arbitrated_value, arbitrator_decision, arbitrator_notes,
+    } = req.body || {};
+    if (!paper_id || !field_name) {
+      return res.status(400).json({ error: 'paper_id and field_name required.' });
+    }
+    const allFieldIds = [...MA_FIELD_IDS, ...NON_MA_FIELD_IDS];
+    if (!allFieldIds.includes(field_name)) {
+      return res.status(400).json({ error: `Unknown field_name: ${field_name}` });
+    }
+
+    // Block edits once paper is locked
+    const { data: paper, error: pErr } = await supabase
+      .from('validation_papers')
+      .select('phase3_locked')
+      .eq('id', paper_id)
+      .maybeSingle();
+    if (pErr)   return res.status(500).json({ error: pErr.message });
+    if (!paper) return res.status(404).json({ error: 'Paper not found.' });
+    if (paper.phase3_locked) {
+      return res.status(409).json({ error: 'Paper is locked — arbitration cannot be edited.' });
+    }
+
+    const payload = {
+      paper_id,
+      field_name,
+      v4_value:              v4_value ?? null,
+      v1_value:              v1_value ?? null,
+      rater_a_id:            rater_a_id || null,
+      rater_b_id:            rater_b_id || null,
+      rater_a_correction:    rater_a_correction ?? null,
+      rater_b_correction:    rater_b_correction ?? null,
+      rater_a_match_status:  rater_a_match_status || null,
+      rater_b_match_status:  rater_b_match_status || null,
+      arbitrator_id:         rater.rater_id,
+      arbitrated_value:      arbitrated_value ?? null,
+      arbitrator_decision:   arbitrator_decision || null,
+      arbitrator_notes:      arbitrator_notes ?? null,
+      arbitrated_at:         arbitrator_decision ? new Date().toISOString() : null,
+    };
+    const { error: upErr } = await supabase
+      .from('phase3_arbitrations')
+      .upsert(payload, { onConflict: 'paper_id,field_name' });
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── phase3_paper_rating_save: upsert phase3_paper_ratings ────────────
+  if (action === 'phase3_paper_rating_save' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'arbitrator') && !raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Arbitrator or admin role required.' });
+    }
+    const { paper_id, quality_rating, usability_rating, notes } = req.body || {};
+    if (!paper_id) return res.status(400).json({ error: 'paper_id required.' });
+
+    const payload = {
+      paper_id,
+      arbitrator_id:    rater.rater_id,
+      quality_rating:   quality_rating == null ? null : Number(quality_rating),
+      usability_rating: usability_rating == null ? null : Number(usability_rating),
+      notes:            notes ?? null,
+    };
+    const { error } = await supabase
+      .from('phase3_paper_ratings')
+      .upsert(payload, { onConflict: 'paper_id,arbitrator_id' });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── phase3_paper_submit: completeness check, lock arbitrations, build
+  //    merged JSON, write to validation_papers.merged_json. Optionally
+  //    save to the trials library if `save_to_library` is true.
+  if (action === 'phase3_paper_submit' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'arbitrator') && !raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Arbitrator or admin role required.' });
+    }
+    const { paper_id, save_to_library, library_meta, confirm_overwrite } = req.body || {};
+    if (!paper_id) return res.status(400).json({ error: 'paper_id required.' });
+
+    const { data: paper, error: pErr } = await supabase
+      .from('validation_papers')
+      .select('*')
+      .eq('id', paper_id)
+      .maybeSingle();
+    if (pErr)   return res.status(500).json({ error: pErr.message });
+    if (!paper) return res.status(404).json({ error: 'Paper not found.' });
+    if (!paper.v4_extraction_id) {
+      return res.status(409).json({ error: 'Paper has no V4 pipeline run — cannot finalise.' });
+    }
+
+    // Completeness: every MA field must have an arbitration with a decision.
+    // Non-MA fields are optional (arbitrator may skip if both raters
+    // exact_match'd and there's nothing to decide).
+    const { data: arbitrations, error: aErr } = await supabase
+      .from('phase3_arbitrations')
+      .select('*')
+      .eq('paper_id', paper_id);
+    if (aErr) return res.status(500).json({ error: aErr.message });
+
+    const have = new Map((arbitrations || []).map(a => [a.field_name, a]));
+    const missing = [];
+    for (const fid of MA_FIELD_IDS) {
+      const a = have.get(fid);
+      if (!a || !a.arbitrator_decision) missing.push(fid);
+    }
+    if (missing.length) {
+      return res.status(400).json({ error: 'Cannot finalise — incomplete MA fields.', missing_fields: missing });
+    }
+
+    // Build the merged JSON.
+    const v4 = await loadV4Output(supabase, paper);
+    if (!v4 || !v4.output_json) {
+      return res.status(500).json({ error: 'V4 output_json missing for linked extraction.' });
+    }
+    const merged = buildMergedJson(v4.output_json, arbitrations || []);
+
+    // Persist merged_json + lock the paper.
+    const updatePayload = {
+      merged_json:   merged,
+      merged_at:     new Date().toISOString(),
+      phase3_locked: true,
+    };
+
+    // Optional: write to the validated trials library.
+    let libraryResult = null;
+    if (save_to_library) {
+      // Source identifiers prefer paper-level pmid/doi (admin-curated)
+      // over the V4 reportMeta fields.
+      const reportMeta = merged?.reportMeta || {};
+      const pmid = paper.pmid || reportMeta.pubmed_id || null;
+      const doi  = paper.doi  || reportMeta.doi       || null;
+
+      // library_meta from request body; fall back to V4's own library_meta
+      // if the arbitrator didn't override.
+      const lm = library_meta || merged?.library_meta || null;
+      if (!lm || !lm.domain || !lm.specialty || !lm.display_title) {
+        return res.status(400).json({
+          error: 'save_to_library requires library_meta with at least domain, specialty, display_title.',
+        });
+      }
+
+      // Duplicate detection — same logic as api/library-save.js
+      let supersede_ids = [];
+      if (pmid || doi) {
+        let dq = supabase.from('trials').select('id, display_title, saved_at, validated, version').is('superseded_by', null);
+        if (pmid && doi)      dq = dq.or(`pmid.eq.${pmid},doi.eq.${doi}`);
+        else if (pmid)        dq = dq.eq('pmid', pmid);
+        else                  dq = dq.eq('doi', doi);
+        const { data: dups, error: dErr } = await dq;
+        if (dErr) return res.status(500).json({ error: dErr.message });
+        if (dups && dups.length && !confirm_overwrite) {
+          return res.status(409).json({
+            error: 'duplicate',
+            message: 'A trial with this PMID or DOI already exists. Re-submit with confirm_overwrite=true to supersede.',
+            duplicates: dups,
+          });
+        }
+        if (dups && dups.length && confirm_overwrite) supersede_ids = dups.map(d => d.id);
+      }
+
+      let version = 1;
+      if (supersede_ids.length) {
+        const { data: maxRow } = await supabase
+          .from('trials').select('version').is('superseded_by', null)
+          .or(pmid ? `pmid.eq.${pmid}` : `doi.eq.${doi}`)
+          .order('version', { ascending: false }).limit(1).maybeSingle();
+        version = ((maxRow?.version) || 0) + 1;
+      }
+
+      const now = new Date().toISOString();
+      const trialRecord = {
+        pmid,
+        pmcid:            reportMeta.pmc_id || null,
+        doi,
+        authors:          reportMeta.authors || null,
+        domain:           lm.domain,
+        specialty:        lm.specialty,
+        subspecialty:     lm.subspecialty   || null,
+        tags:             lm.tags           || [],
+        landmark_year:    lm.landmark_year  || null,
+        display_title:    lm.display_title,
+        analysis_json:    merged,
+        source_type:      reportMeta.source_type || null,
+        saved_by:         null,                                     // no Supabase user — server-issued via validation auth
+        saved_at:         now,
+        validated:        true,
+        validated_by_name: rater.display_name || rater.rater_id,
+        validated_at:     now,
+        validation_notes: `Phase 3 arbitration — paper ${paper.short_label || paper.paper_number || paper_id}`,
+        version,
+        superseded_by:    null,
+      };
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('trials').insert(trialRecord).select().single();
+      if (insErr) return res.status(500).json({ error: 'trials insert failed: ' + insErr.message });
+
+      if (supersede_ids.length) {
+        await supabase.from('trials').update({ superseded_by: inserted.id }).in('id', supersede_ids);
+      }
+
+      updatePayload.library_trial_id = inserted.id;
+      libraryResult = { trial_id: inserted.id, version, superseded: supersede_ids.length };
+    }
+
+    // Lock all phase3_arbitrations rows for the paper
+    await supabase.from('phase3_arbitrations').update({ locked: true }).eq('paper_id', paper_id);
+
+    const { error: upErr } = await supabase
+      .from('validation_papers').update(updatePayload).eq('id', paper_id);
+    if (upErr) return res.status(500).json({ error: 'validation_papers update failed: ' + upErr.message });
+
+    return res.status(200).json({
+      ok: true,
+      merged_at: updatePayload.merged_at,
+      library: libraryResult,
+    });
+  }
+
+  // ── phase3_unlock: admin-only safety valve to reopen arbitration ─────
+  if (action === 'phase3_unlock' && req.method === 'POST') {
+    if (!raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Admin role required.' });
+    }
+    const { paper_id } = req.body || {};
+    if (!paper_id) return res.status(400).json({ error: 'paper_id required.' });
+    await supabase.from('phase3_arbitrations').update({ locked: false }).eq('paper_id', paper_id);
+    const { error } = await supabase
+      .from('validation_papers')
+      .update({ phase3_locked: false })
+      .eq('id', paper_id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── phase3_merged_json: fetch the merged JSON for rendering ──────────
+  if (action === 'phase3_merged_json' && req.method === 'GET') {
+    if (!raterHasRole(rater, 'arbitrator') && !raterHasRole(rater, 'admin')) {
+      return res.status(403).json({ error: 'Arbitrator or admin role required.' });
+    }
+    const paperId = req.query.paper_id;
+    if (!paperId) return res.status(400).json({ error: 'paper_id required.' });
+    const { data, error } = await supabase
+      .from('validation_papers')
+      .select('id, short_label, title, pmid, doi, merged_json, merged_at, phase3_locked, library_trial_id')
+      .eq('id', paperId)
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data)  return res.status(404).json({ error: 'Paper not found.' });
+    return res.status(200).json(data);
   }
 
   // ─────────────────────────────────────────────────────────────────────

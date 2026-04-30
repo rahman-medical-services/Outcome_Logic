@@ -167,6 +167,13 @@
             </div>
 
             <div class="border-t border-slate-700 pt-3">
+              <label class="text-xs text-slate-400">V4 extraction ID (UUID from <code>study_extractions.id</code>)</label>
+              <input type="text" id="f-v4_extraction_id" placeholder="Paste the V4 run UUID (e.g. from study.html)" />
+              <p class="text-xs text-slate-500 mt-1">Run V4 in <a href="/study.html" class="text-blue-400 underline" target="_blank">study.html</a>, copy the resulting extraction id, paste here, save. Phase 2 needs this to load pipeline output.</p>
+              <div id="v4-meta" class="hidden text-xs text-slate-500 mt-1"></div>
+            </div>
+
+            <div class="border-t border-slate-700 pt-3">
               <label class="text-xs text-slate-400">PDF URL (external link or uploaded)</label>
               <input type="text" id="f-pdf_url" placeholder="Auto-filled when you upload below" />
               <div id="pdf-meta" class="hidden text-xs text-slate-500 mt-1"></div>
@@ -363,6 +370,17 @@
       $('#f-is_active').checked          = p.is_active !== false;
       $('#f-notes').value                = p.notes        ?? '';
       $('#f-pdf_url').value              = p.pdf_url      ?? '';
+      $('#f-v4_extraction_id').value     = p.v4_extraction_id ?? '';
+
+      const v4meta = $('#v4-meta');
+      if (p.v4_extraction_id) {
+        v4meta.classList.remove('hidden');
+        const rt = p.v4_runtime_seconds ? ` · ${p.v4_runtime_seconds}s` : '';
+        v4meta.textContent = `V4 linked${rt}`;
+      } else {
+        v4meta.classList.add('hidden');
+        v4meta.textContent = '';
+      }
 
       const meta = $('#pdf-meta');
       if (p.pdf_filename || p.pdf_sha256) {
@@ -402,6 +420,7 @@
         is_active:             $('#f-is_active').checked,
         notes:                 $('#f-notes').value.trim() || null,
         pdf_url:               $('#f-pdf_url').value.trim() || null,
+        v4_extraction_id:      $('#f-v4_extraction_id').value.trim() || null,
       };
       if (!payload.title) {
         $('#form-error').textContent = 'Title is required.';

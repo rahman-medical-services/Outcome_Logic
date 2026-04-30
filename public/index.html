@@ -1057,6 +1057,32 @@ window.populateDashboard = populateDashboard;
   }
 })();
 
+// ── Validation Phase 3 / merged-JSON preview ────────────────────────
+// phase3.html (and validation-admin.html "View merged" button) stash the
+// final merged JSON under 'outcomelogic-preview-json' and open
+// index.html?preview=phase3 — render without an API call.
+(function checkPhase3Preview() {
+  if (new URLSearchParams(window.location.search).get('preview') !== 'phase3') return;
+  const raw = sessionStorage.getItem('outcomelogic-preview-json');
+  if (!raw) return;
+  const source = sessionStorage.getItem('outcomelogic-preview-source') || 'Phase 3 merged JSON';
+  sessionStorage.removeItem('outcomelogic-preview-json');
+  sessionStorage.removeItem('outcomelogic-preview-source');
+  try {
+    const data = JSON.parse(raw);
+    window._lastAnalysis = data;
+    populateDashboard(data);
+    // Subtle banner so it's clear this is validated, not a live extraction
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#0f5132;color:#a7f3d0;padding:0.4rem 1rem;font-size:0.8rem;text-align:center;font-family:system-ui,sans-serif;';
+    banner.textContent = `Preview: ${source}`;
+    document.body.appendChild(banner);
+    document.body.style.paddingTop = '1.8rem';
+  } catch (e) {
+    console.warn('[phase3 preview] Failed to parse stored output:', e);
+  }
+})();
+
 // ── Adverse Events Table ─────────────────────────────────────────────
 function extractArmName(picoText, fallback = 'Arm') {
   if (!picoText) return fallback;
